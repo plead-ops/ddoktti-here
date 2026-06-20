@@ -6,6 +6,7 @@ import { WsHub } from "./ws/hub.js";
 import { createSlackApp } from "./slack/app.js";
 import { resolveSession } from "./auth/session.js";
 import { getSettings, saveSettings } from "./store/settings.js";
+import { getUser } from "./store/users.js";
 import { ensureSchema, closeDb } from "./store/db.js";
 import { closeRedis } from "./store/redis.js";
 
@@ -40,15 +41,18 @@ async function main(): Promise<void> {
   const slack = createSlackApp({
     dispatch: (userId, payload) => hub.notify(userId, payload),
     getSettings,
-    getUserContext: async (userId) => ({
-      selfUserId: userId,
-      // TODO(M4): usergroups:read 로 소속 그룹 캐싱
-      myUsergroupIds: new Set<string>(),
-    }),
+    getUserContext: async (userId) => {
+      const u = await getUser(userId);
+      if (!u) return null;
+      return {
+        selfUserId: userId,
+        teamId: u.teamId,
+        // TODO(M5): usergroups:read 로 소속 그룹 캐싱 (그룹 멘션 판정)
+        myUsergroupIds: new Set<string>(),
+      };
+    },
     // TODO(M5): dnd_updated 캐시 조회
     isDnd: async () => false,
-    // TODO(M4): 사용자 team id 캐시/조회
-    getTeamId: () => "",
   });
 
   slack

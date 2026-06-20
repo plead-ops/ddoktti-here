@@ -12,6 +12,7 @@ import {
 
 export interface UserContext {
   selfUserId: string;
+  teamId: string;
   myUsergroupIds: Set<string>;
 }
 
@@ -20,10 +21,10 @@ export interface SlackDeps {
   /** 알림 페이로드를 해당 사용자에게 전달 (WS 레지스트리) */
   dispatch: (userId: string, payload: NotificationPayload) => void | Promise<void>;
   getSettings: (userId: string) => Promise<NotificationSettings>;
-  getUserContext: (userId: string) => Promise<UserContext>;
+  /** 우리 DB에 없는 사용자면 null */
+  getUserContext: (userId: string) => Promise<UserContext | null>;
   /** Slack DND/스누즈 존중 (PRD §5.3) — 캐시 조회 */
   isDnd: (userId: string) => Promise<boolean>;
-  getTeamId: () => string;
 }
 
 /**
@@ -39,18 +40,16 @@ export function createSlackApp(deps: SlackDeps): App {
     logger: boltLogger(),
   });
 
-  app.event("message", async ({ event }: { event: unknown }) => {
+  app.event("message", async ({ event, body }: { event: unknown; body: unknown }) => {
     const ev = event as SlackMessageEvent;
 
-    // 이 이벤트로 알림을 받아야 할 사용자(들)를 해석.
-    // TODO(M4): Slack `authorizations` + 채널 멤버십으로 후보 사용자 결정.
-    //           user token 권한별로 이벤트가 전달되므로, 우리가 보관한
-    //           인가 사용자 목록과 대조해 대상자를 정한다.
-    const candidates = await resolveCandidateUsers(ev);
+    // user token 권한으로 인가된 사용자(들) = 이 이벤트를 받아야 할 후보 (PRD §4.2)
+    const candidates = resolveCandidateUsers(body);
 
     for (const userId of candidates) {
       try {
         const ctx = await deps.getUserContext(userId);
+        if (!ctx) continue; // 우리 DB에 없는 사용자
         if (isNoiseMessage(ev, ctx.selfUserId)) continue;
 
         const settings = await deps.getSettings(userId);
@@ -68,7 +67,7 @@ export function createSlackApp(deps: SlackDeps): App {
           ts: ev.ts,
           threadTs: ev.thread_ts,
           // 프라이버시 단계는 클라 표시에서 적용. 서버는 최소 메타만 채운다(§13.7).
-          deepLink: buildSlackDeepLink(deps.getTeamId(), ev.channel, ev.ts),
+          deepLink: buildSlackDeepLink(ctx.teamId, ev.channel, ev.ts),
           createdAt: Date.now(),
         };
         await deps.dispatch(userId, payload);
@@ -79,17 +78,26 @@ export function createSlackApp(deps: SlackDeps): App {
   });
 
   // TODO(M5): app.event("dnd_updated"/"dnd_updated_user") → DND 캐시 갱신
-  // TODO(M2): app.event("tokens_revoked"/"app_uninstalled") → 토큰 폐기 + reauth
+  // TODO(M5): app.event("tokens_revoked"/"app_uninstalled") → 토큰 폐기 + reauth
 
   return app;
 }
 
+interface Authorization {
+  user_id?: string;
+  is_bot?: boolean;
+}
+
 /**
- * TODO(M4): 실제 후보 사용자 해석.
- * 현재는 빈 배열 — 수신 파이프라인 골격만 둔다.
+ * 이벤트 envelope 의 authorizations 에서 알림 대상 사용자(들)를 추출.
+ * user token 권한으로 전달된 이벤트라 비-봇 user_id 가 수신자 컨텍스트다.
+ * (대규모로 authorizations 가 truncated 되면 apps.event.authorizations.list 필요 — TODO)
  */
-async function resolveCandidateUsers(_ev: SlackMessageEvent): Promise<string[]> {
-  return [];
+function resolveCandidateUsers(body: unknown): string[] {
+  const auths = (body as { authorizations?: Authorization[] } | null)?.authorizations;
+  if (!Array.isArray(auths)) return [];
+  const ids = auths.filter((a) => a && a.is_bot !== true && a.user_id).map((a) => a.user_id!);
+  return [...new Set(ids)];
 }
 
 function boltLogger(): Logger {
