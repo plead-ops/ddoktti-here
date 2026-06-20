@@ -10,7 +10,7 @@ display_information:
 
 features:
   bot_user:
-    display_name: 똑띠왔어요
+    display_name: ddoktti   # 봇 username 으로 변환되므로 ASCII. 생성 후 UI에서 한글로 변경 가능
     always_online: true
 
 oauth_config:
