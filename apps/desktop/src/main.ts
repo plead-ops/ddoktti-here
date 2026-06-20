@@ -3,7 +3,7 @@
  */
 import { type NotificationSettings, defaultNotificationSettings } from "@ddoktti/shared";
 import { SERVER_URL, randomVerifier, sha256Hex, pollSession } from "./auth.js";
-import { WsClient, type WsStatus } from "./wsClient.js";
+import { SseClient, type SseStatus } from "./sseClient.js";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -61,7 +61,7 @@ interface Channel {
 }
 
 let sessionToken: string | null = null;
-let ws: WsClient | null = null;
+let sse: SseClient | null = null;
 let notif: NotificationSettings = structuredClone(defaultNotificationSettings);
 let display: DisplaySettings | null = null;
 let allChannels: Channel[] = [];
@@ -115,7 +115,7 @@ async function doLogin(): Promise<void> {
     sessionToken = token;
     if (isTauri()) await invoke("save_session", { token });
     render(true);
-    startWs();
+    startSse();
   } catch (err) {
     if (epoch !== loginEpoch) return;
     obStatus.textContent = (err as Error).message ?? "로그인 실패";
@@ -123,8 +123,8 @@ async function doLogin(): Promise<void> {
   }
 }
 async function doLogout(): Promise<void> {
-  ws?.stop();
-  ws = null;
+  sse?.stop();
+  sse = null;
   sessionToken = null;
   if (isTauri()) await invoke("clear_session").catch(() => {});
   render(false);
@@ -133,9 +133,9 @@ connectBtn.addEventListener("click", () => void doLogin());
 logoutBtn.addEventListener("click", () => void doLogout());
 
 // ── WS ──
-function startWs(): void {
-  if (!sessionToken || ws) return;
-  ws = new WsClient(() => sessionToken, {
+function startSse(): void {
+  if (!sessionToken || sse) return;
+  sse = new SseClient(() => sessionToken, {
     onNotify: (payload) => {
       if (inQuietHours()) return; // 인앱 방해금지(로컬 시간)
       if (isTauri()) void invoke("display_notification", { payload });
@@ -158,12 +158,12 @@ function startWs(): void {
       void doLogout();
       obStatus.textContent = "재로그인이 필요합니다";
     },
-    onStatus: (s: WsStatus) => {
+    onStatus: (s: SseStatus) => {
       connStatus.textContent =
         s === "open" ? "● 연결됨" : s === "connecting" ? "연결 중…" : "재연결 중…";
     },
   });
-  ws.start();
+  sse.start();
 }
 
 function inQuietHours(): boolean {
@@ -179,7 +179,7 @@ function inQuietHours(): boolean {
 }
 
 function pushSettings(): void {
-  ws?.send({ type: "updateSettings", settings: notif });
+  void sse?.updateSettings(notif);
 }
 
 // ── 알림 탭 ──
@@ -403,7 +403,7 @@ void (async () => {
   }
   if (sessionToken) {
     render(true);
-    startWs();
+    startSse();
   } else {
     render(false);
   }
