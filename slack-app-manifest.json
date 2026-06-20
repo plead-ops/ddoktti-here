@@ -1,0 +1,57 @@
+{
+  "display_information": {
+    "name": "똑띠왔어요",
+    "description": "슬랙 알림을 놓치지 않게 화면에 오버레이로 알려주는 알리미",
+    "background_color": "#38f969"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "똑띠왔어요",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "redirect_urls": [
+      "https://ddoktti-here.app.plead.co.kr/oauth/callback"
+    ],
+    "scopes": {
+      "user": [
+        "im:history",
+        "mpim:history",
+        "channels:history",
+        "groups:history",
+        "im:read",
+        "mpim:read",
+        "channels:read",
+        "groups:read",
+        "dnd:read",
+        "users:read"
+      ],
+      "bot": [
+        "users:read",
+        "usergroups:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "tokens_revoked",
+        "app_uninstalled"
+      ],
+      "user_events": [
+        "message.im",
+        "message.mpim",
+        "message.channels",
+        "message.groups",
+        "dnd_updated"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": false
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
+}
