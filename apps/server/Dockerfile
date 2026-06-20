@@ -1,7 +1,8 @@
 # 모노레포 루트를 빌드 컨텍스트로 사용 (Dokploy: Base Directory=apps/server,
 # Build Context=레포 루트). packages/shared 를 함께 빌드한다.
-FROM node:24-alpine AS base
-RUN corepack enable
+FROM node:26-alpine AS base
+# node 25+ 부터 corepack 미동봉 → npm 으로 pnpm 설치
+RUN npm i -g pnpm@9.15.9
 WORKDIR /repo
 
 # ── 의존성 설치 (매니페스트만 먼저 복사해 캐시 활용) ──

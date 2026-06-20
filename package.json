@@ -5,7 +5,7 @@
   "description": "똑띠왔어요 — 슬랙 알림 오버레이 데스크탑 앱 (서버 + 클라이언트 모노레포)",
   "packageManager": "pnpm@9.15.9",
   "engines": {
-    "node": ">=20"
+    "node": ">=26"
   },
   "scripts": {
     "build": "pnpm -r build",
@@ -17,6 +17,6 @@
     "icons": "pnpm --filter @ddoktti/desktop tauri icon ../../assets/icons/app-icon-1024.png"
   },
   "devDependencies": {
-    "typescript": "^5.7.2"
+    "typescript": "^6.0.3"
   }
 }

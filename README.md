@@ -16,7 +16,8 @@ assets/      # 스프라이트 / 아이콘
 ```
 
 ## 사전 요구
-- Node ≥ 20 (`.nvmrc`: 24), pnpm 9
+- Node 26 (`.nvmrc`; nvm 사용자는 `nvm use`). node 25+ 는 corepack 미동봉이라 `npm i -g pnpm@9.15.9`
+- pnpm 9
 - Rust / Cargo (데스크탑 빌드)
 - 서버 로컬 실행 시 PostgreSQL · Redis
 
