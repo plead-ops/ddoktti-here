@@ -27,6 +27,10 @@ body.settings {
   padding: 32px;
   text-align: center;
 }
+.logo {
+  display: block;
+  margin: -60px auto 0;
+}
 .settings-card h1 {
   margin: 8px 0 4px;
 }
