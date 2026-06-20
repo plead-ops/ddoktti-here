@@ -70,21 +70,38 @@ export function hideNotification(): void {
   stopAnimation();
 }
 
-el.open.addEventListener("click", () => {
+el.open.addEventListener("click", () => void onOpen());
+
+async function onOpen(): Promise<void> {
   if (!current) return;
-  // Tauri: opener 플러그인으로 slack:// 딥링크 열기 (TODO: invoke). 브라우저: location.
-  try {
-    window.location.href = current.deepLink;
-  } catch {
-    /* noop */
+  const link = current.deepLink;
+  const id = current.id;
+  if (isTauri()) {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(link).catch(() => {});
+  } else {
+    try {
+      window.location.href = link;
+    } catch {
+      /* noop */
+    }
   }
-  emitDismiss(current.id);
-  hideNotification();
-});
+  emitDismiss(id);
+  await dismissOverlay();
+}
 
 function emitDismiss(id: string): void {
   // TODO(M3): Tauri command 로 서버에 dismiss 전파 (WS 'dismiss')
   void id;
+}
+
+/** 알림 표시 종료 + 오버레이 창 숨김 (클릭 닫힘, PRD §5.5) */
+async function dismissOverlay(): Promise<void> {
+  hideNotification();
+  if (isTauri()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("hide_overlay").catch(() => {});
+  }
 }
 
 function isTauri(): boolean {

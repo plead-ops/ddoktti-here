@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, WindowEvent,
 };
 
 /// 설정 창을 앞으로 (PRD §5.6 진입점)
@@ -12,12 +12,68 @@ fn show_settings(app: &AppHandle) {
     }
 }
 
-/// M1: 오버레이 데모 알림 표시 (설정 창의 '오버레이 미리보기')
+/// 오버레이 창을 메인 디스플레이의 9방향 위치로 배치 (PRD §5.4)
+fn position_overlay_window(app: &AppHandle, position: &str, margin: f64) -> tauri::Result<()> {
+    let Some(win) = app.get_webview_window("overlay") else {
+        return Ok(());
+    };
+    let Some(monitor) = win.primary_monitor()? else {
+        return Ok(());
+    };
+    let m_pos = monitor.position(); // PhysicalPosition<i32>
+    let m_size = monitor.size(); // PhysicalSize<u32>
+    let w_size = win.outer_size()?; // PhysicalSize<u32>
+    let gap = (margin * monitor.scale_factor()) as i32;
+
+    let (mw, mh) = (m_size.width as i32, m_size.height as i32);
+    let (ww, wh) = (w_size.width as i32, w_size.height as i32);
+
+    let x = match position {
+        "top-left" | "left" | "bottom-left" => m_pos.x + gap,
+        "top-right" | "right" | "bottom-right" => m_pos.x + mw - ww - gap,
+        _ => m_pos.x + (mw - ww) / 2,
+    };
+    let y = match position {
+        "top-left" | "top" | "top-right" => m_pos.y + gap,
+        "bottom-left" | "bottom" | "bottom-right" => m_pos.y + mh - wh - gap,
+        _ => m_pos.y + (mh - wh) / 2,
+    };
+    win.set_position(PhysicalPosition::new(x, y))?;
+    Ok(())
+}
+
+/// 오버레이를 지정 위치에 표시 (지속 노출 — 자동으로 사라지지 않음)
 #[tauri::command]
-fn preview_overlay(app: AppHandle) -> Result<(), String> {
+fn show_overlay(app: AppHandle, position: String, margin: f64) -> Result<(), String> {
+    let win = app
+        .get_webview_window("overlay")
+        .ok_or("no overlay window")?;
+    position_overlay_window(&app, &position, margin).map_err(|e| e.to_string())?;
+    win.set_always_on_top(true).map_err(|e| e.to_string())?;
+    win.show().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 오버레이 숨김 (클릭 닫힘 / dismiss)
+#[tauri::command]
+fn hide_overlay(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("overlay") {
+        win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// M1: 설정 창의 '오버레이 미리보기' — 배치 후 데모 알림 emit
+#[tauri::command]
+fn preview_overlay(
+    app: AppHandle,
+    position: Option<String>,
+    margin: Option<f64>,
+) -> Result<(), String> {
+    let position = position.unwrap_or_else(|| "bottom-right".into());
+    let margin = margin.unwrap_or(24.0);
+    show_overlay(app.clone(), position, margin)?;
     if let Some(overlay) = app.get_webview_window("overlay") {
-        let _ = overlay.show();
-        // TODO(M1): 9방향 위치/메인 디스플레이 배치
         let payload = serde_json::json!({
             "id": "preview:1",
             "trigger": "dm",
@@ -46,20 +102,28 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .invoke_handler(tauri::generate_handler![preview_overlay])
+        .invoke_handler(tauri::generate_handler![
+            show_overlay,
+            hide_overlay,
+            preview_overlay
+        ])
         .setup(|app| {
             // 트레이 메뉴 (PRD §5.7)
             let settings_i = MenuItem::with_id(app, "settings", "설정…", true, None::<&str>)?;
+            let preview_i = MenuItem::with_id(app, "preview", "오버레이 미리보기", true, None::<&str>)?;
             let pause_i = MenuItem::with_id(app, "pause", "일시중지", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let quit_i = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&settings_i, &pause_i, &sep, &quit_i])?;
+            let menu = Menu::with_items(app, &[&settings_i, &preview_i, &pause_i, &sep, &quit_i])?;
 
             TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "settings" => show_settings(app),
+                    "preview" => {
+                        let _ = preview_overlay(app.clone(), None, None);
+                    }
                     "pause" => { /* TODO(M5): 알림 일시중지 토글 */ }
                     "quit" => app.exit(0),
                     _ => {}

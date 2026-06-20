@@ -49,8 +49,13 @@ connectBtn.addEventListener("click", async () => {
 });
 
 testBtn?.addEventListener("click", async () => {
-  // TODO(M1): Rust command 로 오버레이 창에 데모 notify emit
-  alert("오버레이 미리보기는 M1에서 연결됩니다.");
+  if (!isTauri()) {
+    alert("오버레이 미리보기는 데스크탑 앱에서 동작합니다.");
+    return;
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  // TODO(M4): 실제 표시 설정(position/margin)을 로컬 저장소에서 읽기
+  await invoke("preview_overlay", { position: "bottom-right", margin: 24 });
 });
 
 logoutBtn?.addEventListener("click", async () => {
