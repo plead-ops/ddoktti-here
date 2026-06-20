@@ -1,8 +1,56 @@
+use keyring::Entry;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, PhysicalPosition, WindowEvent,
 };
+
+const KR_SERVICE: &str = "kr.co.plead.ddoktti-here";
+const KR_USER: &str = "session";
+
+fn session_entry() -> Result<Entry, String> {
+    Entry::new(KR_SERVICE, KR_USER).map_err(|e| e.to_string())
+}
+
+/// 세션 토큰을 OS 보안 저장소에 보관 (PRD §13.5)
+#[tauri::command]
+fn save_session(token: String) -> Result<(), String> {
+    session_entry()?.set_password(&token).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_session() -> Result<Option<String>, String> {
+    match session_entry()?.get_password() {
+        Ok(t) => Ok(Some(t)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn clear_session() -> Result<(), String> {
+    match session_entry()?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// 서버에서 받은 알림을 오버레이로 표시 (배치 후 notify emit)
+#[tauri::command]
+fn display_notification(
+    app: AppHandle,
+    payload: serde_json::Value,
+    position: Option<String>,
+    margin: Option<f64>,
+) -> Result<(), String> {
+    let position = position.unwrap_or_else(|| "bottom-right".into());
+    let margin = margin.unwrap_or(24.0);
+    show_overlay(app.clone(), position, margin)?;
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        overlay.emit("notify", payload).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
 
 /// 설정 창을 앞으로 (PRD §5.6 진입점)
 fn show_settings(app: &AppHandle) {
@@ -105,7 +153,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             show_overlay,
             hide_overlay,
-            preview_overlay
+            preview_overlay,
+            display_notification,
+            save_session,
+            get_session,
+            clear_session
         ])
         .setup(|app| {
             // 트레이 메뉴 (PRD §5.7)

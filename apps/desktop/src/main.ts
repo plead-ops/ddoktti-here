@@ -1,8 +1,10 @@
 /**
- * 설정 창 로직 (PRD §5.1 온보딩, §5.6 설정).
- * 현재는 온보딩 흐름 골격 — 실제 OAuth/세션 연동은 M2~M3.
+ * 설정 창 + 로그인 라운드트립 + WS 연결 오케스트레이션.
+ * PRD §5.1(온보딩), §5.5/§5.9(알림 수신·재연결).
  */
-import { randomVerifier } from "./auth.js";
+import { defaultDisplaySettings } from "@ddoktti/shared";
+import { SERVER_URL, randomVerifier, sha256Hex, pollSession } from "./auth.js";
+import { WsClient, type WsStatus } from "./wsClient.js";
 
 const statusEl = document.getElementById("status") as HTMLParagraphElement;
 const onboarding = document.getElementById("onboarding") as HTMLElement;
@@ -11,63 +13,108 @@ const connectBtn = document.getElementById("connect") as HTMLButtonElement;
 const testBtn = document.getElementById("test-overlay") as HTMLButtonElement;
 const logoutBtn = document.getElementById("logout") as HTMLButtonElement;
 
+let sessionToken: string | null = null;
+let ws: WsClient | null = null;
+
 function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
-
-async function hasSession(): Promise<boolean> {
-  // TODO(M2): OS 보안 저장소에서 세션 토큰 확인 (Rust command)
-  return false;
+async function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
 }
-
-function render(connectedState: boolean): void {
-  onboarding.hidden = connectedState;
-  connected.hidden = !connectedState;
-  statusEl.textContent = connectedState ? "연결됨" : "아직 연결되지 않았어요";
-}
-
-connectBtn.addEventListener("click", async () => {
-  // PRD §13.2: 세션 하이재킹 방지 — verifier 를 만들고 그 해시를 state 로.
-  const verifier = randomVerifier();
-  const verifierHash = await sha256Hex(verifier);
-  const base = import.meta.env.VITE_SERVER_URL ?? "https://ddoktti-here.app.plead.co.kr";
-  const loginUrl = `${base}/oauth/login?vh=${verifierHash}`;
-
+async function openExternal(url: string): Promise<void> {
   if (isTauri()) {
-    // TODO(M2): opener 플러그인으로 기본 브라우저 열기 + deep-link 콜백 수신 후
-    //           /auth/session 백채널로 verifier 제시 → 세션 수령
-    const { openUrl } = await import("@tauri-apps/plugin-opener").catch(() => ({
-      openUrl: (u: string) => window.open(u),
-    }));
-    await openUrl(loginUrl);
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(url);
   } else {
-    window.open(loginUrl, "_blank");
+    window.open(url, "_blank");
   }
-  statusEl.textContent = "브라우저에서 Slack 연결을 완료해 주세요…";
-  // verifier 는 콜백 후 백채널 교환에 사용 (임시 보관)
-  sessionStorage.setItem("link_verifier", verifier);
-});
+}
 
+function render(isConnected: boolean): void {
+  onboarding.hidden = isConnected;
+  connected.hidden = !isConnected;
+  if (!isConnected) statusEl.textContent = "아직 연결되지 않았어요";
+}
+
+/** WS 연결 시작 — 알림은 오버레이로, 닫힘은 오버레이 숨김 */
+function startWs(): void {
+  if (!sessionToken || ws) return;
+  const d = defaultDisplaySettings; // TODO(M4): 로컬 표시 설정 로드
+  ws = new WsClient(() => sessionToken, {
+    onNotify: (payload) => {
+      if (isTauri())
+        void invoke("display_notification", { payload, position: d.position, margin: d.margin });
+    },
+    onDismiss: () => {
+      if (isTauri()) void invoke("hide_overlay");
+    },
+    onReauth: () => {
+      void doLogout();
+      statusEl.textContent = "재로그인이 필요합니다";
+    },
+    onStatus: (s: WsStatus) => {
+      statusEl.textContent =
+        s === "open" ? "연결됨 ✅ 똑띠가 대기 중" : s === "connecting" ? "연결 중…" : "서버 재연결 중…";
+    },
+  });
+  ws.start();
+}
+
+async function doLogin(): Promise<void> {
+  connectBtn.disabled = true;
+  statusEl.textContent = "브라우저에서 Slack 연결을 완료해 주세요…";
+  try {
+    const verifier = randomVerifier();
+    const vh = await sha256Hex(verifier);
+    await openExternal(`${SERVER_URL}/oauth/login?vh=${vh}`);
+
+    // 백채널 폴링으로 세션 수령 (PRD §13.2)
+    const token = await pollSession(verifier);
+    sessionToken = token;
+    if (isTauri()) await invoke("save_session", { token });
+    render(true);
+    startWs();
+  } catch (err) {
+    statusEl.textContent = (err as Error).message ?? "로그인 실패";
+    render(false);
+  } finally {
+    connectBtn.disabled = false;
+  }
+}
+
+async function doLogout(): Promise<void> {
+  ws?.stop();
+  ws = null;
+  sessionToken = null;
+  if (isTauri()) await invoke("clear_session").catch(() => {});
+  render(false);
+}
+
+connectBtn.addEventListener("click", () => void doLogin());
+logoutBtn?.addEventListener("click", () => void doLogout());
 testBtn?.addEventListener("click", async () => {
   if (!isTauri()) {
     alert("오버레이 미리보기는 데스크탑 앱에서 동작합니다.");
     return;
   }
-  const { invoke } = await import("@tauri-apps/api/core");
-  // TODO(M4): 실제 표시 설정(position/margin)을 로컬 저장소에서 읽기
   await invoke("preview_overlay", { position: "bottom-right", margin: 24 });
 });
 
-logoutBtn?.addEventListener("click", async () => {
-  // TODO(M2): 세션 삭제 + 서버 revoke
-  render(false);
-});
-
-async function sha256Hex(s: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
+// 시작 시: 저장된 세션 있으면 바로 연결
 void (async () => {
-  render(await hasSession());
+  if (isTauri()) {
+    try {
+      sessionToken = await invoke<string | null>("get_session");
+    } catch {
+      sessionToken = null;
+    }
+  }
+  if (sessionToken) {
+    render(true);
+    startWs();
+  } else {
+    render(false);
+  }
 })();
