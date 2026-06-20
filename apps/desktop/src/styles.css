@@ -29,7 +29,7 @@ body.settings {
 }
 .logo {
   display: block;
-  margin: -60px auto 0;
+  margin: 0 auto;
 }
 .settings-card h1 {
   margin: 8px 0 4px;
