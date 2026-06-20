@@ -27,15 +27,11 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # 라우팅은 Dokploy Domains(UI)로 관리 — server 서비스, port 8787.
+    # dokploy-network 연결은 Traefik 도달을 위해 유지.
     networks:
       - dokploy-network
       - internal
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.ddoktti-server.rule=Host(`ddoktti-here.app.plead.co.kr`)
-      - traefik.http.routers.ddoktti-server.entrypoints=web
-      - traefik.http.services.ddoktti-server.loadbalancer.server.port=8787
-      - traefik.docker.network=dokploy-network
 
   postgres:
     image: postgres:16-alpine
