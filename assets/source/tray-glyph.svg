@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- macOS 메뉴바용 템플릿 글리프: 전체 검정 실루엣, 눈은 투명 구멍으로 뚫어 얼굴로 읽히게. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-7.7 -7.5 78 78">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 65 65">
     <defs>
         <mask id="eyes" maskUnits="userSpaceOnUse" x="-7.7" y="-7.5" width="78" height="78">
             <rect x="-7.7" y="-7.5" width="78" height="78" fill="#fff"/>

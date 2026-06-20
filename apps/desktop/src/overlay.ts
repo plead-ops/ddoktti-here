@@ -13,7 +13,7 @@ const FRAMES = [
   "/sprites/sprite4.png",
   "/sprites/sprite5.png",
 ];
-const FRAME_MS = 200; // 0.2초 전환
+const FRAME_MS = 400; // 0.4초 전환
 
 const el = {
   overlay: document.getElementById("overlay") as HTMLDivElement,
