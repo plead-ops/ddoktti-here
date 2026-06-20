@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "똑띠왔어요",
+  "version": "0.1.0",
+  "identifier": "kr.co.plead.ddoktti-here",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: data: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost"
+    },
+    "windows": [
+      {
+        "label": "settings",
+        "title": "똑띠왔어요 설정",
+        "url": "index.html",
+        "width": 760,
+        "height": 560,
+        "resizable": true,
+        "visible": false,
+        "center": true
+      },
+      {
+        "label": "overlay",
+        "url": "overlay.html",
+        "width": 360,
+        "height": 360,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "resizable": false,
+        "focus": false,
+        "visible": false
+      }
+    ],
+    "trayIcon": {
+      "id": "main",
+      "iconPath": "icons/tray/iconTemplate.png",
+      "iconAsTemplate": true,
+      "tooltip": "똑띠왔어요"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://updates-ddoktti-here.app.plead.co.kr/desktop-updates/latest.json"
+      ],
+      "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY"
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["ddoktti"]
+      }
+    }
+  }
+}

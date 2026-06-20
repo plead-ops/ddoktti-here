@@ -1,0 +1,43 @@
+name: server-ci
+
+# 품질 게이트만 (배포는 Dokploy가 담당). PRD §8.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/server/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  pull_request:
+    paths:
+      - "apps/server/**"
+      - "packages/shared/**"
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: |
+          pnpm --filter @ddoktti/shared typecheck
+          pnpm --filter @ddoktti/server typecheck
+
+      - name: Build
+        run: pnpm --filter @ddoktti/server build
+
+      # TODO(M2): 테스트(Slack 이벤트 목) 추가
+      # - run: pnpm --filter @ddoktti/server test

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>똑띠왔어요 설정</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body class="settings">
+    <main class="settings-card">
+      <img class="logo" src="/sprites/sprite3.png" alt="똑띠" width="96" height="96" />
+      <h1>똑띠왔어요</h1>
+      <p class="muted" id="status">연결 상태를 확인하는 중…</p>
+
+      <section id="onboarding" hidden>
+        <p class="consent">
+          이 앱은 당신의 채널·DM 메시지를 실시간으로 받아 <b>알림 조건만 검사</b>하며,
+          <b>본문은 저장하지 않습니다.</b>
+        </p>
+        <button id="connect" class="primary">Slack으로 연결</button>
+      </section>
+
+      <section id="connected" hidden>
+        <p>연결됨 ✅ 트레이에서 똑띠가 대기 중입니다.</p>
+        <button id="test-overlay">오버레이 미리보기</button>
+        <button id="logout" class="ghost">로그아웃</button>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

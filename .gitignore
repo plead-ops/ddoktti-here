@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+out/
+*.tsbuildinfo
+
+# tauri / rust
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# tauri updater signing keys (NEVER commit)
+*.key
+ddoktti-updater.key*
+
+# logs
+*.log
+pnpm-debug.log*
+
+# os
+.DS_Store
+Thumbs.db

@@ -1,0 +1,82 @@
+name: desktop-release
+
+# v* 태그 → 맥/윈 빌드 후 Dokploy MinIO 에 업로드 (자동 업데이트 피드). PRD §8·§9.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - run: pnpm install --frozen-lockfile
+
+      # 빌드 + 업데이터 서명 (OS 코드서명 없음 / 업데이터 서명키는 필수, PRD §13.4)
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          args: ${{ matrix.args }}
+          # 릴리스 미생성(빌드 전용) — 산출물은 MinIO 로 업로드
+          tauriScript: pnpm tauri
+
+      - name: Collect bundles
+        shell: bash
+        run: |
+          mkdir -p _dist
+          find apps/desktop/src-tauri/target -type d -name bundle -exec cp -R {}/. _dist/ \; || true
+          ls -R _dist || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.platform }}
+          path: _dist/**
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # TODO(M6): latest.json 조립 (mac/win platforms + 서명) 후 MinIO 업로드.
+      #   각 번들의 .sig 와 버전으로 platforms[<target-arch>] = { signature, url } 구성,
+      #   url 은 MinIO 경로로 기록.
+      - name: Upload to MinIO
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: |
+          echo "TODO: latest.json 조립"
+          # aws s3 sync ./out s3://desktop-updates/ \
+          #   --endpoint-url https://updates-ddoktti-here.app.plead.co.kr

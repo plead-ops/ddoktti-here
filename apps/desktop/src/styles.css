@@ -1,0 +1,118 @@
+:root {
+  --bg: #0e1116;
+  --card: #171b22;
+  --fg: #e6e9ef;
+  --muted: #9aa4b2;
+  --accent: #38f969;
+  --accent-ink: #0b2c16;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ── 설정 창 ── */
+body.settings {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+}
+.settings-card {
+  width: min(640px, 90vw);
+  background: var(--card);
+  border-radius: 16px;
+  padding: 32px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+.settings-card h1 {
+  margin: 8px 0 4px;
+}
+.muted {
+  color: var(--muted);
+}
+.consent {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 18px;
+  margin: 6px;
+}
+button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+button.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* ── 오버레이 창 (투명) ── */
+html,
+body.overlay-body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  justify-items: center;
+  gap: 6px;
+  align-content: center;
+}
+.sprite {
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+  filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.35));
+  animation: pop 280ms cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.meta {
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #111;
+  background: #fff;
+  padding: 4px 10px;
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.open {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  padding: 6px 16px;
+}
+@keyframes pop {
+  from {
+    transform: scale(0.6) translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+/* 모션 줄이기 (PRD §5.4 접근성) */
+.reduce-motion .sprite {
+  animation: none;
+}
