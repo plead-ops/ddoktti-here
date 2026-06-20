@@ -1,0 +1,81 @@
+# Dokploy 배포용 스택 (서버 + Postgres + Redis). 로컬 개발은 docker-compose.yml 사용.
+# 라우팅: 앞단 openresty가 TLS 종료 → Dokploy Traefik(web) → server:8787.
+#   server 를 dokploy-network(external) 에 연결하고 Traefik 라벨로 노출.
+# 시크릿(${...})은 Dokploy Environment 에서 주입됨.
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    environment:
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_CLIENT_ID: ${SLACK_CLIENT_ID}
+      SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+      TOKEN_ENC_KEY: ${TOKEN_ENC_KEY}
+      SESSION_TTL_SECONDS: "2592000"
+      PORT: "8787"
+      PUBLIC_BASE_URL: https://ddoktti-here.app.plead.co.kr
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://ddoktti:${POSTGRES_PASSWORD}@postgres:5432/ddoktti
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - internal
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.ddoktti-server.rule=Host(`ddoktti-here.app.plead.co.kr`)
+      - traefik.http.routers.ddoktti-server.entrypoints=web
+      - traefik.http.services.ddoktti-server.loadbalancer.server.port=8787
+      - traefik.docker.network=dokploy-network
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ddoktti
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ddoktti
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ddoktti"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: ["sh", "-c", "redis-server --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  dokploy-network:
+    external: true
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
