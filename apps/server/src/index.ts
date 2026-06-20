@@ -12,13 +12,6 @@ import { closeRedis } from "./store/redis.js";
 async function main(): Promise<void> {
   const cfg = loadConfig();
 
-  // DB 스키마 보장 (개발 편의; 운영은 마이그레이션으로 이관 — TODO(M2))
-  try {
-    await ensureSchema();
-  } catch (err) {
-    logger.error({ err }, "ensureSchema 실패 — DB 연결을 확인하세요");
-  }
-
   // WS 허브
   const hub = new WsHub({
     resolveSession,
@@ -35,10 +28,13 @@ async function main(): Promise<void> {
   const server = createServer(app);
   hub.attach(server);
 
-  // HTTP/WS 서버 먼저 listen — 헬스체크는 Slack 연결과 독립적이어야 함 (PRD §10)
+  // HTTP/WS 서버 먼저 listen — 헬스체크는 DB/Slack 연결과 독립적이어야 함 (PRD §10)
   server.listen(cfg.PORT, () => {
     logger.info({ port: cfg.PORT, base: cfg.PUBLIC_BASE_URL }, "🚀 HTTP/WS 서버 시작");
   });
+
+  // DB 스키마 보장 — 논블로킹 (DB 연결 지연이 listen 을 막지 않게)
+  ensureSchema().catch((err) => logger.error({ err }, "ensureSchema 실패 — DB 연결 확인"));
 
   // Slack (Socket Mode) — 연결 실패는 비치명적(로그만), 서버는 계속 동작
   const slack = createSlackApp({
