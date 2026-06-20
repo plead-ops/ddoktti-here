@@ -2,7 +2,6 @@
  * 설정 창 + 로그인 라운드트립 + WS 연결 오케스트레이션.
  * PRD §5.1(온보딩), §5.5/§5.9(알림 수신·재연결).
  */
-import { defaultDisplaySettings } from "@ddoktti/shared";
 import { SERVER_URL, randomVerifier, sha256Hex, pollSession } from "./auth.js";
 import { WsClient, type WsStatus } from "./wsClient.js";
 
@@ -12,6 +11,18 @@ const connected = document.getElementById("connected") as HTMLElement;
 const connectBtn = document.getElementById("connect") as HTMLButtonElement;
 const testBtn = document.getElementById("test-overlay") as HTMLButtonElement;
 const logoutBtn = document.getElementById("logout") as HTMLButtonElement;
+const ovPosition = document.getElementById("ov-position") as HTMLSelectElement | null;
+const ovScale = document.getElementById("ov-scale") as HTMLInputElement | null;
+const ovScaleVal = document.getElementById("ov-scale-val") as HTMLElement | null;
+
+interface DisplaySettings {
+  position: string;
+  scale: number;
+  margin: number;
+  custom_x: number;
+  custom_y: number;
+}
+let display: DisplaySettings | null = null;
 
 let sessionToken: string | null = null;
 let ws: WsClient | null = null;
@@ -35,17 +46,41 @@ async function openExternal(url: string): Promise<void> {
 function render(isConnected: boolean): void {
   onboarding.hidden = isConnected;
   connected.hidden = !isConnected;
-  if (!isConnected) statusEl.textContent = "아직 연결되지 않았어요";
+  if (isConnected) void loadDisplay();
+  else statusEl.textContent = "아직 연결되지 않았어요";
 }
+
+// ── 오버레이 표시 설정 (위치/크기) ──
+function fillDisplayUI(d: DisplaySettings): void {
+  if (ovPosition) ovPosition.value = d.position;
+  if (ovScale) ovScale.value = String(d.scale);
+  if (ovScaleVal) ovScaleVal.textContent = `${d.scale.toFixed(1)}x`;
+}
+async function loadDisplay(): Promise<void> {
+  if (!isTauri()) return;
+  display = await invoke<DisplaySettings>("get_display_settings").catch(() => null);
+  if (display) fillDisplayUI(display);
+}
+async function saveDisplay(): Promise<void> {
+  if (!isTauri() || !display) return;
+  display = {
+    ...display,
+    position: ovPosition?.value ?? display.position,
+    scale: ovScale ? parseFloat(ovScale.value) : display.scale,
+  };
+  if (ovScaleVal) ovScaleVal.textContent = `${display.scale.toFixed(1)}x`;
+  await invoke("set_display_settings", { settings: display }).catch(() => {});
+}
+ovPosition?.addEventListener("change", () => void saveDisplay());
+ovScale?.addEventListener("input", () => void saveDisplay());
 
 /** WS 연결 시작 — 알림은 오버레이로, 닫힘은 오버레이 숨김 */
 function startWs(): void {
   if (!sessionToken || ws) return;
-  const d = defaultDisplaySettings; // TODO(M4): 로컬 표시 설정 로드
   ws = new WsClient(() => sessionToken, {
     onNotify: (payload) => {
-      if (isTauri())
-        void invoke("display_notification", { payload, position: d.position, margin: d.margin });
+      // 위치/크기는 서버 푸시와 무관하게 Rust가 저장된 표시 설정대로 적용
+      if (isTauri()) void invoke("display_notification", { payload });
     },
     onDismiss: () => {
       if (isTauri()) void invoke("hide_overlay");
@@ -103,8 +138,19 @@ testBtn?.addEventListener("click", async () => {
     alert("오버레이 미리보기는 데스크탑 앱에서 동작합니다.");
     return;
   }
-  await invoke("preview_overlay", { position: "bottom-right", margin: 24 });
+  await invoke("preview_overlay");
 });
+
+// 드래그로 위치가 바뀌면(Rust가 custom 저장 후 emit) UI 동기화
+if (isTauri()) {
+  void (async () => {
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen<DisplaySettings>("display-settings", (e) => {
+      display = e.payload;
+      fillDisplayUI(display);
+    });
+  })();
+}
 
 // 시작 시: 저장된 세션 있으면 바로 연결
 void (async () => {

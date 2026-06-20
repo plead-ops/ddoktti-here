@@ -82,10 +82,18 @@ body.overlay-body {
   gap: 6px;
   align-content: center;
 }
+.overlay {
+  cursor: grab;
+}
+.overlay:active {
+  cursor: grabbing;
+}
 .sprite {
   width: 100%;
-  max-width: 240px;
-  height: auto;
+  height: 100%;
+  object-fit: contain;
+  -webkit-user-drag: none;
+  pointer-events: none; /* 드래그/클릭은 .overlay 가 처리 */
   filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.35));
   animation: pop 280ms cubic-bezier(0.2, 1.4, 0.4, 1);
 }
