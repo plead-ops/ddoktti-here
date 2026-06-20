@@ -168,7 +168,16 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&settings_i, &preview_i, &pause_i, &sep, &quit_i])?;
 
+            // 트레이 아이콘: macOS=흑백 템플릿(눈 구멍), Windows/Linux=컬러(눈 유지)
+            #[cfg(target_os = "macos")]
+            let tray_icon = tauri::include_image!("icons/tray/iconTemplate.png");
+            #[cfg(not(target_os = "macos"))]
+            let tray_icon = tauri::include_image!("icons/tray/icon-win.png");
+
             TrayIconBuilder::with_id("main")
+                .icon(tray_icon)
+                .icon_as_template(cfg!(target_os = "macos"))
+                .tooltip("똑띠왔어요")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {

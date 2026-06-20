@@ -40,13 +40,7 @@
         "focus": false,
         "visible": false
       }
-    ],
-    "trayIcon": {
-      "id": "main",
-      "iconPath": "icons/tray/iconTemplate.png",
-      "iconAsTemplate": true,
-      "tooltip": "똑띠왔어요"
-    }
+    ]
   },
   "bundle": {
     "active": true,
