@@ -41,6 +41,13 @@ fn clear_session() -> Result<(), String> {
 }
 
 // ───────────────────── 표시 설정 (로컬 영속) ─────────────────────
+fn default_speed() -> f64 {
+    1.0
+}
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct DisplaySettings {
     /// "top-left".."bottom-right" | "center" | "custom"
@@ -52,6 +59,15 @@ struct DisplaySettings {
     /// custom 위치: 모니터 가용 영역 대비 비율(0~1) — 해상도 무관 대응
     custom_x: f64,
     custom_y: f64,
+    /// 애니메이션 속도 배율 (1.0 = 기본)
+    #[serde(default = "default_speed")]
+    speed: f64,
+    /// 알림음 on/off
+    #[serde(default = "default_true")]
+    sound: bool,
+    /// 모션 줄이기(접근성)
+    #[serde(default)]
+    reduce_motion: bool,
 }
 
 impl Default for DisplaySettings {
@@ -62,6 +78,9 @@ impl Default for DisplaySettings {
             margin: 24.0,
             custom_x: 0.92,
             custom_y: 0.92,
+            speed: 1.0,
+            sound: true,
+            reduce_motion: false,
         }
     }
 }

@@ -8,6 +8,7 @@ import { resolveSession } from "./auth/session.js";
 import { getSettings, saveSettings } from "./store/settings.js";
 import { getUser } from "./store/users.js";
 import { addPending, removePending, listPending } from "./store/pending.js";
+import { isUserDnd } from "./slack/web.js";
 import { ensureSchema, closeDb } from "./store/db.js";
 import { closeRedis } from "./store/redis.js";
 
@@ -56,8 +57,7 @@ async function main(): Promise<void> {
         myUsergroupIds: new Set<string>(),
       };
     },
-    // TODO(M5): dnd_updated 캐시 조회
-    isDnd: async () => false,
+    isDnd: (userId) => isUserDnd(userId),
   });
 
   slack

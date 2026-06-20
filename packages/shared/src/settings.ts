@@ -31,7 +31,9 @@ export const NotificationSettings = z.object({
   }),
   keywords: z.array(z.string()),
   channelIds: z.array(z.string()),
-  /** 인앱 방해금지 스케줄 (HH:mm, 로컬). Slack DND와 별개. */
+  /** Slack 방해금지(DND)/스누즈 중이면 알림 억제 (PRD §5.3) */
+  respectDnd: z.boolean().default(true),
+  /** 인앱 방해금지 스케줄 (HH:mm, 로컬 시간 기준 — 클라이언트가 적용) */
   quietHours: z
     .object({
       enabled: z.boolean(),
@@ -46,6 +48,7 @@ export const defaultNotificationSettings: NotificationSettings = {
   triggers: { dm: true, mention: true, channel: false, keyword: false },
   keywords: [],
   channelIds: [],
+  respectDnd: true,
   quietHours: { enabled: false, start: "22:00", end: "08:00" },
 };
 

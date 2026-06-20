@@ -1,4 +1,5 @@
 import { db } from "./db.js";
+import { decryptToken } from "./crypto.js";
 
 export interface UserRow {
   userId: string;
@@ -13,4 +14,19 @@ export async function getUser(userId: string): Promise<UserRow | null> {
   );
   const row = rows[0];
   return row ? { userId, teamId: row.slack_team_id } : null;
+}
+
+/** 사용자 Slack user token(복호화). 없으면 null. */
+export async function getUserToken(userId: string): Promise<string | null> {
+  const { rows } = await db().query<{ user_token_enc: string }>(
+    "SELECT user_token_enc FROM users WHERE slack_user_id = $1",
+    [userId],
+  );
+  const enc = rows[0]?.user_token_enc;
+  if (!enc) return null;
+  try {
+    return decryptToken(enc);
+  } catch {
+    return null;
+  }
 }

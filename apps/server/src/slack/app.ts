@@ -56,8 +56,8 @@ export function createSlackApp(deps: SlackDeps): App {
         const trigger = evaluateTrigger(ev, settings, ctx);
         if (!trigger) continue;
 
-        if (await deps.isDnd(userId)) continue; // 방해금지 존중
-        // TODO(M5): 인앱 방해금지 스케줄(quietHours) 검사
+        // Slack 방해금지 존중 (설정 on일 때만). 인앱 quietHours는 클라가 적용.
+        if (settings.respectDnd && (await deps.isDnd(userId))) continue;
 
         const payload: NotificationPayload = {
           id: `${ev.channel}:${ev.ts}`,

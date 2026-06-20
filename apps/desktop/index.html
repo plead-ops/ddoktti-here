@@ -7,21 +7,71 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body class="settings">
-    <main class="settings-card">
-      <img class="logo" src="/sprites/sprite3.png" alt="똑띠" width="384" height="384" />
+    <!-- 미연결: 온보딩 -->
+    <div id="onboarding" class="onboarding">
+      <img class="logo" src="/sprites/sprite3.png" alt="똑띠" width="200" height="200" />
       <h1>똑띠왔어요</h1>
-      <p class="muted" id="status">연결 상태를 확인하는 중…</p>
+      <p class="muted" id="ob-status">연결 상태 확인 중…</p>
+      <button id="connect" class="btn primary">Slack으로 연결</button>
+    </div>
 
-      <section id="onboarding" hidden>
-        <button id="connect" class="primary">Slack으로 연결</button>
-      </section>
+    <!-- 연결됨: 설정 앱 -->
+    <div id="app" class="app" hidden>
+      <aside class="sidebar">
+        <div class="brand">
+          <img src="/sprites/sprite3.png" alt="" width="26" height="26" />
+          <span>똑띠왔어요</span>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active" data-tab="alarm">🔔 알림</button>
+          <button class="nav-item" data-tab="display">🖼️ 표시</button>
+          <button class="nav-item" data-tab="dnd">🌙 방해 금지</button>
+          <button class="nav-item" data-tab="general">⚙️ 일반</button>
+          <button class="nav-item" data-tab="account">👤 연결</button>
+        </nav>
+        <div class="conn-status" id="conn-status">연결됨</div>
+      </aside>
 
-      <section id="connected" hidden>
-        <p>연결됨 ✅ 트레이에서 똑띠가 대기 중입니다.</p>
+      <main class="content">
+        <!-- 알림 -->
+        <section class="panel" data-panel="alarm">
+          <h2>알림</h2>
+          <p class="panel-desc">어떤 슬랙 알림이 올 때 똑띠를 띄울지 정해요.</p>
 
-        <div class="overlay-settings">
-          <label class="field">
-            <span>오버레이 위치</span>
+          <div class="row">
+            <div class="row-text"><b>다이렉트 메시지</b><span>1:1·그룹 DM이 오면</span></div>
+            <label class="switch"><input type="checkbox" id="t-dm" /><i></i></label>
+          </div>
+          <div class="row">
+            <div class="row-text"><b>@멘션</b><span>나를 부른 멘션·@here·@channel</span></div>
+            <label class="switch"><input type="checkbox" id="t-mention" /><i></i></label>
+          </div>
+          <div class="row">
+            <div class="row-text"><b>지정 채널</b><span>선택한 채널의 모든 메시지</span></div>
+            <label class="switch"><input type="checkbox" id="t-channel" /><i></i></label>
+          </div>
+          <div class="subblock" id="channels-block" hidden>
+            <input type="search" id="channel-search" placeholder="채널 검색…" />
+            <div class="check-list" id="channel-list"><span class="muted">불러오는 중…</span></div>
+          </div>
+          <div class="row">
+            <div class="row-text"><b>키워드</b><span>등록한 단어가 포함되면</span></div>
+            <label class="switch"><input type="checkbox" id="t-keyword" /><i></i></label>
+          </div>
+          <div class="subblock" id="keywords-block" hidden>
+            <div class="chip-input">
+              <input type="text" id="keyword-input" placeholder="키워드 입력 후 Enter" />
+            </div>
+            <div class="chips" id="keyword-chips"></div>
+          </div>
+        </section>
+
+        <!-- 표시 -->
+        <section class="panel" data-panel="display" hidden>
+          <h2>표시</h2>
+          <p class="panel-desc">오버레이가 어떻게 보일지 설정해요.</p>
+          <div class="row">
+            <div class="row-text"><b>위치</b><span>메인 디스플레이 기준</span></div>
             <select id="ov-position">
               <option value="top-left">좌상</option>
               <option value="top">상</option>
@@ -34,18 +84,68 @@
               <option value="bottom-right">우하</option>
               <option value="custom">사용자 지정 (드래그)</option>
             </select>
-          </label>
-          <label class="field">
-            <span>이미지 크기 <b id="ov-scale-val">1.0x</b></span>
+          </div>
+          <div class="row">
+            <div class="row-text"><b>이미지 크기</b><span id="ov-scale-val">1.0x</span></div>
             <input id="ov-scale" type="range" min="0.5" max="3" step="0.1" value="1" />
-          </label>
-          <p class="hint">오버레이를 드래그하면 위치가 '사용자 지정'으로 저장돼요 (해상도 비율 기준).</p>
-        </div>
+          </div>
+          <div class="row">
+            <div class="row-text"><b>애니메이션 속도</b><span id="ov-speed-val">1.0x</span></div>
+            <input id="ov-speed" type="range" min="0.5" max="3" step="0.1" value="1" />
+          </div>
+          <div class="row">
+            <div class="row-text"><b>알림음</b><span>알림 시 소리</span></div>
+            <label class="switch"><input type="checkbox" id="ov-sound" /><i></i></label>
+          </div>
+          <div class="row">
+            <div class="row-text"><b>모션 줄이기</b><span>애니메이션 최소화(접근성)</span></div>
+            <label class="switch"><input type="checkbox" id="ov-motion" /><i></i></label>
+          </div>
+          <p class="hint">오버레이를 드래그하면 위치가 '사용자 지정'으로 저장돼요(해상도 비율 기준).</p>
+          <button id="test-overlay" class="btn">오버레이 미리보기</button>
+        </section>
 
-        <button id="test-overlay">오버레이 미리보기</button>
-        <button id="logout" class="ghost">로그아웃</button>
-      </section>
-    </main>
+        <!-- 방해 금지 -->
+        <section class="panel" data-panel="dnd" hidden>
+          <h2>방해 금지</h2>
+          <p class="panel-desc">과한 알림을 막아요.</p>
+          <div class="row">
+            <div class="row-text"><b>Slack 방해금지 존중</b><span>슬랙 DND·스누즈 중엔 안 띄움</span></div>
+            <label class="switch"><input type="checkbox" id="respect-dnd" /><i></i></label>
+          </div>
+          <div class="row">
+            <div class="row-text"><b>인앱 방해금지 시간</b><span>지정 시간대엔 안 띄움(로컬 시간)</span></div>
+            <label class="switch"><input type="checkbox" id="qh-enabled" /><i></i></label>
+          </div>
+          <div class="subblock" id="qh-block" hidden>
+            <label class="field-inline">시작 <input type="time" id="qh-start" /></label>
+            <label class="field-inline">종료 <input type="time" id="qh-end" /></label>
+          </div>
+        </section>
+
+        <!-- 일반 -->
+        <section class="panel" data-panel="general" hidden>
+          <h2>일반</h2>
+          <div class="row">
+            <div class="row-text"><b>로그인 시 자동 시작</b><span>부팅 후 자동 실행</span></div>
+            <label class="switch"><input type="checkbox" id="autostart" /><i></i></label>
+          </div>
+          <div class="row">
+            <div class="row-text"><b>버전</b><span id="app-version">—</span></div>
+          </div>
+        </section>
+
+        <!-- 연결 -->
+        <section class="panel" data-panel="account" hidden>
+          <h2>연결</h2>
+          <div class="row">
+            <div class="row-text"><b>Slack 계정</b><span id="account-id">연결됨</span></div>
+          </div>
+          <button id="logout" class="btn ghost">로그아웃 / 연결 해제</button>
+        </section>
+      </main>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

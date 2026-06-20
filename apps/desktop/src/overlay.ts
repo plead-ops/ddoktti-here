@@ -2,6 +2,7 @@ import type { NotificationPayload } from "@ddoktti/shared";
 
 /**
  * 오버레이 창 — 이미지 전용. 드래그로 이동(위치는 비율로 저장), 클릭으로 열기+닫기.
+ * 표시 설정(속도/사운드/모션 줄이기)은 Rust 의 get_display_settings 에서 읽어 적용.
  */
 
 const FRAMES = [
@@ -11,13 +12,20 @@ const FRAMES = [
   "/sprites/sprite4.png",
   "/sprites/sprite5.png",
 ];
-const FRAME_MS = 400;
+const BASE_FRAME_MS = 400;
 const DRAG_THRESHOLD = 4;
 
 const el = {
   overlay: document.getElementById("overlay") as HTMLDivElement,
   sprite: document.getElementById("sprite") as HTMLImageElement,
 };
+
+interface DisplayCfg {
+  speed: number;
+  sound: boolean;
+  reduce_motion: boolean;
+}
+let cfg: DisplayCfg = { speed: 1, sound: true, reduce_motion: false };
 
 let frame = 0;
 let timer: number | null = null;
@@ -34,12 +42,25 @@ function preload(): void {
   }
 }
 
+async function refreshCfg(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const d = await invoke<DisplayCfg>("get_display_settings");
+    cfg = { speed: d.speed ?? 1, sound: d.sound ?? true, reduce_motion: d.reduce_motion ?? false };
+  } catch {
+    /* keep defaults */
+  }
+}
+
 function startAnimation(): void {
   stopAnimation();
+  if (cfg.reduce_motion) return; // 모션 줄이기: 정지 프레임
+  const interval = Math.max(80, BASE_FRAME_MS / (cfg.speed || 1));
   timer = window.setInterval(() => {
     frame = (frame + 1) % FRAMES.length;
     el.sprite.src = FRAMES[frame]!;
-  }, FRAME_MS);
+  }, interval);
 }
 function stopAnimation(): void {
   if (timer !== null) {
@@ -48,12 +69,34 @@ function stopAnimation(): void {
   }
 }
 
+let audioCtx: AudioContext | null = null;
+function beep(): void {
+  if (!cfg.sound) return;
+  try {
+    audioCtx ??= new AudioContext();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = "sine";
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.15, audioCtx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.25);
+    o.connect(g).connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.26);
+  } catch {
+    /* noop */
+  }
+}
+
 export function showNotification(p: NotificationPayload): void {
   current = p;
+  document.body.classList.toggle("reduce-motion", cfg.reduce_motion);
   el.sprite.src = FRAMES[0]!;
   frame = 0;
   el.overlay.hidden = false;
   startAnimation();
+  beep();
 }
 export function hideNotification(): void {
   current = null;
@@ -110,7 +153,7 @@ window.addEventListener("mouseup", () => {
 });
 el.overlay.addEventListener("click", () => {
   if (didDrag) {
-    didDrag = false; // 드래그였으면 클릭(닫기) 무시
+    didDrag = false;
     return;
   }
   void onClick();
@@ -124,12 +167,14 @@ async function beginDrag(): Promise<void> {
 
 async function wireTauri(): Promise<void> {
   const { listen } = await import("@tauri-apps/api/event");
-  await listen<NotificationPayload>("notify", (e) => showNotification(e.payload));
+  await listen<NotificationPayload>("notify", async (e) => {
+    await refreshCfg();
+    showNotification(e.payload);
+  });
   await listen<{ id: string }>("dismiss", (e) => {
     if (current?.id === e.payload.id) hideNotification();
   });
 
-  // 드래그로 창이 움직이면(사용자 동작에 한해) 위치를 비율로 저장
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow().onMoved(() => {
     if (!expectPersist) return;

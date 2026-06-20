@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import { oauthRouter } from "./auth/oauth.js";
+import { apiRouter } from "./api.js";
 
 /** Express 앱: 헬스체크 + OAuth 라우트 (PRD §5.1, §10). */
 export function createHttpApp(): Express {
@@ -31,6 +32,7 @@ export function createHttpApp(): Express {
   });
 
   app.use(oauthRouter());
+  app.use(apiRouter());
 
   return app;
 }

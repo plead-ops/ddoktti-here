@@ -13,6 +13,7 @@ export interface WsHandlers {
   onNotify: (p: NotificationPayload) => void;
   onDismiss: (id: string) => void;
   onWelcome?: (userId: string, settings: NotificationSettings) => void;
+  onSettings?: (settings: NotificationSettings) => void;
   onReauth?: (reason: string) => void;
   onStatus?: (s: WsStatus) => void;
 }
@@ -82,6 +83,9 @@ export class WsClient {
           break;
         case "dismiss":
           this.h.onDismiss(m.id);
+          break;
+        case "settings":
+          this.h.onSettings?.(m.settings);
           break;
         case "reauth":
           this.h.onReauth?.(m.reason);
