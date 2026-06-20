@@ -7,6 +7,7 @@ import { createSlackApp } from "./slack/app.js";
 import { resolveSession } from "./auth/session.js";
 import { getSettings, saveSettings } from "./store/settings.js";
 import { getUser } from "./store/users.js";
+import { addPending, removePending, listPending } from "./store/pending.js";
 import { ensureSchema, closeDb } from "./store/db.js";
 import { closeRedis } from "./store/redis.js";
 
@@ -17,8 +18,9 @@ async function main(): Promise<void> {
   const hub = new WsHub({
     resolveSession,
     getSettings,
+    getPending: (userId) => listPending(userId),
     onUserDismiss: async (userId, id) => {
-      // TODO(M3): pending_notifications 큐에서 dismissed 처리
+      await removePending(userId, id); // 큐에서 제거 (멀티디바이스 dismiss는 hub가 전파)
       logger.debug({ userId, id }, "user dismissed");
     },
     onUpdateSettings: (userId, partial) => saveSettings(userId, partial),
@@ -39,7 +41,10 @@ async function main(): Promise<void> {
 
   // Slack (Socket Mode) — 연결 실패는 비치명적(로그만), 서버는 계속 동작
   const slack = createSlackApp({
-    dispatch: (userId, payload) => hub.notify(userId, payload),
+    // 큐에 먼저 적재(중복 제거) → 새 알림만 푸시. 오프라인이어도 큐에 남아 재접속 시 복원.
+    dispatch: async (userId, payload) => {
+      if (await addPending(userId, payload)) hub.notify(userId, payload);
+    },
     getSettings,
     getUserContext: async (userId) => {
       const u = await getUser(userId);

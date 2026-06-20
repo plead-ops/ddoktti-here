@@ -15,6 +15,8 @@ import { logger } from "../logger.js";
 export interface WsHubDeps {
   resolveSession: (token: string) => Promise<string | null>;
   getSettings: (userId: string) => Promise<NotificationSettings>;
+  /** 재접속 시 복원할 미확인 알림 (PRD §5.9) */
+  getPending: (userId: string) => Promise<NotificationPayload[]>;
   onUserDismiss: (userId: string, id: string) => Promise<void> | void;
   onUpdateSettings: (
     userId: string,
@@ -93,6 +95,11 @@ export class WsHub {
         const settings = await this.deps.getSettings(userId);
         send(ws, { type: "welcome", protocolVersion: PROTOCOL_VERSION, userId, settings });
         logger.info({ userId }, "ws authenticated");
+
+        // 미확인 알림 복원 (이 소켓에만, PRD §5.9 유실 방지)
+        const pending = await this.deps.getPending(userId);
+        for (const p of pending) send(ws, { type: "notify", payload: p });
+        if (pending.length > 0) logger.info({ userId, count: pending.length }, "replayed pending");
         return;
       }
 
