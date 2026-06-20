@@ -11,6 +11,7 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "macOSPrivateApi": true,
     "security": {
       "csp": "default-src 'self'; img-src 'self' asset: data: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ddoktti-here.app.plead.co.kr wss://ddoktti-here.app.plead.co.kr"
     },
