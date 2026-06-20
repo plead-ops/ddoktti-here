@@ -62,25 +62,29 @@ function startWs(): void {
   ws.start();
 }
 
+let loginEpoch = 0;
+
 async function doLogin(): Promise<void> {
-  connectBtn.disabled = true;
+  // 재클릭하면 이전 시도(폴링)를 무효화하고 새로 연다
+  const epoch = ++loginEpoch;
   statusEl.textContent = "브라우저에서 Slack 연결을 완료해 주세요…";
   try {
     const verifier = randomVerifier();
     const vh = await sha256Hex(verifier);
     await openExternal(`${SERVER_URL}/oauth/login?vh=${vh}`);
 
-    // 백채널 폴링으로 세션 수령 (PRD §13.2)
-    const token = await pollSession(verifier);
+    // 백채널 폴링으로 세션 수령 (PRD §13.2). 새 클릭으로 대체되면 취소.
+    const token = await pollSession(verifier, { cancelled: () => epoch !== loginEpoch });
+    if (epoch !== loginEpoch) return; // 더 최근 시도가 진행 중
+
     sessionToken = token;
     if (isTauri()) await invoke("save_session", { token });
     render(true);
     startWs();
   } catch (err) {
+    if (epoch !== loginEpoch) return; // 대체됨 → 무시
     statusEl.textContent = (err as Error).message ?? "로그인 실패";
     render(false);
-  } finally {
-    connectBtn.disabled = false;
   }
 }
 

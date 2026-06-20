@@ -30,8 +30,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * 서버는 콜백 완료 후 verifierHash 로 세션을 ~120초 보관 → verifier 로 1회 수령.
  * 딥링크 스킴 등록에 의존하지 않도록 폴링으로 가져온다(dev·운영 공통).
  */
-export async function pollSession(verifier: string, tries = 60, intervalMs = 2000): Promise<string> {
+export async function pollSession(
+  verifier: string,
+  opts: { tries?: number; intervalMs?: number; cancelled?: () => boolean } = {},
+): Promise<string> {
+  const tries = opts.tries ?? 60;
+  const intervalMs = opts.intervalMs ?? 2000;
   for (let i = 0; i < tries; i++) {
+    if (opts.cancelled?.()) throw new Error("취소됨");
     try {
       const res = await fetch(`${SERVER_URL}/auth/session`, {
         method: "POST",

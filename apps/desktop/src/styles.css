@@ -23,11 +23,9 @@ body.settings {
 }
 .settings-card {
   width: min(640px, 90vw);
-  background: var(--card);
-  border-radius: 16px;
+  background: transparent;
   padding: 32px;
   text-align: center;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
 }
 .settings-card h1 {
   margin: 8px 0 4px;
