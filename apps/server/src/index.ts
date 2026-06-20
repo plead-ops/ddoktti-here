@@ -35,7 +35,12 @@ async function main(): Promise<void> {
   const server = createServer(app);
   hub.attach(server);
 
-  // Slack (Socket Mode)
+  // HTTP/WS 서버 먼저 listen — 헬스체크는 Slack 연결과 독립적이어야 함 (PRD §10)
+  server.listen(cfg.PORT, () => {
+    logger.info({ port: cfg.PORT, base: cfg.PUBLIC_BASE_URL }, "🚀 HTTP/WS 서버 시작");
+  });
+
+  // Slack (Socket Mode) — 연결 실패는 비치명적(로그만), 서버는 계속 동작
   const slack = createSlackApp({
     dispatch: (userId, payload) => hub.notify(userId, payload),
     getSettings,
@@ -50,12 +55,10 @@ async function main(): Promise<void> {
     getTeamId: () => "",
   });
 
-  await slack.start();
-  logger.info("⚡️ Slack Socket Mode 연결됨");
-
-  server.listen(cfg.PORT, () => {
-    logger.info({ port: cfg.PORT, base: cfg.PUBLIC_BASE_URL }, "🚀 HTTP/WS 서버 시작");
-  });
+  slack
+    .start()
+    .then(() => logger.info("⚡️ Slack Socket Mode 연결됨"))
+    .catch((err) => logger.error({ err }, "Slack 연결 실패 — 토큰/스코프 확인 (서버는 계속 동작)"));
 
   const shutdown = async (sig: string) => {
     logger.info({ sig }, "shutting down");
