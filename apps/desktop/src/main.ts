@@ -82,12 +82,41 @@ function refreshConnStatus(): void {
     connStatus.textContent =
       pausedUntil === Infinity
         ? "⏸ 일시중지됨"
-        : `⏸ ${new Date(pausedUntil).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}까지 멈춤`;
+        : `⏸ ${new Date(pausedUntil).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}까지`;
   } else {
     connStatus.textContent =
       lastSseStatus === "open" ? "● 연결됨" : lastSseStatus === "connecting" ? "연결 중…" : "재연결 중…";
   }
 }
+
+const pauseState = $("pause-state");
+function refreshPauseUI(): void {
+  if (pauseState) {
+    pauseState.textContent = !isPaused()
+      ? "알림 받는 중"
+      : pausedUntil === Infinity
+        ? "계속 멈춤 중"
+        : `${new Date(pausedUntil).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}까지 멈춤`;
+  }
+  // 세그먼트 버튼 활성 표시
+  document.querySelectorAll<HTMLButtonElement>(".seg button[data-snooze]").forEach((b) => {
+    const k = b.dataset.snooze;
+    const on = isPaused()
+      ? (k === "inf" && pausedUntil === Infinity)
+      : k === "resume";
+    b.classList.toggle("active", on);
+  });
+  refreshConnStatus();
+}
+function setSnooze(kind: string): void {
+  if (kind === "resume") pausedUntil = 0;
+  else if (kind === "inf") pausedUntil = Infinity;
+  else pausedUntil = Date.now() + Number(kind) * 60000;
+  refreshPauseUI();
+}
+document.querySelectorAll<HTMLButtonElement>(".seg button[data-snooze]").forEach((b) => {
+  b.addEventListener("click", () => setSnooze(b.dataset.snooze ?? "resume"));
+});
 
 function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
@@ -432,7 +461,7 @@ if (isTauri()) {
       const m = e.payload;
       if (m === 0) pausedUntil = isPaused() ? 0 : Infinity; // 토글
       else pausedUntil = Date.now() + m * 60000;
-      refreshConnStatus();
+      refreshPauseUI();
     });
     // 오버레이에서 닫음 → 서버에도 dismiss 전파(전 기기)
     await listen<{ id: string }>("overlay-dismiss", (e) => void sse?.dismiss(e.payload.id));
@@ -488,6 +517,7 @@ checkUpdateBtn?.addEventListener("click", async () => {
 
 async function initConnectedUI(): Promise<void> {
   void loadMe();
+  refreshPauseUI();
   await loadDisplay();
   await loadGeneral();
 }

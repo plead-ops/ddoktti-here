@@ -191,30 +191,76 @@ body.settings {
   height: 17px;
 }
 
-/* 위치 3×3 그리드 */
+/* 위치 = 화면 미니맵 (모니터 모양 안에서 위치 선택) */
 .pos-row {
   align-items: center;
 }
 .pos-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 24px);
-  grid-template-rows: repeat(3, 24px);
-  gap: 4px;
   flex: none;
+  width: 150px;
+  aspect-ratio: 16 / 10;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  padding: 6px;
 }
 .pos-grid button {
-  border: 1px solid var(--line);
-  background: var(--card);
-  border-radius: 5px;
+  border: 0;
+  background: transparent;
   cursor: pointer;
   padding: 0;
+  display: grid;
+  place-items: center;
 }
-.pos-grid button:hover {
+.pos-grid button::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.35;
+  transition: all 0.12s;
+}
+.pos-grid button:hover::after {
+  opacity: 0.7;
+}
+.pos-grid button.active::after {
+  background: var(--accent);
+  opacity: 1;
+  width: 12px;
+  height: 12px;
+  box-shadow: 0 0 0 4px rgba(56, 249, 105, 0.18);
+}
+
+/* 일시중지 세그먼트 버튼 */
+.seg {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+.seg button {
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 5px 10px;
+}
+.seg button:hover {
   border-color: var(--muted);
 }
-.pos-grid button.active {
+.seg button.active {
   background: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+.seg-resume {
+  color: var(--muted);
 }
 
 /* 콘텐츠 */
