@@ -38,7 +38,8 @@ oauth_config:
 
 settings:
   event_subscriptions:
-    # Socket Mode 라 request URL 불필요
+    # ⚠️ HTTP 수신 — Socket Mode 는 user-token 이벤트(events on behalf of users)를 안 줌
+    request_url: https://ddoktti-here.app.plead.co.kr/slack/events
     bot_events:
       - tokens_revoked
       - app_uninstalled
@@ -51,6 +52,6 @@ settings:
   interactivity:
     is_enabled: false
   org_deploy_enabled: false
-  socket_mode_enabled: true
+  socket_mode_enabled: false
   # TODO: refresh 토큰 처리 구현 후 true 로 전환 권장 (PRD §13.3 토큰 회전)
   token_rotation_enabled: false

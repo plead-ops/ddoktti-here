@@ -1,4 +1,4 @@
-import { App, LogLevel, type Logger } from "@slack/bolt";
+import { App, ExpressReceiver, LogLevel, type Logger } from "@slack/bolt";
 import type { NotificationPayload, NotificationSettings } from "@ddoktti/shared";
 import { loadConfig } from "../config.js";
 import { logger } from "../logger.js";
@@ -45,15 +45,20 @@ export interface SlackDeps {
 }
 
 /**
- * Slack Bolt (Socket Mode). user token 통합 수신(B안, PRD §4.2).
- * 인바운드 포트/공개 웹훅 불필요.
+ * Slack Bolt (HTTP Events API). user token 통합 수신(B안, PRD §4.2).
+ * ⚠️ Socket Mode 는 user-token 이벤트(events on behalf of users)를 전달하지 않아 HTTP 채택.
+ * ExpressReceiver 를 우리 Express 앱에 마운트(/slack/events). 서명검증=SLACK_SIGNING_SECRET.
  */
-export function createSlackApp(deps: SlackDeps): App {
+export function createSlackApp(deps: SlackDeps): { app: App; receiver: ExpressReceiver } {
   const cfg = loadConfig();
+  const receiver = new ExpressReceiver({
+    signingSecret: cfg.SLACK_SIGNING_SECRET,
+    endpoints: "/slack/events",
+    logger: boltLogger(),
+  });
   const app = new App({
     token: cfg.SLACK_BOT_TOKEN,
-    appToken: cfg.SLACK_APP_TOKEN,
-    socketMode: true,
+    receiver,
     logger: boltLogger(),
   });
 
@@ -104,7 +109,7 @@ export function createSlackApp(deps: SlackDeps): App {
   });
   // TODO(M5): dnd_updated 이벤트로 DND 캐시 갱신(현재는 호출 시점 dnd.info 캐싱)
 
-  return app;
+  return { app, receiver };
 }
 
 /**

@@ -1,4 +1,3 @@
-import { createServer } from "node:http";
 import { loadConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { createHttpApp } from "./http.js";
@@ -32,19 +31,7 @@ async function main(): Promise<void> {
     hub.send(userId, { type: "dismiss", id });
   });
 
-  const app = createHttpApp();
-  app.use(sseRoutes(hub));
-  const server = createServer(app);
-
-  // HTTP 먼저 listen — 헬스체크는 DB/Slack 과 독립 (PRD §10)
-  server.listen(cfg.PORT, () => {
-    logger.info({ port: cfg.PORT, base: cfg.PUBLIC_BASE_URL }, "🚀 HTTP/SSE 서버 시작");
-  });
-
-  // DB 스키마 보장 (논블로킹)
-  ensureSchema().catch((err) => logger.error({ err }, "ensureSchema 실패 — DB 연결 확인"));
-
-  // Slack (Socket Mode) — 연결 실패는 비치명적
+  // Slack(HTTP Events API) — ⚠️ Socket Mode 는 user-token 이벤트를 안 줘서 HTTP 수신 채택.
   const slackDeps: SlackDeps = {
     // 큐에 먼저 적재(중복 제거) → 새 알림만 푸시. 오프라인이어도 큐에 남아 재접속 시 복원.
     dispatch: async (userId, payload) => {
@@ -84,7 +71,9 @@ async function main(): Promise<void> {
       logger.info({ teamId, count: ids.length }, "app uninstalled → users removed");
     },
   };
-  const slack = createSlackApp(slackDeps);
+  const { app: slack, receiver } = createSlackApp(slackDeps);
+  const app = createHttpApp(receiver.app); // /slack/events + 우리 라우트를 한 Express 앱에
+  app.use(sseRoutes(hub));
 
   // 테스트 알림(정식): 봇이 나에게 DM → 실제 슬랙 푸시→수신→트리거→오버레이 전 경로 검증
   app.post("/test/dm", rateLimit({ name: "testdm", max: 10, windowSec: 60 }), async (req, res) => {
@@ -111,17 +100,17 @@ async function main(): Promise<void> {
     res.json(diagSummary());
   });
 
-  slack
-    .start()
-    .then(() => {
-      setSlackConnected(true);
-      logger.info("⚡️ Slack Socket Mode 연결됨");
-    })
-    .catch((err) => logger.error({ err }, "Slack 연결 실패 — 토큰/스코프 확인 (서버는 계속 동작)"));
+  // HTTP 수신 시작(서버 listen). 헬스체크 즉시, DB 스키마는 논블로킹.
+  await slack.start(cfg.PORT);
+  setSlackConnected(true);
+  logger.info(
+    { port: cfg.PORT, base: cfg.PUBLIC_BASE_URL },
+    "🚀 HTTP 서버 시작 (Slack Events: POST /slack/events)",
+  );
+  ensureSchema().catch((err) => logger.error({ err }, "ensureSchema 실패 — DB 연결 확인"));
 
   const shutdown = async (sig: string) => {
     logger.info({ sig }, "shutting down");
-    server.close();
     await slack.stop().catch(() => {});
     await closeRedis().catch(() => {});
     await closeDb().catch(() => {});
