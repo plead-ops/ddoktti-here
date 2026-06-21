@@ -1,16 +1,16 @@
 import {
   followThread,
   isFollowedThread,
-  isThreadEvaluated,
-  markThreadEvaluated,
+  getThreadFacts,
+  setThreadFacts,
 } from "../store/threads.js";
-import { threadHasUser } from "./web.js";
+import { fetchThreadFacts } from "./web.js";
 
 /**
  * 답글 수신 시 "이 쓰레드를 사용자에게 알릴까?" 판정 (PRD §4.2).
- * 1) 팔로우셋에 있으면 → 즉시 알림(+TTL 갱신).
- * 2) 없고 아직 평가 안 했으면 → conversations.replies 1회로 멘션/참여 확인.
- *    맞으면 팔로우셋에 추가(이후 재조회 없음). 평가 결과는 캐시해 호출량 제한.
+ * 1) 유저별 팔로우셋(증분, 공짜)에 있으면 → 즉시 알림(+TTL 갱신).
+ * 2) 없으면 "쓰레드별" 사실 캐시 확인 — 없으면 conversations.replies 1회로 채움(유저 무관, 1쓰레드 1조회).
+ *    참여/직접멘션/special/서브팀(내 그룹)으로 멤버면 팔로우+알림.
  */
 export async function isThreadForUser(
   userId: string,
@@ -22,9 +22,21 @@ export async function isThreadForUser(
     await followThread(userId, channel, threadTs); // 활성 쓰레드 TTL 갱신
     return true;
   }
-  if (await isThreadEvaluated(userId, channel, threadTs)) return false; // 최근에 "내 것 아님" 판정됨
-  await markThreadEvaluated(userId, channel, threadTs);
-  if (await threadHasUser(userId, channel, threadTs, myUsergroupIds)) {
+
+  // 쓰레드별 사실 캐시(유저 무관) — 여러 유저·연속 답글이 한 번의 조회를 재사용
+  let facts = await getThreadFacts(channel, threadTs);
+  if (!facts) {
+    facts = await fetchThreadFacts(userId, channel, threadTs);
+    if (!facts) return false;
+    await setThreadFacts(channel, threadTs, facts);
+  }
+
+  const member =
+    facts.participants.includes(userId) ||
+    facts.directMentions.includes(userId) ||
+    facts.special ||
+    facts.subteams.some((s) => myUsergroupIds.has(s));
+  if (member) {
     await followThread(userId, channel, threadTs);
     return true;
   }

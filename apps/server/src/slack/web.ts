@@ -3,35 +3,51 @@ import { getUserToken } from "../store/users.js";
 import { redis } from "../store/redis.js";
 import { logger } from "../logger.js";
 import { loadConfig } from "../config.js";
-import { mentionsUser } from "./filters.js";
+import { parseMentions } from "./filters.js";
+import type { ThreadFacts } from "../store/threads.js";
 
 /**
- * 쓰레드 전체를 조회해 사용자가 (멘션됐거나 참여했는지) 판정 — 팔로우셋 폴백용.
- * conversations.replies 1회(최대 200건). 호출량은 호출부의 "평가됨" 캐시로 제한.
+ * 쓰레드 전체를 조회해 멤버 판정용 "사실"을 추출 — 팔로우셋 폴백용(유저 무관).
+ * conversations.replies 1회(최대 200건). 결과는 호출부가 쓰레드별로 캐싱한다.
+ * token 은 채널에 있는 아무 사용자(보통 답글 수신자)의 user token 을 쓴다.
  */
-export async function threadHasUser(
-  userId: string,
+export async function fetchThreadFacts(
+  tokenUserId: string,
   channel: string,
   threadTs: string,
-  myUsergroupIds: ReadonlySet<string>,
-): Promise<boolean> {
+): Promise<ThreadFacts | null> {
+  const token = await getUserToken(tokenUserId);
+  if (!token) return null;
   try {
-    const token = await getUserToken(userId);
-    if (!token) return false;
     const res = await new WebClient(token).conversations.replies({
       channel,
       ts: threadTs,
       limit: 200,
     });
+    const participants = new Set<string>();
+    const directMentions = new Set<string>();
+    const subteams = new Set<string>();
+    let special = false;
     for (const m of res.messages ?? []) {
       const mm = m as { user?: string; text?: string };
-      if (mm.user === userId) return true; // 내가 참여
-      if (mm.text && mentionsUser(mm.text, userId, myUsergroupIds)) return true; // 내가 멘션됨
+      if (mm.user) participants.add(mm.user);
+      if (mm.text) {
+        const p = parseMentions(mm.text);
+        p.direct.forEach((d) => directMentions.add(d));
+        p.subteams.forEach((s) => subteams.add(s));
+        if (p.special.length > 0) special = true;
+      }
     }
+    return {
+      participants: [...participants],
+      directMentions: [...directMentions],
+      subteams: [...subteams],
+      special,
+    };
   } catch (err) {
-    logger.warn({ err, userId, threadTs }, "conversations.replies failed");
+    logger.warn({ err, tokenUserId, threadTs }, "conversations.replies failed");
+    return null;
   }
-  return false;
 }
 
 /** 사용자가 속한 유저그룹(subteam) ID 집합 — 그룹 멘션 판정용 (usergroups:read). Redis 1h 캐싱. */

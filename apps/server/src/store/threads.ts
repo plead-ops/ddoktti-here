@@ -28,22 +28,37 @@ export async function isFollowedThread(
   return (await redis().exists(key(userId, channel, threadTs))) === 1;
 }
 
-// 폴백(conversations.replies) 재조회 폭주 방지용 "평가됨" 캐시
-const EVAL_TTL_SEC = 60 * 60 * 6; // 6시간
-function evalKey(userId: string, channel: string, threadTs: string): string {
-  return `threadc:${userId}:${channel}:${threadTs}`;
+/**
+ * 쓰레드 "사실" 캐시 — 유저 무관, 쓰레드당 1개. 폴백(conversations.replies) 결과를 저장해
+ * 같은 쓰레드의 다른 유저/다음 답글이 재조회 없이 멤버 판정에 재사용한다.
+ * 원본 멘션 정보(참여자·직접멘션·서브팀·special)를 담아 유저별 판정은 호출부에서 계산.
+ */
+export interface ThreadFacts {
+  participants: string[];
+  directMentions: string[];
+  subteams: string[];
+  special: boolean;
 }
-export async function isThreadEvaluated(
-  userId: string,
+const FACTS_TTL_SEC = 60 * 60 * 6; // 6시간
+function factsKey(channel: string, threadTs: string): string {
+  return `threadfacts:${channel}:${threadTs}`;
+}
+export async function getThreadFacts(
   channel: string,
   threadTs: string,
-): Promise<boolean> {
-  return (await redis().exists(evalKey(userId, channel, threadTs))) === 1;
+): Promise<ThreadFacts | null> {
+  const v = await redis().get(factsKey(channel, threadTs));
+  if (!v) return null;
+  try {
+    return JSON.parse(v) as ThreadFacts;
+  } catch {
+    return null;
+  }
 }
-export async function markThreadEvaluated(
-  userId: string,
+export async function setThreadFacts(
   channel: string,
   threadTs: string,
+  facts: ThreadFacts,
 ): Promise<void> {
-  await redis().set(evalKey(userId, channel, threadTs), "1", "EX", EVAL_TTL_SEC);
+  await redis().set(factsKey(channel, threadTs), JSON.stringify(facts), "EX", FACTS_TTL_SEC);
 }
