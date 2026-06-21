@@ -3,6 +3,36 @@ import { getUserToken } from "../store/users.js";
 import { redis } from "../store/redis.js";
 import { logger } from "../logger.js";
 import { loadConfig } from "../config.js";
+import { mentionsUser } from "./filters.js";
+
+/**
+ * 쓰레드 전체를 조회해 사용자가 (멘션됐거나 참여했는지) 판정 — 팔로우셋 폴백용.
+ * conversations.replies 1회(최대 200건). 호출량은 호출부의 "평가됨" 캐시로 제한.
+ */
+export async function threadHasUser(
+  userId: string,
+  channel: string,
+  threadTs: string,
+  myUsergroupIds: ReadonlySet<string>,
+): Promise<boolean> {
+  try {
+    const token = await getUserToken(userId);
+    if (!token) return false;
+    const res = await new WebClient(token).conversations.replies({
+      channel,
+      ts: threadTs,
+      limit: 200,
+    });
+    for (const m of res.messages ?? []) {
+      const mm = m as { user?: string; text?: string };
+      if (mm.user === userId) return true; // 내가 참여
+      if (mm.text && mentionsUser(mm.text, userId, myUsergroupIds)) return true; // 내가 멘션됨
+    }
+  } catch (err) {
+    logger.warn({ err, userId, threadTs }, "conversations.replies failed");
+  }
+  return false;
+}
 
 /** 사용자가 속한 유저그룹(subteam) ID 집합 — 그룹 멘션 판정용 (usergroups:read). Redis 1h 캐싱. */
 export async function getUserGroupIds(userId: string): Promise<Set<string>> {

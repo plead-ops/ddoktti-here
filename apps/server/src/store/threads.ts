@@ -27,3 +27,23 @@ export async function isFollowedThread(
 ): Promise<boolean> {
   return (await redis().exists(key(userId, channel, threadTs))) === 1;
 }
+
+// 폴백(conversations.replies) 재조회 폭주 방지용 "평가됨" 캐시
+const EVAL_TTL_SEC = 60 * 60 * 6; // 6시간
+function evalKey(userId: string, channel: string, threadTs: string): string {
+  return `threadc:${userId}:${channel}:${threadTs}`;
+}
+export async function isThreadEvaluated(
+  userId: string,
+  channel: string,
+  threadTs: string,
+): Promise<boolean> {
+  return (await redis().exists(evalKey(userId, channel, threadTs))) === 1;
+}
+export async function markThreadEvaluated(
+  userId: string,
+  channel: string,
+  threadTs: string,
+): Promise<void> {
+  await redis().set(evalKey(userId, channel, threadTs), "1", "EX", EVAL_TTL_SEC);
+}

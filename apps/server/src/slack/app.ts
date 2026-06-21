@@ -27,10 +27,15 @@ export interface SlackDeps {
   isDnd: (userId: string) => Promise<boolean>;
   /** 토큰 취소/앱 제거 시 — 토큰 폐기 + 재인증 유도 */
   onTokenRevoked: (userId: string) => void | Promise<void>;
-  /** 멘션된 쓰레드 팔로우 시작/갱신 */
+  /** 멘션·참여한 쓰레드 팔로우 시작/갱신 */
   followThread: (userId: string, channel: string, threadTs: string) => void | Promise<void>;
-  /** 팔로우 중인 쓰레드인지 */
-  isFollowedThread: (userId: string, channel: string, threadTs: string) => Promise<boolean>;
+  /** 답글 수신 시 이 쓰레드를 사용자에게 알릴지 (팔로우셋 + replies 폴백) */
+  isThreadForUser: (
+    userId: string,
+    channel: string,
+    threadTs: string,
+    myUsergroupIds: ReadonlySet<string>,
+  ) => Promise<boolean>;
 }
 
 /**
@@ -72,15 +77,15 @@ export function createSlackApp(deps: SlackDeps): App {
         if (trigger === "mention") {
           void deps.followThread(userId, ev.channel, ev.thread_ts ?? ev.ts);
         }
-        // 다른 트리거 미매칭이지만 팔로우 중인 쓰레드의 답글이면 알림
+        // 다른 트리거 미매칭이지만 내가 참여/멘션된 쓰레드의 답글이면 알림
+        // (팔로우셋에 없으면 replies 폴백으로 14일 지난 쓰레드까지 확인)
         if (
           !trigger &&
           settings.triggers.thread &&
           ev.thread_ts &&
-          (await deps.isFollowedThread(userId, ev.channel, ev.thread_ts))
+          (await deps.isThreadForUser(userId, ev.channel, ev.thread_ts, ctx.myUsergroupIds))
         ) {
           trigger = "thread";
-          void deps.followThread(userId, ev.channel, ev.thread_ts); // 활성 쓰레드 TTL 갱신
         }
         if (!trigger) continue;
 
