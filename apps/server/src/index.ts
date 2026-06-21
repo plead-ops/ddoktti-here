@@ -5,9 +5,10 @@ import { createHttpApp } from "./http.js";
 import { SseHub, sseRoutes } from "./sse.js";
 import { createSlackApp } from "./slack/app.js";
 import { getSettings } from "./store/settings.js";
-import { getUser } from "./store/users.js";
-import { addPending } from "./store/pending.js";
+import { getUser, deleteUser } from "./store/users.js";
+import { addPending, removePending } from "./store/pending.js";
 import { isUserDnd, getUserGroupIds } from "./slack/web.js";
+import { startReadWatch, setOnRead } from "./slack/readWatch.js";
 import { ensureSchema, closeDb } from "./store/db.js";
 import { closeRedis } from "./store/redis.js";
 
@@ -16,6 +17,12 @@ async function main(): Promise<void> {
 
   // 실시간 채널: SSE 허브 (WS 업그레이드가 앞단 프록시 h2 에서 막혀 SSE 채택)
   const hub = new SseHub();
+
+  // 자동 읽음 닫힘: 슬랙에서 먼저 읽으면 큐 제거 + 전 기기 dismiss
+  setOnRead((userId, id) => {
+    void removePending(userId, id);
+    hub.send(userId, { type: "dismiss", id });
+  });
 
   const app = createHttpApp();
   app.use(sseRoutes(hub));
@@ -33,7 +40,10 @@ async function main(): Promise<void> {
   const slack = createSlackApp({
     // 큐에 먼저 적재(중복 제거) → 새 알림만 푸시. 오프라인이어도 큐에 남아 재접속 시 복원.
     dispatch: async (userId, payload) => {
-      if (await addPending(userId, payload)) hub.notify(userId, payload);
+      if (await addPending(userId, payload)) {
+        hub.notify(userId, payload);
+        startReadWatch(userId, payload.id, payload.channelId, payload.ts); // 자동 읽음 닫힘
+      }
     },
     getSettings,
     getUserContext: async (userId) => {
@@ -46,6 +56,11 @@ async function main(): Promise<void> {
       };
     },
     isDnd: (userId) => isUserDnd(userId),
+    onTokenRevoked: async (userId) => {
+      await deleteUser(userId).catch(() => {});
+      hub.send(userId, { type: "reauth", reason: "token-revoked" });
+      logger.info({ userId }, "token revoked → user removed");
+    },
   });
 
   slack

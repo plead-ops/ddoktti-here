@@ -42,6 +42,8 @@ const qhEnd = $<HTMLInputElement>("qh-end");
 // 일반/연결
 const autostartCb = $<HTMLInputElement>("autostart");
 const appVersion = $("app-version");
+const checkUpdateBtn = $<HTMLButtonElement>("check-update");
+const updateStatus = $("update-status");
 const accountId = $("account-id");
 const accountHandle = $("account-handle");
 const accountAvatar = $<HTMLImageElement>("account-avatar");
@@ -68,6 +70,23 @@ let sse: SseClient | null = null;
 let notif: NotificationSettings = structuredClone(defaultNotificationSettings);
 let display: DisplaySettings | null = null;
 let allChannels: Channel[] = [];
+let pausedUntil = 0; // 0=해제, Infinity=무기한, ts=해당 시각까지
+let lastSseStatus: SseStatus = "connecting";
+
+function isPaused(): boolean {
+  return pausedUntil === Infinity || pausedUntil > Date.now();
+}
+function refreshConnStatus(): void {
+  if (isPaused()) {
+    connStatus.textContent =
+      pausedUntil === Infinity
+        ? "⏸ 일시중지됨"
+        : `⏸ ${new Date(pausedUntil).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}까지 멈춤`;
+  } else {
+    connStatus.textContent =
+      lastSseStatus === "open" ? "● 연결됨" : lastSseStatus === "connecting" ? "연결 중…" : "재연결 중…";
+  }
+}
 
 function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
@@ -75,6 +94,10 @@ function isTauri(): boolean {
 async function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
+}
+async function emitEvent(name: string, payload: unknown): Promise<void> {
+  const { emit } = await import("@tauri-apps/api/event");
+  await emit(name, payload).catch(() => {});
 }
 async function openExternal(url: string): Promise<void> {
   if (isTauri()) {
@@ -108,27 +131,19 @@ document.querySelectorAll<HTMLButtonElement>(".nav-item").forEach((btn) => {
 let loginEpoch = 0;
 async function doLogin(): Promise<void> {
   const epoch = ++loginEpoch;
-  console.log("[doLogin] start, epoch", epoch);
   obStatus.textContent = "브라우저에서 Slack 연결을 완료해 주세요…";
   try {
     const verifier = randomVerifier();
     const vh = await sha256Hex(verifier);
-    console.log("[doLogin] open browser, vh=", vh.slice(0, 10));
     await openExternal(`${SERVER_URL}/oauth/login?vh=${vh}`);
     const token = await pollSession(verifier, { cancelled: () => epoch !== loginEpoch });
-    console.log("[doLogin] got token:", token.slice(0, 6), "… epoch", epoch, "cur", loginEpoch);
-    if (epoch !== loginEpoch) {
-      console.warn("[doLogin] stale epoch — ignoring");
-      return;
-    }
+    if (epoch !== loginEpoch) return; // 더 최근 시도가 진행 중
     sessionToken = token;
     render(true);
     startSse();
-    if (isTauri()) void invoke("save_session", { token }).catch((e) => console.warn("save_session", e));
+    if (isTauri()) void invoke("save_session", { token }).catch(() => {});
     void setAutostart(obAutostart?.checked ?? true); // 온보딩에서 고른 자동 시작 적용
-    console.log("[doLogin] rendered connected ✅");
   } catch (err) {
-    console.error("[doLogin] error:", err);
     if (epoch !== loginEpoch) return;
     obStatus.textContent = "로그인 실패: " + ((err as Error)?.message ?? String(err));
     render(false);
@@ -149,11 +164,12 @@ function startSse(): void {
   if (!sessionToken || sse) return;
   sse = new SseClient(() => sessionToken, {
     onNotify: (payload) => {
+      if (isPaused()) return; // 트레이 일시중지/스누즈
       if (inQuietHours()) return; // 인앱 방해금지(로컬 시간)
       if (isTauri()) void invoke("display_notification", { payload });
     },
-    onDismiss: () => {
-      if (isTauri()) void invoke("hide_overlay");
+    onDismiss: (id) => {
+      if (isTauri()) void emitEvent("dismiss-one", { id }); // 오버레이 큐에서 해당 알림 제거
     },
     onWelcome: (userId, settings) => {
       accountId.textContent = userId;
@@ -172,8 +188,8 @@ function startSse(): void {
       obStatus.textContent = "재로그인이 필요합니다";
     },
     onStatus: (s: SseStatus) => {
-      connStatus.textContent =
-        s === "open" ? "● 연결됨" : s === "connecting" ? "연결 중…" : "재연결 중…";
+      lastSseStatus = s;
+      refreshConnStatus();
     },
   });
   sse.start();
@@ -391,6 +407,15 @@ if (isTauri()) {
       display = e.payload;
       ovPosition.value = display.position;
     });
+    // 트레이 일시중지/스누즈
+    await listen<number>("pause-change", (e) => {
+      const m = e.payload;
+      if (m === 0) pausedUntil = isPaused() ? 0 : Infinity; // 토글
+      else pausedUntil = Date.now() + m * 60000;
+      refreshConnStatus();
+    });
+    // 오버레이에서 닫음 → 서버에도 dismiss 전파(전 기기)
+    await listen<{ id: string }>("overlay-dismiss", (e) => void sse?.dismiss(e.payload.id));
   })();
 }
 
@@ -422,6 +447,24 @@ async function setAutostart(enabled: boolean): Promise<void> {
   autostartCb.checked = enabled;
 }
 autostartCb.addEventListener("change", () => void setAutostart(autostartCb.checked));
+
+checkUpdateBtn?.addEventListener("click", async () => {
+  if (!isTauri()) return;
+  updateStatus.textContent = "확인 중…";
+  try {
+    const { check } = await import("@tauri-apps/plugin-updater");
+    const update = await check();
+    if (update) {
+      updateStatus.textContent = `새 버전 ${update.version} 설치 중…`;
+      await update.downloadAndInstall();
+      updateStatus.textContent = "설치 완료 — 앱을 재시작하세요";
+    } else {
+      updateStatus.textContent = "최신 버전입니다";
+    }
+  } catch {
+    updateStatus.textContent = "업데이트 확인 실패";
+  }
+});
 
 async function initConnectedUI(): Promise<void> {
   void loadMe();

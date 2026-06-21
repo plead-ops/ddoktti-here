@@ -8,6 +8,7 @@ import {
 import { resolveSession } from "./auth/session.js";
 import { getSettings, saveSettings } from "./store/settings.js";
 import { listPending, removePending } from "./store/pending.js";
+import { stopReadWatch } from "./slack/readWatch.js";
 import { logger } from "./logger.js";
 
 /**
@@ -94,6 +95,7 @@ export function sseRoutes(hub: SseHub): Router {
     }
     const id = String((req.body as { id?: string })?.id ?? "");
     if (id) {
+      stopReadWatch(id);
       await removePending(userId, id);
       hub.send(userId, { type: "dismiss", id });
     }

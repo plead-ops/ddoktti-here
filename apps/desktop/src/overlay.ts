@@ -1,10 +1,9 @@
 import type { NotificationPayload } from "@ddoktti/shared";
 
 /**
- * 오버레이 창 — 이미지 전용. 드래그로 이동(위치는 비율로 저장), 클릭으로 열기+닫기.
- * 표시 설정(속도/사운드/모션 줄이기)은 Rust 의 get_display_settings 에서 읽어 적용.
+ * 오버레이 — 이미지 전용 + 다중 알림 큐(+N 배지). 드래그 이동, 클릭 = 열기+닫기.
+ * 표시 설정(속도/사운드/모션)은 get_display_settings 에서 읽어 적용.
  */
-
 const FRAMES = [
   "/sprites/sprite1.png",
   "/sprites/sprite2.png",
@@ -18,44 +17,36 @@ const DRAG_THRESHOLD = 4;
 const el = {
   overlay: document.getElementById("overlay") as HTMLDivElement,
   sprite: document.getElementById("sprite") as HTMLImageElement,
+  badge: document.getElementById("badge") as HTMLDivElement,
 };
 
-interface DisplayCfg {
-  speed: number;
-  sound: boolean;
-  reduce_motion: boolean;
-}
-let cfg: DisplayCfg = { speed: 1, sound: true, reduce_motion: false };
-
+let cfg = { speed: 1, sound: true, reduce_motion: false };
+let queue: NotificationPayload[] = [];
 let frame = 0;
 let timer: number | null = null;
-let current: NotificationPayload | null = null;
 
 function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
-
 function preload(): void {
   for (const src of FRAMES) {
     const img = new Image();
     img.src = src;
   }
 }
-
 async function refreshCfg(): Promise<void> {
   if (!isTauri()) return;
   try {
     const { invoke } = await import("@tauri-apps/api/core");
-    const d = await invoke<DisplayCfg>("get_display_settings");
+    const d = await invoke<typeof cfg>("get_display_settings");
     cfg = { speed: d.speed ?? 1, sound: d.sound ?? true, reduce_motion: d.reduce_motion ?? false };
   } catch {
     /* keep defaults */
   }
 }
-
 function startAnimation(): void {
   stopAnimation();
-  if (cfg.reduce_motion) return; // 모션 줄이기: 정지 프레임
+  if (cfg.reduce_motion) return;
   const interval = Math.max(80, BASE_FRAME_MS / (cfg.speed || 1));
   timer = window.setInterval(() => {
     frame = (frame + 1) % FRAMES.length;
@@ -68,7 +59,6 @@ function stopAnimation(): void {
     timer = null;
   }
 }
-
 let audioCtx: AudioContext | null = null;
 function beep(): void {
   if (!cfg.sound) return;
@@ -89,48 +79,65 @@ function beep(): void {
   }
 }
 
-export function showNotification(p: NotificationPayload): void {
-  current = p;
+function current(): NotificationPayload | null {
+  return queue[queue.length - 1] ?? null;
+}
+function renderOverlay(): void {
+  const cur = current();
+  if (!cur) {
+    el.overlay.hidden = true;
+    el.badge.hidden = true;
+    stopAnimation();
+    return;
+  }
   document.body.classList.toggle("reduce-motion", cfg.reduce_motion);
   el.sprite.src = FRAMES[0]!;
   frame = 0;
   el.overlay.hidden = false;
+  const extra = queue.length - 1;
+  if (extra > 0) {
+    el.badge.textContent = `+${extra}`;
+    el.badge.hidden = false;
+  } else {
+    el.badge.hidden = true;
+  }
   startAnimation();
+}
+function addNotification(p: NotificationPayload): void {
+  if (queue.some((q) => q.id === p.id)) return;
+  queue.push(p);
+  renderOverlay();
   beep();
 }
-export function hideNotification(): void {
-  current = null;
-  el.overlay.hidden = true;
-  stopAnimation();
-}
-
-async function dismissOverlay(): Promise<void> {
-  hideNotification();
-  if (isTauri()) {
+async function removeOne(id: string): Promise<void> {
+  queue = queue.filter((q) => q.id !== id);
+  renderOverlay();
+  if (queue.length === 0 && isTauri()) {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("hide_overlay").catch(() => {});
   }
 }
 
-/** 클릭(드래그 아님) = 해당 대화 열기 + 닫기 */
+/** 클릭(드래그 아님) = 현재 알림 열기 + 닫기(서버 전파) */
 async function onClick(): Promise<void> {
-  const link = current?.deepLink;
-  if (link) {
-    if (isTauri()) {
-      const { openUrl } = await import("@tauri-apps/plugin-opener");
-      await openUrl(link).catch(() => {});
-    } else {
-      try {
-        window.location.href = link;
-      } catch {
-        /* noop */
-      }
+  const cur = current();
+  if (!cur) return;
+  if (isTauri()) {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(cur.deepLink).catch(() => {});
+    const { emit } = await import("@tauri-apps/api/event");
+    await emit("overlay-dismiss", { id: cur.id }).catch(() => {}); // 설정창 → 서버 dismiss
+  } else {
+    try {
+      window.location.href = cur.deepLink;
+    } catch {
+      /* noop */
     }
   }
-  await dismissOverlay();
+  await removeOne(cur.id);
 }
 
-// ── 드래그 이동 vs 클릭 구분 ──
+// ── 드래그 이동 vs 클릭 ──
 let down: { x: number; y: number } | null = null;
 let didDrag = false;
 let expectPersist = false;
@@ -158,7 +165,6 @@ el.overlay.addEventListener("click", () => {
   }
   void onClick();
 });
-
 async function beginDrag(): Promise<void> {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   expectPersist = true;
@@ -169,11 +175,9 @@ async function wireTauri(): Promise<void> {
   const { listen } = await import("@tauri-apps/api/event");
   await listen<NotificationPayload>("notify", async (e) => {
     await refreshCfg();
-    showNotification(e.payload);
+    addNotification(e.payload);
   });
-  await listen<{ id: string }>("dismiss", (e) => {
-    if (current?.id === e.payload.id) hideNotification();
-  });
+  await listen<{ id: string }>("dismiss-one", (e) => void removeOne(e.payload.id));
 
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow().onMoved(() => {
@@ -192,7 +196,7 @@ if (isTauri()) {
   void wireTauri();
 } else {
   setTimeout(() => {
-    showNotification({
+    addNotification({
       id: "demo:1",
       trigger: "dm",
       channelId: "D000",

@@ -32,27 +32,24 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 export async function pollSession(
   verifier: string,
-  opts: { tries?: number; intervalMs?: number; cancelled?: () => boolean; onTick?: (i: number) => void } = {},
+  opts: { tries?: number; intervalMs?: number; cancelled?: () => boolean } = {},
 ): Promise<string> {
   const tries = opts.tries ?? 60;
   const intervalMs = opts.intervalMs ?? 2000;
   for (let i = 0; i < tries; i++) {
     if (opts.cancelled?.()) throw new Error("취소됨");
-    opts.onTick?.(i);
     try {
       const res = await fetch(`${SERVER_URL}/auth/session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ verifier }),
       });
-      console.log(`[pollSession] #${i} status=${res.status}`);
       if (res.ok) {
         const data = (await res.json()) as { sessionToken?: string };
         if (data.sessionToken) return data.sessionToken;
-        console.warn("[pollSession] ok but no sessionToken", data);
       }
-    } catch (e) {
-      console.warn(`[pollSession] #${i} fetch error`, e);
+    } catch {
+      /* 네트워크 일시 오류 → 재시도 */
     }
     await sleep(intervalMs);
   }

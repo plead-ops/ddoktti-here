@@ -354,3 +354,15 @@ body.overlay-body {
 .reduce-motion .sprite {
   animation: none;
 }
+.badge {
+  position: absolute;
+  top: 8%;
+  right: 8%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: 700 13px system-ui, sans-serif;
+  padding: 2px 9px;
+  border-radius: 999px;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}

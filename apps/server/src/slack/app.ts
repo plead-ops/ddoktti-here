@@ -25,6 +25,8 @@ export interface SlackDeps {
   getUserContext: (userId: string) => Promise<UserContext | null>;
   /** Slack DND/스누즈 존중 (PRD §5.3) — 캐시 조회 */
   isDnd: (userId: string) => Promise<boolean>;
+  /** 토큰 취소/앱 제거 시 — 토큰 폐기 + 재인증 유도 */
+  onTokenRevoked: (userId: string) => void | Promise<void>;
 }
 
 /**
@@ -77,8 +79,21 @@ export function createSlackApp(deps: SlackDeps): App {
     }
   });
 
-  // TODO(M5): app.event("dnd_updated"/"dnd_updated_user") → DND 캐시 갱신
-  // TODO(M5): app.event("tokens_revoked"/"app_uninstalled") → 토큰 폐기 + reauth
+  // 토큰 취소 → 토큰 폐기 + 재인증 (PRD §5.10, §6)
+  app.event("tokens_revoked", async ({ event }: { event: unknown }) => {
+    const ev = event as { tokens?: { oauth?: string[] } };
+    for (const uid of ev.tokens?.oauth ?? []) {
+      try {
+        await deps.onTokenRevoked(uid);
+      } catch (err) {
+        logger.error({ err, uid }, "onTokenRevoked failed");
+      }
+    }
+  });
+  app.event("app_uninstalled", async () => {
+    logger.warn("app_uninstalled received");
+  });
+  // TODO(M5): dnd_updated 이벤트로 DND 캐시 갱신(현재는 호출 시점 dnd.info 캐싱)
 
   return app;
 }

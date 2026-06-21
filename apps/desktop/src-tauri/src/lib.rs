@@ -265,10 +265,25 @@ pub fn run() {
             let settings_i = MenuItem::with_id(app, "settings", "설정…", true, None::<&str>)?;
             let preview_i =
                 MenuItem::with_id(app, "preview", "오버레이 미리보기", true, None::<&str>)?;
-            let pause_i = MenuItem::with_id(app, "pause", "일시중지", true, None::<&str>)?;
-            let sep = PredefinedMenuItem::separator(app)?;
+            let pause_i = MenuItem::with_id(app, "pause", "일시중지 / 재개", true, None::<&str>)?;
+            let snooze30_i =
+                MenuItem::with_id(app, "snooze30", "30분 동안 멈춤", true, None::<&str>)?;
+            let snooze60_i =
+                MenuItem::with_id(app, "snooze60", "1시간 동안 멈춤", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&settings_i, &preview_i, &pause_i, &sep, &quit_i])?;
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &settings_i,
+                    &preview_i,
+                    &PredefinedMenuItem::separator(app)?,
+                    &pause_i,
+                    &snooze30_i,
+                    &snooze60_i,
+                    &PredefinedMenuItem::separator(app)?,
+                    &quit_i,
+                ],
+            )?;
 
             // 트레이 아이콘: macOS=흑백 템플릿(눈 구멍), Windows/Linux=컬러(눈 유지)
             #[cfg(target_os = "macos")]
@@ -287,7 +302,15 @@ pub fn run() {
                     "preview" => {
                         let _ = preview_overlay(app.clone());
                     }
-                    "pause" => { /* TODO(M5): 알림 일시중지 토글 */ }
+                    "pause" => {
+                        let _ = app.emit("pause-change", 0i64); // 토글
+                    }
+                    "snooze30" => {
+                        let _ = app.emit("pause-change", 30i64);
+                    }
+                    "snooze60" => {
+                        let _ = app.emit("pause-change", 60i64);
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
