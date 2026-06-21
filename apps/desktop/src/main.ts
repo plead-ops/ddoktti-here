@@ -105,21 +105,33 @@ document.querySelectorAll<HTMLButtonElement>(".nav-item").forEach((btn) => {
 let loginEpoch = 0;
 async function doLogin(): Promise<void> {
   const epoch = ++loginEpoch;
+  console.log("[doLogin] start, epoch", epoch);
   obStatus.textContent = "브라우저에서 Slack 연결을 완료해 주세요…";
   try {
     const verifier = randomVerifier();
     const vh = await sha256Hex(verifier);
+    console.log("[doLogin] open browser, vh=", vh.slice(0, 10));
     await openExternal(`${SERVER_URL}/oauth/login?vh=${vh}`);
-    const token = await pollSession(verifier, { cancelled: () => epoch !== loginEpoch });
-    if (epoch !== loginEpoch) return;
+    const token = await pollSession(verifier, {
+      cancelled: () => epoch !== loginEpoch,
+      onTick: (i) => {
+        obStatus.textContent = `세션 확인 중… (${i + 1})`;
+      },
+    });
+    console.log("[doLogin] got token:", token.slice(0, 6), "… epoch", epoch, "cur", loginEpoch);
+    if (epoch !== loginEpoch) {
+      console.warn("[doLogin] stale epoch — ignoring");
+      return;
+    }
     sessionToken = token;
     render(true);
     startSse();
-    // 세션 저장은 UI를 막지 않게 백그라운드 (Keychain 쓰기 팝업 대비)
-    if (isTauri()) void invoke("save_session", { token }).catch(() => {});
+    if (isTauri()) void invoke("save_session", { token }).catch((e) => console.warn("save_session", e));
+    console.log("[doLogin] rendered connected ✅");
   } catch (err) {
+    console.error("[doLogin] error:", err);
     if (epoch !== loginEpoch) return;
-    obStatus.textContent = (err as Error).message ?? "로그인 실패";
+    obStatus.textContent = "로그인 실패: " + ((err as Error)?.message ?? String(err));
     render(false);
   }
 }
