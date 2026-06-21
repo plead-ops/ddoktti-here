@@ -67,6 +67,19 @@ export function createSlackApp(deps: SlackDeps): { app: App; receiver: ExpressRe
     const ev = event as SlackMessageEvent;
     // user token 권한으로 인가된 사용자(들) = 이 이벤트를 받아야 할 후보 (PRD §4.2)
     const candidates = await resolveCandidateUsers(body);
+    logger.info(
+      {
+        ct: ev.channel_type,
+        sub: ev.subtype ?? null,
+        bot: Boolean(ev.bot_id),
+        user: ev.user ?? null,
+        textLen: (ev.text ?? "").length,
+        hasBlocks: Boolean(ev.blocks),
+        blocks: ev.blocks ? JSON.stringify(ev.blocks).slice(0, 400) : null,
+        cand: candidates,
+      },
+      "DEBUG msg-event",
+    );
     const results: ProcessResult[] = [];
     for (const userId of candidates) {
       try {
