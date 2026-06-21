@@ -21,6 +21,10 @@ services:
       LOG_LEVEL: info
       DATABASE_URL: postgres://ddoktti:${POSTGRES_PASSWORD}@postgres:5432/ddoktti
       REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
+      # 선택/테스트 (Dokploy Environment 에서 주입, 미설정 시 빈값)
+      DEBUG_SIMULATE: ${DEBUG_SIMULATE:-}
+      SLACK_ALLOWED_TEAM_IDS: ${SLACK_ALLOWED_TEAM_IDS:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
     depends_on:
       postgres:
         condition: service_healthy
