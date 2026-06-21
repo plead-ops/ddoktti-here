@@ -7,7 +7,7 @@ import { createSlackApp } from "./slack/app.js";
 import { getSettings } from "./store/settings.js";
 import { getUser } from "./store/users.js";
 import { addPending } from "./store/pending.js";
-import { isUserDnd } from "./slack/web.js";
+import { isUserDnd, getUserGroupIds } from "./slack/web.js";
 import { ensureSchema, closeDb } from "./store/db.js";
 import { closeRedis } from "./store/redis.js";
 
@@ -39,7 +39,11 @@ async function main(): Promise<void> {
     getUserContext: async (userId) => {
       const u = await getUser(userId);
       if (!u) return null;
-      return { selfUserId: userId, teamId: u.teamId, myUsergroupIds: new Set<string>() };
+      return {
+        selfUserId: userId,
+        teamId: u.teamId,
+        myUsergroupIds: await getUserGroupIds(userId), // 그룹 멘션 판정
+      };
     },
     isDnd: (userId) => isUserDnd(userId),
   });

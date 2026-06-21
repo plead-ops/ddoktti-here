@@ -2,6 +2,33 @@ import { WebClient } from "@slack/web-api";
 import { getUserToken } from "../store/users.js";
 import { redis } from "../store/redis.js";
 import { logger } from "../logger.js";
+import { loadConfig } from "../config.js";
+
+/** 사용자가 속한 유저그룹(subteam) ID 집합 — 그룹 멘션 판정용 (usergroups:read). Redis 1h 캐싱. */
+export async function getUserGroupIds(userId: string): Promise<Set<string>> {
+  const cacheKey = `usergroups:${userId}`;
+  const cached = await redis().get(cacheKey);
+  if (cached) {
+    try {
+      return new Set(JSON.parse(cached) as string[]);
+    } catch {
+      /* fall through */
+    }
+  }
+  const ids = new Set<string>();
+  try {
+    const bot = new WebClient(loadConfig().SLACK_BOT_TOKEN);
+    const res = await bot.usergroups.list({ include_users: true });
+    for (const g of res.usergroups ?? []) {
+      const users = (g as { users?: string[] }).users;
+      if (g.id && users?.includes(userId)) ids.add(g.id);
+    }
+  } catch (err) {
+    logger.warn({ err, userId }, "usergroups.list failed");
+  }
+  await redis().set(cacheKey, JSON.stringify([...ids]), "EX", 3600);
+  return ids;
+}
 
 export interface ChannelInfo {
   id: string;
