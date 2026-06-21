@@ -264,7 +264,7 @@ pub fn run() {
         .setup(|app| {
             let settings_i = MenuItem::with_id(app, "settings", "설정…", true, None::<&str>)?;
             let preview_i =
-                MenuItem::with_id(app, "preview", "오버레이 미리보기", true, None::<&str>)?;
+                MenuItem::with_id(app, "preview", "알림화면 미리보기", true, None::<&str>)?;
             let pause_i = MenuItem::with_id(app, "pause", "일시중지 / 재개", true, None::<&str>)?;
             let snooze30_i =
                 MenuItem::with_id(app, "snooze30", "30분 동안 멈춤", true, None::<&str>)?;
