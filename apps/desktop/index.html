@@ -41,6 +41,19 @@
             <span>일반</span>
           </button>
         </nav>
+        <div class="pause-box" id="pause-box">
+          <div class="pause-head">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="10" y1="9" x2="10" y2="15"/><line x1="14" y1="9" x2="14" y2="15"/></svg>
+            <b>알림 멈춤</b>
+            <span id="pause-state">받는 중</span>
+          </div>
+          <div class="seg-compact">
+            <button data-snooze="30">30분</button>
+            <button data-snooze="60">1시간</button>
+            <button data-snooze="inf">계속</button>
+          </div>
+          <button data-snooze="resume" id="resume-btn" class="resume-btn" hidden>재개</button>
+        </div>
         <div class="sidebar-foot">
           <img id="account-avatar" class="avatar-sm" alt="" hidden />
           <div class="acc">
@@ -129,15 +142,6 @@
         <section class="panel" data-panel="dnd" hidden>
           <h2>방해 금지</h2>
           <p class="panel-desc">알림이 너무 많아지지 않게 조절해요.</p>
-          <div class="row">
-            <div class="row-text"><b>지금 알림 멈추기</b><span id="pause-state">알림 받는 중</span></div>
-            <div class="seg">
-              <button data-snooze="30">30분</button>
-              <button data-snooze="60">1시간</button>
-              <button data-snooze="inf">계속</button>
-              <button data-snooze="resume" class="seg-resume">재개</button>
-            </div>
-          </div>
           <div class="row">
             <div class="row-text">
               <b>슬랙 방해 금지 중엔 끄기</b>

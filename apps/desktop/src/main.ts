@@ -90,22 +90,19 @@ function refreshConnStatus(): void {
 }
 
 const pauseState = $("pause-state");
+const pauseBox = $("pause-box");
+const resumeBtn = $("resume-btn");
 function refreshPauseUI(): void {
+  const paused = isPaused();
   if (pauseState) {
-    pauseState.textContent = !isPaused()
-      ? "알림 받는 중"
+    pauseState.textContent = !paused
+      ? "받는 중"
       : pausedUntil === Infinity
-        ? "계속 멈춤 중"
-        : `${new Date(pausedUntil).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}까지 멈춤`;
+        ? "계속"
+        : `${new Date(pausedUntil).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}까지`;
   }
-  // 세그먼트 버튼 활성 표시
-  document.querySelectorAll<HTMLButtonElement>(".seg button[data-snooze]").forEach((b) => {
-    const k = b.dataset.snooze;
-    const on = isPaused()
-      ? (k === "inf" && pausedUntil === Infinity)
-      : k === "resume";
-    b.classList.toggle("active", on);
-  });
+  pauseBox?.classList.toggle("active", paused);
+  resumeBtn?.toggleAttribute("hidden", !paused);
   refreshConnStatus();
 }
 function setSnooze(kind: string): void {
@@ -114,7 +111,7 @@ function setSnooze(kind: string): void {
   else pausedUntil = Date.now() + Number(kind) * 60000;
   refreshPauseUI();
 }
-document.querySelectorAll<HTMLButtonElement>(".seg button[data-snooze]").forEach((b) => {
+document.querySelectorAll<HTMLButtonElement>("button[data-snooze]").forEach((b) => {
   b.addEventListener("click", () => setSnooze(b.dataset.snooze ?? "resume"));
 });
 
