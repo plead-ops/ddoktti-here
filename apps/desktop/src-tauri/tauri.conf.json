@@ -20,8 +20,8 @@
         "label": "settings",
         "title": "똑띠왔어요 설정",
         "url": "index.html",
-        "width": 880,
-        "height": 620,
+        "width": 950,
+        "height": 640,
         "resizable": true,
         "visible": false,
         "center": true
