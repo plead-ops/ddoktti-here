@@ -43,6 +43,7 @@ export async function sendTestChannelMessage(
         channel: c.id,
         text: `<@${userId}> 🔔 똑띠왔어요 테스트 멘션입니다!`,
       });
+      logger.info({ channel: c.id, name: c.name, isPrivate: c.isPrivate }, "DEBUG test posted to");
       return { ok: true, channel: c.name };
     } catch {
       // not_in_channel 등 → 다음 채널
