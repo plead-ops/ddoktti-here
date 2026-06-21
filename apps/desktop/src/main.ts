@@ -113,9 +113,10 @@ async function doLogin(): Promise<void> {
     const token = await pollSession(verifier, { cancelled: () => epoch !== loginEpoch });
     if (epoch !== loginEpoch) return;
     sessionToken = token;
-    if (isTauri()) await invoke("save_session", { token });
     render(true);
     startSse();
+    // 세션 저장은 UI를 막지 않게 백그라운드 (Keychain 쓰기 팝업 대비)
+    if (isTauri()) void invoke("save_session", { token }).catch(() => {});
   } catch (err) {
     if (epoch !== loginEpoch) return;
     obStatus.textContent = (err as Error).message ?? "로그인 실패";
@@ -126,8 +127,8 @@ async function doLogout(): Promise<void> {
   sse?.stop();
   sse = null;
   sessionToken = null;
-  if (isTauri()) await invoke("clear_session").catch(() => {});
   render(false);
+  if (isTauri()) void invoke("clear_session").catch(() => {});
 }
 connectBtn.addEventListener("click", () => void doLogin());
 logoutBtn.addEventListener("click", () => void doLogout());
