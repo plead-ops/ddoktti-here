@@ -522,6 +522,9 @@ body.overlay-body {
   font: 700 13px system-ui, sans-serif;
   padding: 2px 9px;
   border-radius: 999px;
-  pointer-events: none;
+  cursor: pointer; /* 클릭 = 모두 닫기 */
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.badge:hover {
+  filter: brightness(1.1);
 }

@@ -5,7 +5,7 @@ import {
   type NotificationPayload,
   type ServerMessage,
 } from "@ddoktti/shared";
-import { resolveSession } from "./auth/session.js";
+import { resolveSession, createSseTicket, consumeSseTicket } from "./auth/session.js";
 import { getSettings, saveSettings } from "./store/settings.js";
 import { listPending, removePending } from "./store/pending.js";
 import { stopReadWatch } from "./slack/readWatch.js";
@@ -55,9 +55,20 @@ async function authUser(req: Request): Promise<string | null> {
 export function sseRoutes(hub: SseHub): Router {
   const r = Router();
 
-  // 서버→클라 이벤트 스트림
-  r.get("/events", async (req, res) => {
+  // SSE 연결용 단기 티켓 발급 (세션 Bearer 인증) — 장기 토큰을 URL에 안 싣기 위함
+  r.post("/events/ticket", async (req, res) => {
     const userId = await authUser(req);
+    if (!userId) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    res.json({ ticket: await createSseTicket(userId) });
+  });
+
+  // 서버→클라 이벤트 스트림 (티켓 우선, 하위호환으로 token 쿼리도 허용)
+  r.get("/events", async (req, res) => {
+    const ticket = String(req.query.ticket ?? "");
+    const userId = ticket ? await consumeSseTicket(ticket) : await authUser(req);
     if (!userId) {
       res.status(401).end();
       return;

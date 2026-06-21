@@ -9,6 +9,7 @@ import {
   toConversationType,
   type SlackMessageEvent,
 } from "./filters.js";
+import { botClient } from "./web.js";
 
 export interface UserContext {
   selfUserId: string;
@@ -36,6 +37,8 @@ export interface SlackDeps {
     threadTs: string,
     myUsergroupIds: ReadonlySet<string>,
   ) => Promise<boolean>;
+  /** 앱이 워크스페이스에서 제거됨 — 해당 팀 사용자 정리 + 재인증 */
+  onAppUninstalled: (teamId: string) => void | Promise<void>;
 }
 
 /**
@@ -55,7 +58,7 @@ export function createSlackApp(deps: SlackDeps): App {
     const ev = event as SlackMessageEvent;
 
     // user token 권한으로 인가된 사용자(들) = 이 이벤트를 받아야 할 후보 (PRD §4.2)
-    const candidates = resolveCandidateUsers(body);
+    const candidates = await resolveCandidateUsers(body);
 
     for (const userId of candidates) {
       try {
@@ -121,8 +124,16 @@ export function createSlackApp(deps: SlackDeps): App {
       }
     }
   });
-  app.event("app_uninstalled", async () => {
-    logger.warn("app_uninstalled received");
+  app.event("app_uninstalled", async ({ body }: { body: unknown }) => {
+    const teamId = (body as { team_id?: string } | null)?.team_id;
+    logger.warn({ teamId }, "app_uninstalled received");
+    if (teamId) {
+      try {
+        await deps.onAppUninstalled(teamId);
+      } catch (err) {
+        logger.error({ err, teamId }, "onAppUninstalled failed");
+      }
+    }
   });
   // TODO(M5): dnd_updated 이벤트로 DND 캐시 갱신(현재는 호출 시점 dnd.info 캐싱)
 
@@ -137,12 +148,27 @@ interface Authorization {
 /**
  * 이벤트 envelope 의 authorizations 에서 알림 대상 사용자(들)를 추출.
  * user token 권한으로 전달된 이벤트라 비-봇 user_id 가 수신자 컨텍스트다.
- * (대규모로 authorizations 가 truncated 되면 apps.event.authorizations.list 필요 — TODO)
+ * envelope authorizations 는 잘릴 수 있어, 비어 있으면 event_context 로 전체 목록을 조회.
  */
-function resolveCandidateUsers(body: unknown): string[] {
-  const auths = (body as { authorizations?: Authorization[] } | null)?.authorizations;
-  if (!Array.isArray(auths)) return [];
-  const ids = auths.filter((a) => a && a.is_bot !== true && a.user_id).map((a) => a.user_id!);
+async function resolveCandidateUsers(body: unknown): Promise<string[]> {
+  const b = body as { authorizations?: Authorization[]; event_context?: string } | null;
+  const pick = (auths?: Authorization[]) =>
+    Array.isArray(auths)
+      ? auths.filter((a) => a && a.is_bot !== true && a.user_id).map((a) => a.user_id!)
+      : [];
+
+  let ids = pick(b?.authorizations);
+  if (ids.length === 0 && b?.event_context) {
+    // 폴백: 전체 인가 목록 (truncation 대비). 비어 있을 때만 호출해 호출량 제한.
+    try {
+      const res = await botClient().apps.event.authorizations.list({
+        event_context: b.event_context,
+      });
+      ids = pick(res.authorizations as Authorization[] | undefined);
+    } catch (err) {
+      logger.warn({ err }, "apps.event.authorizations.list failed");
+    }
+  }
   return [...new Set(ids)];
 }
 

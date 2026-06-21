@@ -33,7 +33,7 @@ export class SseClient {
 
   start(): void {
     this.stopped = false;
-    this.connect();
+    void this.connect();
   }
   stop(): void {
     this.stopped = true;
@@ -42,11 +42,30 @@ export class SseClient {
     this.es = null;
   }
 
-  private connect(): void {
+  // 연결마다 단기 SSE 티켓을 받아 쿼리에 사용(장기 토큰 노출 방지). 실패 시 토큰 폴백.
+  private async fetchTicket(token: string): Promise<string | null> {
+    try {
+      const res = await fetch(`${SERVER_URL}/events/ticket`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return null;
+      return ((await res.json()) as { ticket?: string }).ticket ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async connect(): Promise<void> {
     const token = this.getToken();
     if (!token || this.stopped) return;
     this.h.onStatus?.("connecting");
-    const es = new EventSource(`${SERVER_URL}/events?token=${encodeURIComponent(token)}`);
+    const ticket = await this.fetchTicket(token);
+    if (this.stopped) return;
+    const url = ticket
+      ? `${SERVER_URL}/events?ticket=${encodeURIComponent(ticket)}`
+      : `${SERVER_URL}/events?token=${encodeURIComponent(token)}`;
+    const es = new EventSource(url);
     this.es = es;
 
     es.onopen = () => {
@@ -60,7 +79,7 @@ export class SseClient {
       this.es = null;
       if (this.stopped) return;
       if (this.retryTimer) clearTimeout(this.retryTimer);
-      this.retryTimer = window.setTimeout(() => this.connect(), this.backoff);
+      this.retryTimer = window.setTimeout(() => void this.connect(), this.backoff);
       this.backoff = Math.min(this.backoff * 2, 30000);
     };
 

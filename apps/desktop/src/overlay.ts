@@ -165,6 +165,23 @@ el.overlay.addEventListener("click", () => {
   }
   void onClick();
 });
+
+// +N 배지 클릭 = 쌓인 알림 모두 닫기
+el.badge.addEventListener("click", (e) => {
+  e.stopPropagation();
+  void dismissAll();
+});
+async function dismissAll(): Promise<void> {
+  const ids = queue.map((q) => q.id);
+  queue = [];
+  renderOverlay();
+  if (isTauri()) {
+    const { emit } = await import("@tauri-apps/api/event");
+    for (const id of ids) await emit("overlay-dismiss", { id }).catch(() => {});
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("hide_overlay").catch(() => {});
+  }
+}
 async function beginDrag(): Promise<void> {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   expectPersist = true;

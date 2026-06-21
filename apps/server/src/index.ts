@@ -5,7 +5,7 @@ import { createHttpApp } from "./http.js";
 import { SseHub, sseRoutes } from "./sse.js";
 import { createSlackApp } from "./slack/app.js";
 import { getSettings } from "./store/settings.js";
-import { getUser, deleteUser } from "./store/users.js";
+import { getUser, deleteUser, listUserIdsByTeam } from "./store/users.js";
 import { addPending, removePending } from "./store/pending.js";
 import { isUserDnd, getUserGroupIds } from "./slack/web.js";
 import { startReadWatch, setOnRead } from "./slack/readWatch.js";
@@ -64,6 +64,14 @@ async function main(): Promise<void> {
       await deleteUser(userId).catch(() => {});
       hub.send(userId, { type: "reauth", reason: "token-revoked" });
       logger.info({ userId }, "token revoked → user removed");
+    },
+    onAppUninstalled: async (teamId) => {
+      const ids = await listUserIdsByTeam(teamId).catch(() => []);
+      for (const uid of ids) {
+        await deleteUser(uid).catch(() => {});
+        hub.send(uid, { type: "reauth", reason: "app-uninstalled" });
+      }
+      logger.info({ teamId, count: ids.length }, "app uninstalled → users removed");
     },
   });
 

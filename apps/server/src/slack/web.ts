@@ -1,10 +1,30 @@
-import { WebClient } from "@slack/web-api";
+import { WebClient, retryPolicies } from "@slack/web-api";
 import { getUserToken } from "../store/users.js";
 import { redis } from "../store/redis.js";
 import { logger } from "../logger.js";
 import { loadConfig } from "../config.js";
 import { parseMentions } from "./filters.js";
 import type { ThreadFacts } from "../store/threads.js";
+
+// WebClient 재사용(토큰별) + 레이트리밋 재시도/동시성 제한.
+const CLIENT_OPTS = {
+  retryConfig: retryPolicies.fiveRetriesInFiveMinutes,
+  maxRequestConcurrency: 5,
+} as const;
+const clientCache = new Map<string, WebClient>();
+export function clientFor(token: string): WebClient {
+  let c = clientCache.get(token);
+  if (!c) {
+    c = new WebClient(token, CLIENT_OPTS);
+    clientCache.set(token, c);
+  }
+  return c;
+}
+let botClientInstance: WebClient | null = null;
+export function botClient(): WebClient {
+  botClientInstance ??= new WebClient(loadConfig().SLACK_BOT_TOKEN, CLIENT_OPTS);
+  return botClientInstance;
+}
 
 /**
  * 쓰레드 전체를 조회해 멤버 판정용 "사실"을 추출 — 팔로우셋 폴백용(유저 무관).
@@ -19,7 +39,7 @@ export async function fetchThreadFacts(
   const token = await getUserToken(tokenUserId);
   if (!token) return null;
   try {
-    const res = await new WebClient(token).conversations.replies({
+    const res = await clientFor(token).conversations.replies({
       channel,
       ts: threadTs,
       limit: 200,
@@ -63,8 +83,7 @@ export async function getUserGroupIds(userId: string): Promise<Set<string>> {
   }
   const ids = new Set<string>();
   try {
-    const bot = new WebClient(loadConfig().SLACK_BOT_TOKEN);
-    const res = await bot.usergroups.list({ include_users: true });
+    const res = await botClient().usergroups.list({ include_users: true });
     for (const g of res.usergroups ?? []) {
       const users = (g as { users?: string[] }).users;
       if (g.id && users?.includes(userId)) ids.add(g.id);
@@ -86,7 +105,7 @@ export interface ChannelInfo {
 export async function listUserChannels(userId: string): Promise<ChannelInfo[]> {
   const token = await getUserToken(userId);
   if (!token) return [];
-  const web = new WebClient(token);
+  const web = clientFor(token);
   const out: ChannelInfo[] = [];
   try {
     for await (const page of web.paginate("users.conversations", {
@@ -130,7 +149,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
   try {
     const token = await getUserToken(userId);
     if (token) {
-      const res = await new WebClient(token).users.info({ user: userId });
+      const res = await clientFor(token).users.info({ user: userId });
       const u = res.user;
       const p = u?.profile;
       profile = {
@@ -158,7 +177,7 @@ export async function isUserDnd(userId: string): Promise<boolean> {
   try {
     const token = await getUserToken(userId);
     if (token) {
-      const web = new WebClient(token);
+      const web = clientFor(token);
       const res = (await web.dnd.info({ user: userId })) as {
         dnd_enabled?: boolean;
         snooze_enabled?: boolean;

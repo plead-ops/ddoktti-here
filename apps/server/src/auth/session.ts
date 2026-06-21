@@ -46,4 +46,25 @@ export async function claimSessionByVerifier(verifier: string): Promise<string |
   return token;
 }
 
+/**
+ * SSE 단기 티켓 (PRD §13.6) — EventSource 는 헤더를 못 실어 토큰을 쿼리로 보내야 하는데,
+ * 장기 세션 토큰이 URL/프록시 로그에 남지 않도록 60초·1회성 티켓을 발급해 사용한다.
+ */
+const TICKET_PREFIX = "ticket:"; // ticket:<sha256> -> userId
+const TICKET_TTL_SECONDS = 60;
+
+export async function createSseTicket(userId: string): Promise<string> {
+  const ticket = randomBytes(24).toString("base64url");
+  await redis().set(TICKET_PREFIX + sha256(ticket), userId, "EX", TICKET_TTL_SECONDS);
+  return ticket;
+}
+
+export async function consumeSseTicket(ticket: string): Promise<string | null> {
+  if (!ticket) return null;
+  const k = TICKET_PREFIX + sha256(ticket);
+  const userId = await redis().get(k);
+  if (userId) await redis().del(k); // 1회성
+  return userId;
+}
+
 export { sha256 };
