@@ -7,109 +7,27 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body class="settings">
-    <!-- 미연결: 온보딩 -->
-    <div id="onboarding" class="onboarding">
-      <img class="logo" src="/sprites/sprite3.png" alt="똑띠" width="200" height="200" />
-      <h1>똑띠왔어요</h1>
-      <p class="muted" id="ob-status">연결 상태 확인 중…</p>
-      <button id="connect" class="btn primary">Slack으로 연결</button>
-      <label class="ob-check"><input type="checkbox" id="ob-autostart" checked /> 로그인 시 자동 시작</label>
-    </div>
-
-    <!-- 연결됨: 설정 앱 -->
-    <div id="app" class="app" hidden>
+    <div id="app" class="app">
       <aside class="sidebar">
         <div class="brand">
           <img src="/sprites/sprite3.png" alt="" width="26" height="26" />
           <span>똑띠왔어요</span>
         </div>
         <nav class="nav">
-          <button class="nav-item active" data-tab="alarm">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-            <span>알림</span>
-          </button>
-          <button class="nav-item" data-tab="display">
+          <button class="nav-item active" data-tab="display">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
             <span>표시</span>
-          </button>
-          <button class="nav-item" data-tab="dnd">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6.4 6.4 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-            <span>방해 금지</span>
           </button>
           <button class="nav-item" data-tab="general">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="var(--bg-2)"/><circle cx="15" cy="12" r="2" fill="var(--bg-2)"/><circle cx="8" cy="18" r="2" fill="var(--bg-2)"/></svg>
             <span>일반</span>
           </button>
         </nav>
-        <div class="pause-box" id="pause-box">
-          <div class="pause-head">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="10" y1="9" x2="10" y2="15"/><line x1="14" y1="9" x2="14" y2="15"/></svg>
-            <b>알림 멈춤</b>
-            <span id="pause-state">받는 중</span>
-          </div>
-          <div class="seg-compact">
-            <button data-snooze="30">30분</button>
-            <button data-snooze="60">1시간</button>
-            <button data-snooze="inf">계속</button>
-          </div>
-          <button data-snooze="resume" id="resume-btn" class="resume-btn" hidden>재개</button>
-        </div>
-        <div class="sidebar-foot">
-          <img id="account-avatar" class="avatar-sm" alt="" hidden />
-          <div class="acc">
-            <b id="account-id">연결됨</b>
-            <span id="conn-status" class="conn">연결 중…</span>
-          </div>
-          <button id="logout" class="icon-btn" title="로그아웃 / 연결 해제" aria-label="로그아웃">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          </button>
-        </div>
       </aside>
 
       <main class="content">
-        <!-- 알림 -->
-        <section class="panel" data-panel="alarm">
-          <h2>알림</h2>
-          <p class="panel-desc">어떤 슬랙 알림이 올 때 똑띠를 띄울지 정해요.</p>
-
-          <div class="row">
-            <div class="row-text"><b>다이렉트 메시지</b><span>1:1·그룹 DM이 오면</span></div>
-            <label class="switch"><input type="checkbox" id="t-dm" /><i></i></label>
-          </div>
-          <div class="row">
-            <div class="row-text"><b>멘션</b><span>나를 콕 집거나 @here·@channel·그룹(@팀) 멘션</span></div>
-            <label class="switch"><input type="checkbox" id="t-mention" /><i></i></label>
-          </div>
-          <div class="row">
-            <div class="row-text"><b>참여 중인 쓰레드</b><span>내가 멘션된 쓰레드에 새 답글이 달리면</span></div>
-            <label class="switch"><input type="checkbox" id="t-thread" /><i></i></label>
-          </div>
-          <div class="row">
-            <div class="row-text"><b>지정 채널</b><span>선택한 채널의 모든 메시지</span></div>
-            <label class="switch"><input type="checkbox" id="t-channel" /><i></i></label>
-          </div>
-          <div class="subblock" id="channels-block" hidden>
-            <input type="search" id="channel-search" placeholder="채널 검색…" />
-            <div class="check-list" id="channel-list"><span class="muted">불러오는 중…</span></div>
-          </div>
-          <div class="row">
-            <div class="row-text"><b>키워드</b><span>등록한 단어가 포함되면</span></div>
-            <label class="switch"><input type="checkbox" id="t-keyword" /><i></i></label>
-          </div>
-          <div class="subblock" id="keywords-block" hidden>
-            <div class="chip-input">
-              <input type="text" id="keyword-input" placeholder="키워드 입력 후 Enter" />
-            </div>
-            <div class="chips" id="keyword-chips"></div>
-          </div>
-          <div class="row">
-            <div class="row-text"><b>테스트 알림</b><span id="test-notify-status">봇이 나에게 DM을 보내 알림을 확인해요</span></div>
-            <button id="test-notify" class="btn">보내기</button>
-          </div>
-        </section>
-
         <!-- 표시 -->
-        <section class="panel" data-panel="display" hidden>
+        <section class="panel" data-panel="display">
           <h2>표시</h2>
           <p class="panel-desc">알림화면이 어떻게 보일지 설정해요.</p>
           <div class="row pos-row">
@@ -146,33 +64,21 @@
           <button id="test-overlay" class="btn">알림화면 미리보기</button>
         </section>
 
-        <!-- 방해 금지 -->
-        <section class="panel" data-panel="dnd" hidden>
-          <h2>방해 금지</h2>
-          <p class="panel-desc">알림이 너무 많아지지 않게 조절해요.</p>
-          <div class="row">
-            <div class="row-text">
-              <b>슬랙 방해 금지 중엔 끄기</b>
-              <span>슬랙에서 방해 금지(DND)·일시정지를 켜두면 똑띠도 함께 쉬어요</span>
-            </div>
-            <label class="switch"><input type="checkbox" id="respect-dnd" /><i></i></label>
-          </div>
-          <div class="row">
-            <div class="row-text">
-              <b>지정한 시간엔 끄기</b>
-              <span>아래 시간대(내 컴퓨터 시각 기준)엔 알림을 띄우지 않아요</span>
-            </div>
-            <label class="switch"><input type="checkbox" id="qh-enabled" /><i></i></label>
-          </div>
-          <div class="subblock" id="qh-block" hidden>
-            <label class="field-inline">시작 시각 <input type="time" id="qh-start" /></label>
-            <label class="field-inline">종료 시각 <input type="time" id="qh-end" /></label>
-          </div>
-        </section>
-
         <!-- 일반 -->
         <section class="panel" data-panel="general" hidden>
           <h2>일반</h2>
+          <p class="panel-desc">슬랙 데스크톱 앱이 띄우는 알림을 감지해 똑띠를 띄워요. 멘션·DM·키워드 등 무엇을 알릴지는 슬랙 설정을 따릅니다.</p>
+          <div class="row">
+            <div class="row-text"><b>알림 접근 권한</b><span id="na-status">확인 중…</span></div>
+            <div class="na-actions">
+              <button id="na-request" class="btn">권한 허용</button>
+              <button id="na-settings" class="btn">Windows 설정 열기</button>
+            </div>
+          </div>
+          <p class="hint">
+            똑띠가 슬랙 알림을 읽으려면 Windows의 “알림 접근” 권한이 필요해요. 허용이 안 되면
+            [Windows 설정 열기]에서 똑띠왔어요를 켜주세요. (한 번만 하면 됩니다)
+          </p>
           <div class="row">
             <div class="row-text"><b>로그인 시 자동 시작</b><span>부팅 후 자동 실행</span></div>
             <label class="switch"><input type="checkbox" id="autostart" /><i></i></label>
@@ -180,16 +86,7 @@
           <div class="row">
             <div class="row-text"><b>버전</b><span id="app-version">—</span></div>
           </div>
-          <div class="row">
-            <div class="row-text"><b>자동 업데이트</b><span>새 버전을 자동으로 받아 재시작</span></div>
-            <label class="switch"><input type="checkbox" id="auto-update" checked /><i></i></label>
-          </div>
-          <div class="row">
-            <div class="row-text"><b>업데이트</b><span id="update-status">버튼을 눌러 확인</span></div>
-            <button id="check-update" class="btn">지금 확인</button>
-          </div>
         </section>
-
       </main>
     </div>
 

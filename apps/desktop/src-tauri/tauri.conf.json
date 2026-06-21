@@ -11,7 +11,6 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "macOSPrivateApi": true,
     "security": {
       "csp": "default-src 'self'; img-src 'self' asset: data: http://asset.localhost https://*.slack-edge.com https://*.gravatar.com https://lh3.googleusercontent.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ddoktti-here.app.plead.co.kr"
     },
@@ -44,23 +43,16 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg", "nsis"],
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "createUpdaterArtifacts": true
+    ]
   },
   "plugins": {
-    "updater": {
-      "endpoints": [
-        "https://updates-ddoktti-here.app.plead.co.kr/desktop-updates/latest.json"
-      ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE4MzJFODU4OTZFQkExNgpSV1FXdW02SmhTNkRDcmZGeHF5b0dvUnpUUFZtYW5KV3ZrbXlDdU5GSUtqU2wrUW1hdGJWREVoago="
-    },
     "deep-link": {
       "desktop": {
         "schemes": ["ddoktti"]

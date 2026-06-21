@@ -1,4 +1,3 @@
-use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -8,37 +7,10 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WindowEvent,
 };
 
-const KR_SERVICE: &str = "kr.co.plead.ddoktti-here";
-const KR_USER: &str = "session";
+mod notifier;
+
 /// 오버레이 한 변 기본 크기(논리 px). scale 을 곱한다.
 const OVERLAY_BASE: f64 = 240.0;
-
-// ───────────────────── 세션 (OS 보안 저장소) ─────────────────────
-fn session_entry() -> Result<Entry, String> {
-    Entry::new(KR_SERVICE, KR_USER).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn save_session(token: String) -> Result<(), String> {
-    session_entry()?.set_password(&token).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn get_session() -> Result<Option<String>, String> {
-    match session_entry()?.get_password() {
-        Ok(t) => Ok(Some(t)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[tauri::command]
-fn clear_session() -> Result<(), String> {
-    match session_entry()?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
-}
 
 // ───────────────────── 표시 설정 (로컬 영속) ─────────────────────
 fn default_speed() -> f64 {
@@ -179,11 +151,69 @@ fn hide_overlay(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-fn display_notification(app: AppHandle, payload: serde_json::Value) -> Result<(), String> {
+/// 오버레이를 띄우고 페이로드를 전달(커맨드/네이티브 알림 폴러 공용).
+pub(crate) fn push_overlay(app: &AppHandle, payload: serde_json::Value) -> Result<(), String> {
     show_overlay(app.clone())?;
     if let Some(overlay) = app.get_webview_window("overlay") {
         overlay.emit("notify", payload).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 해당 알림(id)을 닫도록 오버레이에 통지(슬랙에서 읽힘 → 자동 닫기).
+/// 오버레이는 "dismiss-one" 이벤트의 {id} 를 듣는다(overlay.ts).
+pub(crate) fn dismiss_overlay(app: &AppHandle, id: &str) -> Result<(), String> {
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        overlay
+            .emit("dismiss-one", serde_json::json!({ "id": id }))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn display_notification(app: AppHandle, payload: serde_json::Value) -> Result<(), String> {
+    push_overlay(&app, payload)
+}
+
+/// 알림 접근 권한 상태: "allowed" | "denied" | "unspecified" | "unsupported".
+#[tauri::command]
+fn notification_access() -> String {
+    notifier::access_status().to_string()
+}
+
+/// 알림 접근 권한 요청(동의창 시도). 결과 상태 문자열 반환.
+#[tauri::command]
+fn request_notification_access() -> String {
+    notifier::request_access().to_string()
+}
+
+/// Windows 알림(개인정보) 설정 페이지 열기 — 동의창이 안 뜰 때 수동 허용 유도.
+#[tauri::command]
+fn open_notification_settings() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg("ms-settings:privacy-notifications")
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 오버레이 클릭 → 슬랙 데스크톱 앱 열기(AUMID). OS 알림엔 정밀 딥링크가 없어 앱만 연다.
+#[tauri::command]
+fn open_slack(aumid: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(format!("shell:AppsFolder\\{aumid}"))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = aumid;
     }
     Ok(())
 }
@@ -244,7 +274,6 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -258,19 +287,15 @@ pub fn run() {
             persist_overlay_position,
             get_display_settings,
             set_display_settings,
-            save_session,
-            get_session,
-            clear_session
+            open_slack,
+            notification_access,
+            request_notification_access,
+            open_notification_settings
         ])
         .setup(|app| {
             let settings_i = MenuItem::with_id(app, "settings", "설정…", true, None::<&str>)?;
             let preview_i =
                 MenuItem::with_id(app, "preview", "알림화면 미리보기", true, None::<&str>)?;
-            let pause_i = MenuItem::with_id(app, "pause", "일시중지 / 재개", true, None::<&str>)?;
-            let snooze30_i =
-                MenuItem::with_id(app, "snooze30", "30분 동안 멈춤", true, None::<&str>)?;
-            let snooze60_i =
-                MenuItem::with_id(app, "snooze60", "1시간 동안 멈춤", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
@@ -278,23 +303,16 @@ pub fn run() {
                     &settings_i,
                     &preview_i,
                     &PredefinedMenuItem::separator(app)?,
-                    &pause_i,
-                    &snooze30_i,
-                    &snooze60_i,
-                    &PredefinedMenuItem::separator(app)?,
                     &quit_i,
                 ],
             )?;
 
-            // 트레이 아이콘: macOS=흑백 템플릿(눈 구멍), Windows/Linux=컬러(눈 유지)
-            #[cfg(target_os = "macos")]
-            let tray_icon = tauri::include_image!("icons/tray/iconTemplate.png");
-            #[cfg(not(target_os = "macos"))]
+            // 트레이 아이콘(Windows 컬러)
             let tray_icon = tauri::include_image!("icons/tray/icon-win.png");
 
             TrayIconBuilder::with_id("main")
                 .icon(tray_icon)
-                .icon_as_template(cfg!(target_os = "macos"))
+                .icon_as_template(false)
                 .tooltip("똑띠왔어요")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
@@ -302,15 +320,6 @@ pub fn run() {
                     "settings" => show_settings(app),
                     "preview" => {
                         let _ = preview_overlay(app.clone());
-                    }
-                    "pause" => {
-                        let _ = app.emit("pause-change", 0i64); // 토글
-                    }
-                    "snooze30" => {
-                        let _ = app.emit("pause-change", 30i64);
-                    }
-                    "snooze60" => {
-                        let _ = app.emit("pause-change", 60i64);
                     }
                     "quit" => app.exit(0),
                     _ => {}
@@ -321,6 +330,9 @@ pub fn run() {
                 let _ = overlay.hide();
             }
             show_settings(&app.handle().clone());
+
+            // Windows OS 알림(슬랙) 폴링 시작. 그 외 플랫폼은 no-op.
+            notifier::start(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {

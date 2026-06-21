@@ -142,7 +142,7 @@ body.settings {
 }
 /* 사이드바 하단 계정 + 로그아웃 */
 .sidebar-foot {
-  margin-top: 8px;
+  margin-top: auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -233,78 +233,6 @@ body.settings {
   width: 12px;
   height: 12px;
   box-shadow: 0 0 0 4px rgba(56, 249, 105, 0.18);
-}
-
-/* 알림 멈춤(스누즈) 강조 박스 — 사이드바 프로필 위 */
-.pause-box {
-  margin-top: auto;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-}
-.pause-box.active {
-  border-color: var(--accent);
-  background: rgba(56, 249, 105, 0.1);
-}
-.pause-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-}
-.pause-head svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
-  color: var(--muted);
-}
-.pause-box.active .pause-head svg {
-  color: var(--accent);
-}
-.pause-head #pause-state {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--muted);
-}
-.pause-box.active .pause-head #pause-state {
-  color: var(--accent);
-}
-.seg-compact {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 5px;
-}
-.seg-compact button {
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  background: var(--bg-2);
-  color: var(--fg);
-  border-radius: 7px;
-  padding: 6px 0;
-}
-.seg-compact button:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.resume-btn {
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  border: 0;
-  background: var(--accent);
-  color: var(--accent-ink);
-  border-radius: 7px;
-  padding: 7px 0;
 }
 
 /* 콘텐츠 */
@@ -527,4 +455,11 @@ body.overlay-body {
 }
 .badge:hover {
   filter: brightness(1.1);
+}
+
+/* 알림 접근 권한 버튼들 */
+.na-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
 }

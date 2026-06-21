@@ -1,33 +1,34 @@
 # 똑띠왔어요 (ddoktti-here)
 
-슬랙 알림을 놓치지 않도록, 알림 도착 시 화면에 마스코트 애니메이션을 오버레이로 띄워주는 맥/윈도우 데스크탑 앱.
+슬랙 알림을 놓치지 않도록, 알림 도착 시 화면에 마스코트 애니메이션을 오버레이로 띄워주는 **Windows** 데스크탑 앱.
 
-> 제품/설계 상세는 [`PRD.md`](./PRD.md) 참고.
+Windows의 OS 알림(UserNotificationListener)으로 **슬랙 데스크톱 앱이 띄우는 알림을 직접 감지**한다.
+서버·OAuth·로그인 없이 완전 로컬로 동작하며, 무엇을 알릴지(멘션/DM/키워드/뮤트/DND)는
+전적으로 슬랙 자체 설정을 따른다. 슬랙에서 메시지를 읽으면 오버레이도 자동으로 닫힌다.
 
 ## 구성 (pnpm 모노레포)
 
 ```
 apps/
-  desktop/   # Tauri 클라이언트 (오버레이/설정/트레이)
-  server/    # Node + Slack Bolt (Socket Mode), OAuth, WS 푸시
+  desktop/   # Tauri 데스크탑 앱 (오버레이/설정/트레이 + Rust 알림 폴러)
 packages/
-  shared/    # 서버↔클라 공유 프로토콜 타입 + zod 스키마
+  shared/    # 오버레이 페이로드 타입 (zod)
 assets/      # 스프라이트 / 아이콘
+spike/       # 검증 스파이크 (C#/Rust 알림 PoC)
 ```
 
-## 사전 요구
-- Node 26 (`.nvmrc`; nvm 사용자는 `nvm use`). node 25+ 는 corepack 미동봉이라 `npm i -g pnpm@9.15.9`
-- pnpm 9
-- Rust / Cargo (데스크탑 빌드)
-- 서버 로컬 실행 시 PostgreSQL · Redis
+핵심: `apps/desktop/src-tauri/src/notifier.rs` — Windows `UserNotificationListener`를 1초 폴링하며
+슬랙 메시지를 감지해 오버레이를 띄우고, 읽히면(Removed) 닫는다. `windows` 크레이트 사용.
+
+## 사전 요구 (Windows 10/11)
+- Node 26 (`.nvmrc`) + pnpm 9 (`npm i -g pnpm@9.15.9`)
+- Rust / Cargo + Visual Studio C++ Build Tools (MSVC) — Tauri 빌드용
+- WebView2 런타임 (윈11 기본 탑재)
+- 슬랙 데스크톱 앱 + Windows 알림 접근 권한 허용
 
 ## 시작
 ```bash
 pnpm install
-cp .env.example .env        # 서버 환경변수 채우기
-
-# 서버 개발
-pnpm dev:server
 
 # 데스크탑 개발 (Tauri)
 pnpm dev:desktop
@@ -37,7 +38,6 @@ pnpm icons
 ```
 
 ## 빌드 / 배포
-- 서버: Dokploy (Base Directory `apps/server`, Dockerfile). `main` push 자동 배포.
-- 데스크탑: `v*` 태그 → GitHub Actions가 맥/윈 빌드 후 MinIO 업로드 (자동 업데이트 피드).
-
-자세한 CI/배포·보안은 `PRD.md` §8·§9·§13.
+- `v*` 태그 push → GitHub Actions(`desktop-release.yml`)가 Windows nsis 인스톨러를 빌드해
+  GitHub Release(초안)에 첨부. 자동 업데이트 없음 — 사용자는 릴리스에서 설치본을 받는다.
+- 일반 exe 인스톨러로 설치만 하면 동작한다(sparse package/패키지 ID 불필요 — `spike/`에서 검증).

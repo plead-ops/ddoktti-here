@@ -1,11 +1,10 @@
 name: desktop-release
 
-# v* 태그 → 맥/윈 빌드·서명 → Dokploy MinIO 에 업로드 (자동 업데이트 피드). PRD §8·§9.
-# 필요한 GitHub Secrets:
-#   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-#   MINIO_ENDPOINT(예: https://updates-ddoktti-here.app.plead.co.kr), MINIO_ACCESS_KEY, MINIO_SECRET_KEY
-#   MINIO_BUCKET(예: desktop-updates), MINIO_PUBLIC_BASE(예: https://updates-ddoktti-here.app.plead.co.kr/desktop-updates)
+# Windows nsis 인스톨러 빌드.
+#  - 수동 실행(Actions 탭의 Run workflow): 설치본을 워크플로 아티팩트로 업로드 → 다운로드해 테스트.
+#  - v* 태그 push: 동일 빌드(아티팩트 업로드). 자동 업데이트/서명 피드 없음.
 on:
+  workflow_dispatch:
   push:
     tags: ["v*"]
 
@@ -14,112 +13,25 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: "--target universal-apple-darwin"
-          - platform: windows-latest
-            args: ""
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with: { version: 9 }
       - uses: actions/setup-node@v4
-        with: { node-version: 26, cache: pnpm }
+        with: { node-version: 22, cache: pnpm }
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install
 
-      - name: Build + sign (Tauri updater 아티팩트 생성)
+      - name: Build (Tauri, Windows nsis 인스톨러)
         uses: tauri-apps/tauri-action@v0
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
-          args: ${{ matrix.args }}
+          args: "--bundles nsis"
 
-      - name: Collect artifacts
-        shell: bash
-        run: |
-          mkdir -p collected
-          # 설치본 + 업데이터 아티팩트(.tar.gz/.nsis.zip/.sig) + dmg/exe
-          find apps/desktop/src-tauri/target -type f \
-            \( -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
-               -o -name '*.dmg' \
-               -o -name '*-setup.exe' -o -name '*.nsis.zip' -o -name '*.nsis.zip.sig' \
-               -o -name '*.msi' -o -name '*.msi.zip' -o -name '*.msi.zip.sig' \) \
-            -exec cp {} collected/ \; || true
-          # 한글 productName(똑띠왔어요) 접두를 ASCII 로 치환 → URL/NFD 문제 제거.
-          # .sig 와 바이너리가 같은 규칙으로 바뀌어 매칭 유지(서명은 내용 기반이라 무관).
-          for f in collected/*; do
-            b=$(basename "$f"); nb=$(echo "$b" | sed -E 's/^[^_]*_/ddoktti_/')
-            [ "$b" != "$nb" ] && mv "$f" "collected/$nb" || true
-          done
-          ls -la collected || true
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.platform }}
-          path: collected/**
-          if-no-files-found: warn
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with: { path: artifacts }
-
-      - name: Assemble latest.json
-        env:
-          PUBLIC_BASE: ${{ secrets.MINIO_PUBLIC_BASE }}
-          VERSION: ${{ github.ref_name }}
-        run: |
-          node <<'NODE'
-          const fs = require("fs"), path = require("path");
-          const version = (process.env.VERSION || "v0.0.0").replace(/^v/, "");
-          const base = (process.env.PUBLIC_BASE || "").replace(/\/$/, "");
-          const root = "artifacts";
-          const files = [];
-          for (const d of fs.readdirSync(root)) {
-            const dir = path.join(root, d);
-            if (fs.statSync(dir).isDirectory()) for (const f of fs.readdirSync(dir)) files.push(path.join(dir, f));
-          }
-          const find = (re) => files.find((f) => re.test(path.basename(f)));
-          const sigOf = (f) => { const s = files.find((x) => x === f + ".sig"); return s ? fs.readFileSync(s, "utf8").trim() : ""; };
-          const url = (f) => `${base}/${version}/${encodeURIComponent(path.basename(f))}`;
-          const platforms = {};
-          const mac = find(/\.app\.tar\.gz$/);
-          if (mac) { const sig = sigOf(mac); platforms["darwin-aarch64"] = { signature: sig, url: url(mac) }; platforms["darwin-x86_64"] = { signature: sig, url: url(mac) }; }
-          const win = find(/\.nsis\.zip$/) || find(/\.msi\.zip$/);
-          if (win) platforms["windows-x86_64"] = { signature: sigOf(win), url: url(win) };
-          const latest = { version, pub_date: new Date().toISOString(), platforms };
-          fs.writeFileSync("artifacts/latest.json", JSON.stringify(latest, null, 2));
-          console.log(JSON.stringify(latest, null, 2));
-          NODE
-
-      - name: Upload to MinIO (S3 호환)
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_KEY }}
-          AWS_EC2_METADATA_DISABLED: "true"
-          AWS_DEFAULT_REGION: us-east-1
-          ENDPOINT: ${{ secrets.MINIO_ENDPOINT }}
-          BUCKET: ${{ secrets.MINIO_BUCKET }}
-          VERSION: ${{ github.ref_name }}
-        run: |
-          set -e
-          aws configure set default.s3.addressing_style path  # MinIO 호환
-          VER="${VERSION#v}"
-          # 설치본/업데이터 아티팩트를 버전 경로로 업로드
-          for d in artifacts/*/; do
-            aws s3 cp "$d" "s3://${BUCKET}/${VER}/" --recursive --endpoint-url "$ENDPOINT"
-          done
-          # 매니페스트는 고정 경로(앱 업데이터가 폴링)
-          aws s3 cp artifacts/latest.json "s3://${BUCKET}/latest.json" --endpoint-url "$ENDPOINT"
-          echo "✅ uploaded ${VER} + latest.json"
+          name: ddoktti-windows-nsis
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error

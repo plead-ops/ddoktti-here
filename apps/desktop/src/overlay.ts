@@ -118,7 +118,7 @@ async function removeOne(id: string): Promise<void> {
   }
 }
 
-/** 클릭(드래그 아님) = 현재 알림 열기 + 닫기(서버 전파) */
+/** 클릭(드래그 아님) = 현재 알림 열기 + 닫기 */
 function safeLink(url: string): boolean {
   return url.startsWith("slack://") || /^https:\/\//.test(url);
 }
@@ -126,13 +126,15 @@ async function onClick(): Promise<void> {
   const cur = current();
   if (!cur) return;
   if (isTauri()) {
-    if (safeLink(cur.deepLink)) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    if (cur.aumid) {
+      // OS 알림: 정밀 딥링크가 없어 AUMID 로 슬랙 데스크톱을 연다
+      await invoke("open_slack", { aumid: cur.aumid }).catch(() => {});
+    } else if (cur.deepLink && safeLink(cur.deepLink)) {
       const { openUrl } = await import("@tauri-apps/plugin-opener");
       await openUrl(cur.deepLink).catch(() => {});
     }
-    const { emit } = await import("@tauri-apps/api/event");
-    await emit("overlay-dismiss", { id: cur.id }).catch(() => {}); // 설정창 → 서버 dismiss
-  } else {
+  } else if (cur.deepLink) {
     try {
       window.location.href = cur.deepLink;
     } catch {

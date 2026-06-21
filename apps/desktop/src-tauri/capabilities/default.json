@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "설정 창 권한 (업데이터·프로세스·자동시작 포함)",
+  "description": "설정 창 권한 (프로세스·자동시작 포함)",
   "windows": ["settings"],
   "permissions": [
     "core:default",
@@ -15,7 +15,6 @@
     "core:window:allow-start-dragging",
     "core:event:default",
     "opener:default",
-    "updater:default",
     "process:default",
     "autostart:default",
     "deep-link:default"
