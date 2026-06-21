@@ -50,6 +50,18 @@ body.settings {
 .onboarding h1 {
   margin: 4px 0 2px;
 }
+.ob-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ob-check input {
+  accent-color: var(--accent);
+}
 
 /* 버튼 */
 .btn {

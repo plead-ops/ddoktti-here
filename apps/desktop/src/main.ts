@@ -11,6 +11,7 @@ const onboarding = $("onboarding");
 const appEl = $("app");
 const obStatus = $("ob-status");
 const connectBtn = $<HTMLButtonElement>("connect");
+const obAutostart = $<HTMLInputElement>("ob-autostart");
 const connStatus = $("conn-status");
 // 알림
 const tDm = $<HTMLInputElement>("t-dm");
@@ -124,6 +125,7 @@ async function doLogin(): Promise<void> {
     render(true);
     startSse();
     if (isTauri()) void invoke("save_session", { token }).catch((e) => console.warn("save_session", e));
+    void setAutostart(obAutostart?.checked ?? true); // 온보딩에서 고른 자동 시작 적용
     console.log("[doLogin] rendered connected ✅");
   } catch (err) {
     console.error("[doLogin] error:", err);
@@ -408,16 +410,18 @@ async function loadGeneral(): Promise<void> {
     /* noop */
   }
 }
-autostartCb.addEventListener("change", async () => {
+async function setAutostart(enabled: boolean): Promise<void> {
   if (!isTauri()) return;
   const { enable, disable } = await import("@tauri-apps/plugin-autostart");
   try {
-    if (autostartCb.checked) await enable();
+    if (enabled) await enable();
     else await disable();
   } catch {
     /* noop */
   }
-});
+  autostartCb.checked = enabled;
+}
+autostartCb.addEventListener("change", () => void setAutostart(autostartCb.checked));
 
 async function initConnectedUI(): Promise<void> {
   void loadMe();
