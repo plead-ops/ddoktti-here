@@ -111,12 +111,19 @@ ovSpeed.addEventListener("input", () => void saveDisplay());
 ovSound.addEventListener("change", () => void saveDisplay());
 ovMotion.addEventListener("change", () => void saveDisplay());
 ovTop.addEventListener("change", () => void saveDisplay());
+// 미리보기 버튼: 오버레이가 떠 있으면 "닫기"로 변형(상태 표시)
+let overlayShown = false;
+function setPreviewBtn(shown: boolean): void {
+  overlayShown = shown;
+  testBtn.textContent = shown ? "● 미리보기 닫기" : "알림화면 미리보기";
+  testBtn.classList.toggle("active", shown);
+}
 testBtn.addEventListener("click", async () => {
   if (!isTauri()) {
     alert("오버레이 미리보기는 데스크탑 앱에서 동작합니다.");
     return;
   }
-  await invoke("preview_overlay");
+  await invoke(overlayShown ? "hide_overlay" : "preview_overlay");
 });
 if (isTauri()) {
   void (async () => {
@@ -125,6 +132,9 @@ if (isTauri()) {
       display = e.payload;
       setPosUI(display.position);
     });
+    // 오버레이 표시/숨김에 따라 미리보기 버튼 상태 갱신
+    await listen("overlay-shown", () => setPreviewBtn(true));
+    await listen("overlay-hidden", () => setPreviewBtn(false));
   })();
 }
 

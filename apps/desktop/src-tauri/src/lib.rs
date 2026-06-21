@@ -89,6 +89,7 @@ fn get_display_settings(app: AppHandle) -> DisplaySettings {
 fn set_display_settings(app: AppHandle, settings: DisplaySettings) -> Result<(), String> {
     save_display(&app, &settings)?;
     let _ = apply_overlay_layout(&app);
+    let _ = app.emit("display-settings", &settings); // 오버레이/설정창 즉시 반영
     Ok(())
 }
 
@@ -333,14 +334,16 @@ pub fn run() {
             }
 
             // 첫 실행: 로그인 자동 시작 기본 ON (마커 파일로 1회만).
+            // 성공했을 때만 마커 기록 → 실패하면 다음 실행에 재시도. 사용자가 끄면 마커는 남아 재활성화 안 함.
             let handle = app.handle().clone();
             if let Ok(dir) = handle.path().app_config_dir() {
-                let marker = dir.join(".autostart-init");
+                let _ = fs::create_dir_all(&dir);
+                let marker = dir.join(".autostart-default");
                 if !marker.exists() {
                     use tauri_plugin_autostart::ManagerExt;
-                    let _ = handle.autolaunch().enable();
-                    let _ = fs::create_dir_all(&dir);
-                    let _ = fs::write(&marker, "1");
+                    if handle.autolaunch().enable().is_ok() {
+                        let _ = fs::write(&marker, "1");
+                    }
                 }
             }
 

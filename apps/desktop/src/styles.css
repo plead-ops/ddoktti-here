@@ -463,3 +463,11 @@ body.overlay-body {
   gap: 6px;
   flex: none;
 }
+
+/* 미리보기가 떠 있을 때 버튼 강조 */
+.btn.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+  font-weight: 700;
+}

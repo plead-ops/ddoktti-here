@@ -38,11 +38,28 @@ async function refreshCfg(): Promise<void> {
   if (!isTauri()) return;
   try {
     const { invoke } = await import("@tauri-apps/api/core");
-    const d = await invoke<typeof cfg>("get_display_settings");
-    cfg = { speed: d.speed ?? 1, sound: d.sound ?? true, reduce_motion: d.reduce_motion ?? false };
+    applyDisplayCfg(await invoke<typeof cfg>("get_display_settings"));
   } catch {
     /* keep defaults */
   }
+}
+/** 표시 설정을 즉시 반영 — 떠있는 오버레이에도 속도/모션을 실시간 적용. */
+function applyDisplayCfg(d: { speed?: number; sound?: boolean; reduce_motion?: boolean }): void {
+  cfg = { speed: d.speed ?? 1, sound: d.sound ?? true, reduce_motion: d.reduce_motion ?? false };
+  document.body.classList.toggle("reduce-motion", cfg.reduce_motion);
+  if (current()) startAnimation(); // 살아있으면 새 속도/모션으로 재시작
+}
+
+// 오버레이 표시/숨김 상태를 설정창에 통지(미리보기 버튼 상태 표시용)
+let lastShown = false;
+function emitVisibility(): void {
+  const shown = queue.length > 0;
+  if (shown === lastShown) return;
+  lastShown = shown;
+  if (!isTauri()) return;
+  void import("@tauri-apps/api/event").then(({ emit }) =>
+    emit(shown ? "overlay-shown" : "overlay-hidden").catch(() => {}),
+  );
 }
 function startAnimation(): void {
   stopAnimation();
@@ -88,6 +105,7 @@ function renderOverlay(): void {
     el.overlay.hidden = true;
     el.badge.hidden = true;
     stopAnimation();
+    emitVisibility();
     return;
   }
   document.body.classList.toggle("reduce-motion", cfg.reduce_motion);
@@ -102,6 +120,7 @@ function renderOverlay(): void {
     el.badge.hidden = true;
   }
   startAnimation();
+  emitVisibility();
 }
 function addNotification(p: NotificationPayload): void {
   if (queue.some((q) => q.id === p.id)) return;
@@ -202,6 +221,11 @@ async function wireTauri(): Promise<void> {
     addNotification(e.payload);
   });
   await listen<{ id: string }>("dismiss-one", (e) => void removeOne(e.payload.id));
+  // 설정 변경 즉시 반영(속도/모션 등) — 떠있는 오버레이에도 적용
+  await listen<{ speed?: number; sound?: boolean; reduce_motion?: boolean }>(
+    "display-settings",
+    (e) => applyDisplayCfg(e.payload),
+  );
 
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow().onMoved(() => {
