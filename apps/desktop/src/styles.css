@@ -16,6 +16,10 @@ html,
 body {
   margin: 0;
 }
+/* hidden 속성이 .onboarding/.app/.subblock 등의 display 규칙을 항상 이기도록 */
+[hidden] {
+  display: none !important;
+}
 
 /* ───────── 설정 창 공통 ───────── */
 body.settings {
