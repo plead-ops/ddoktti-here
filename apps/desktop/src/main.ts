@@ -420,6 +420,7 @@ autostartCb.addEventListener("change", async () => {
 });
 
 async function initConnectedUI(): Promise<void> {
+  void loadMe();
   await loadDisplay();
   await loadGeneral();
 }
