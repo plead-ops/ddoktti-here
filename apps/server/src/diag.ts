@@ -10,12 +10,19 @@ interface DiagRecord {
 }
 
 const buf: DiagRecord[] = [];
+let total = 0; // 부팅 후 받은 message 이벤트 총수(타입 무관)
+let slackConnected = false; // Socket Mode 연결 성공 여부
+
+export function setSlackConnected(b: boolean): void {
+  slackConnected = b;
+}
 
 export function diagPush(r: Omit<DiagRecord, "t">): void {
+  total += 1;
   buf.push({ t: Date.now(), ...r });
   if (buf.length > 50) buf.shift();
 }
 
-export function diagRecent(n = 20): DiagRecord[] {
-  return buf.slice(-n);
+export function diagSummary(): { slackConnected: boolean; total: number; recent: DiagRecord[] } {
+  return { slackConnected, total, recent: buf.slice(-20) };
 }

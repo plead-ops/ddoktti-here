@@ -592,11 +592,16 @@ async function checkDiag(): Promise<void> {
       headers: { Authorization: `Bearer ${sessionToken}` },
     });
     if (!res.ok) return;
-    const data = (await res.json()) as { recent?: Array<Record<string, unknown>> };
+    const data = (await res.json()) as {
+      slackConnected?: boolean;
+      total?: number;
+      recent?: Array<Record<string, unknown>>;
+    };
     const ims = (data.recent ?? []).filter((r) => r.channelType === "im");
     const last = ims[ims.length - 1];
     if (!last) {
-      testNotifyStatus.textContent = "❌ 서버가 DM 이벤트를 못 받음 (이벤트 구독/전달 문제)";
+      const sock = data.slackConnected ? "연결O" : "연결X";
+      testNotifyStatus.textContent = `❌ DM 이벤트 미수신 — Socket=${sock}, 부팅후총이벤트=${data.total ?? 0}`;
       return;
     }
     const results = (last.results as Array<{ outcome: string; trigger?: string }>) ?? [];

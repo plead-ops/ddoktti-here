@@ -6,7 +6,7 @@ import { SseHub, sseRoutes } from "./sse.js";
 import { createSlackApp, type SlackDeps } from "./slack/app.js";
 import { resolveSession } from "./auth/session.js";
 import { rateLimit } from "./middleware.js";
-import { diagRecent } from "./diag.js";
+import { diagSummary, setSlackConnected } from "./diag.js";
 import { getSettings } from "./store/settings.js";
 import { getUser, deleteUser, listUserIdsByTeam } from "./store/users.js";
 import { addPending, removePending } from "./store/pending.js";
@@ -108,12 +108,15 @@ async function main(): Promise<void> {
       res.status(401).json({ error: "unauthorized" });
       return;
     }
-    res.json({ recent: diagRecent(20) });
+    res.json(diagSummary());
   });
 
   slack
     .start()
-    .then(() => logger.info("⚡️ Slack Socket Mode 연결됨"))
+    .then(() => {
+      setSlackConnected(true);
+      logger.info("⚡️ Slack Socket Mode 연결됨");
+    })
     .catch((err) => logger.error({ err }, "Slack 연결 실패 — 토큰/스코프 확인 (서버는 계속 동작)"));
 
   const shutdown = async (sig: string) => {
