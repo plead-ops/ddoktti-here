@@ -14,6 +14,7 @@ const ovSpeed = $<HTMLInputElement>("ov-speed");
 const ovSpeedVal = $("ov-speed-val");
 const ovSound = $<HTMLInputElement>("ov-sound");
 const ovMotion = $<HTMLInputElement>("ov-motion");
+const ovTop = $<HTMLInputElement>("ov-top");
 const testBtn = $<HTMLButtonElement>("test-overlay");
 // 일반
 const autostartCb = $<HTMLInputElement>("autostart");
@@ -31,6 +32,7 @@ interface DisplaySettings {
   speed: number;
   sound: boolean;
   reduce_motion: boolean;
+  always_on_top: boolean;
 }
 
 let display: DisplaySettings | null = null;
@@ -88,6 +90,7 @@ async function loadDisplay(): Promise<void> {
   ovSpeedVal.textContent = `${display.speed.toFixed(1)}x`;
   ovSound.checked = display.sound;
   ovMotion.checked = display.reduce_motion;
+  ovTop.checked = display.always_on_top;
 }
 async function saveDisplay(): Promise<void> {
   if (!isTauri() || !display) return;
@@ -97,6 +100,7 @@ async function saveDisplay(): Promise<void> {
     speed: parseFloat(ovSpeed.value),
     sound: ovSound.checked,
     reduce_motion: ovMotion.checked,
+    always_on_top: ovTop.checked,
   };
   ovScaleVal.textContent = `${display.scale.toFixed(1)}x`;
   ovSpeedVal.textContent = `${display.speed.toFixed(1)}x`;
@@ -106,6 +110,7 @@ ovScale.addEventListener("input", () => void saveDisplay());
 ovSpeed.addEventListener("input", () => void saveDisplay());
 ovSound.addEventListener("change", () => void saveDisplay());
 ovMotion.addEventListener("change", () => void saveDisplay());
+ovTop.addEventListener("change", () => void saveDisplay());
 testBtn.addEventListener("click", async () => {
   if (!isTauri()) {
     alert("오버레이 미리보기는 데스크탑 앱에서 동작합니다.");

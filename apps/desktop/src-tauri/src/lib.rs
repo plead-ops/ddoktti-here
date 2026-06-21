@@ -40,19 +40,23 @@ struct DisplaySettings {
     /// 모션 줄이기(접근성)
     #[serde(default)]
     reduce_motion: bool,
+    /// 항상 위에 표시
+    #[serde(default = "default_true")]
+    always_on_top: bool,
 }
 
 impl Default for DisplaySettings {
     fn default() -> Self {
         Self {
-            position: "bottom-right".into(),
-            scale: 1.0,
+            position: "bottom".into(), // 중간 아래
+            scale: 1.7,
             margin: 24.0,
-            custom_x: 0.92,
+            custom_x: 0.5,
             custom_y: 0.92,
             speed: 1.0,
             sound: true,
             reduce_motion: false,
+            always_on_top: true,
         }
     }
 }
@@ -88,7 +92,7 @@ fn set_display_settings(app: AppHandle, settings: DisplaySettings) -> Result<(),
     Ok(())
 }
 
-/// 오버레이 창 크기·위치를 현재 설정대로 적용 (메인 디스플레이 기준)
+/// 오버레이 창 크기·위치를 현재 설정대로 적용 (메인 디스플레이의 작업영역=작업표시줄 제외 기준)
 fn apply_overlay_layout(app: &AppHandle) -> tauri::Result<()> {
     let Some(win) = app.get_webview_window("overlay") else {
         return Ok(());
@@ -99,32 +103,32 @@ fn apply_overlay_layout(app: &AppHandle) -> tauri::Result<()> {
     let sf = monitor.scale_factor();
     let s = load_display(app);
 
+    let _ = win.set_always_on_top(s.always_on_top);
+
     let side = ((OVERLAY_BASE * s.scale) * sf).round().max(1.0) as u32;
     win.set_size(PhysicalSize::new(side, side))?;
 
-    let m_pos = monitor.position();
-    let m_size = monitor.size();
-    let (mw, mh) = (m_size.width as i32, m_size.height as i32);
+    // 작업영역(work area): 작업표시줄을 제외한 사용 가능 화면 영역
+    let wa = monitor.work_area();
+    let (ox, oy) = (wa.position.x, wa.position.y);
+    let (mw, mh) = (wa.size.width as i32, wa.size.height as i32);
     let (ww, wh) = (side as i32, side as i32);
     let gap = (s.margin * sf) as i32;
 
     let (x, y) = if s.position == "custom" {
         let aw = (mw - ww).max(0) as f64;
         let ah = (mh - wh).max(0) as f64;
-        (
-            m_pos.x + (s.custom_x * aw) as i32,
-            m_pos.y + (s.custom_y * ah) as i32,
-        )
+        (ox + (s.custom_x * aw) as i32, oy + (s.custom_y * ah) as i32)
     } else {
         let x = match s.position.as_str() {
-            "top-left" | "left" | "bottom-left" => m_pos.x + gap,
-            "top-right" | "right" | "bottom-right" => m_pos.x + mw - ww - gap,
-            _ => m_pos.x + (mw - ww) / 2,
+            "top-left" | "left" | "bottom-left" => ox + gap,
+            "top-right" | "right" | "bottom-right" => ox + mw - ww - gap,
+            _ => ox + (mw - ww) / 2,
         };
         let y = match s.position.as_str() {
-            "top-left" | "top" | "top-right" => m_pos.y + gap,
-            "bottom-left" | "bottom" | "bottom-right" => m_pos.y + mh - wh - gap,
-            _ => m_pos.y + (mh - wh) / 2,
+            "top-left" | "top" | "top-right" => oy + gap,
+            "bottom-left" | "bottom" | "bottom-right" => oy + mh - wh - gap,
+            _ => oy + (mh - wh) / 2,
         };
         (x, y)
     };
@@ -137,8 +141,7 @@ fn show_overlay(app: AppHandle) -> Result<(), String> {
     let win = app
         .get_webview_window("overlay")
         .ok_or("no overlay window")?;
-    apply_overlay_layout(&app).map_err(|e| e.to_string())?;
-    win.set_always_on_top(true).map_err(|e| e.to_string())?;
+    apply_overlay_layout(&app).map_err(|e| e.to_string())?; // 항상위 설정도 여기서 적용
     win.show().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -242,12 +245,11 @@ fn persist_overlay_position(app: AppHandle) -> Result<(), String> {
         .primary_monitor()
         .map_err(|e| e.to_string())?
         .ok_or("no monitor")?;
-    let m_pos = monitor.position();
-    let m_size = monitor.size();
-    let aw = (m_size.width as f64 - size.width as f64).max(1.0);
-    let ah = (m_size.height as f64 - size.height as f64).max(1.0);
-    let cx = (((pos.x - m_pos.x) as f64) / aw).clamp(0.0, 1.0);
-    let cy = (((pos.y - m_pos.y) as f64) / ah).clamp(0.0, 1.0);
+    let wa = monitor.work_area(); // 작업표시줄 제외 영역 기준(배치와 일치)
+    let aw = (wa.size.width as f64 - size.width as f64).max(1.0);
+    let ah = (wa.size.height as f64 - size.height as f64).max(1.0);
+    let cx = (((pos.x - wa.position.x) as f64) / aw).clamp(0.0, 1.0);
+    let cy = (((pos.y - wa.position.y) as f64) / ah).clamp(0.0, 1.0);
 
     let mut s = load_display(&app);
     s.position = "custom".into();
@@ -277,7 +279,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            Some(vec!["--autostart"]), // 로그인 자동시작 시 이 인자로 실행 → 설정창 숨김 판별
         ))
         .invoke_handler(tauri::generate_handler![
             show_overlay,
@@ -329,10 +331,27 @@ pub fn run() {
             if let Some(overlay) = app.get_webview_window("overlay") {
                 let _ = overlay.hide();
             }
-            show_settings(&app.handle().clone());
+
+            // 첫 실행: 로그인 자동 시작 기본 ON (마커 파일로 1회만).
+            let handle = app.handle().clone();
+            if let Ok(dir) = handle.path().app_config_dir() {
+                let marker = dir.join(".autostart-init");
+                if !marker.exists() {
+                    use tauri_plugin_autostart::ManagerExt;
+                    let _ = handle.autolaunch().enable();
+                    let _ = fs::create_dir_all(&dir);
+                    let _ = fs::write(&marker, "1");
+                }
+            }
+
+            // 로그인 자동 시작으로 실행됐으면 설정창을 띄우지 않는다(트레이만).
+            let autostarted = std::env::args().any(|a| a == "--autostart");
+            if !autostarted {
+                show_settings(&handle);
+            }
 
             // Windows OS 알림(슬랙) 폴링 시작. 그 외 플랫폼은 no-op.
-            notifier::start(app.handle().clone());
+            notifier::start(handle);
             Ok(())
         })
         .on_window_event(|window, event| {

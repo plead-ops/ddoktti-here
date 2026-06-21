@@ -45,8 +45,8 @@
             </div>
           </div>
           <div class="row">
-            <div class="row-text"><b>이미지 크기</b><span id="ov-scale-val">1.0x</span></div>
-            <input id="ov-scale" type="range" min="0.5" max="3" step="0.1" value="1" />
+            <div class="row-text"><b>이미지 크기</b><span id="ov-scale-val">1.7x</span></div>
+            <input id="ov-scale" type="range" min="0.5" max="3" step="0.1" value="1.7" />
           </div>
           <div class="row">
             <div class="row-text"><b>애니메이션 속도</b><span id="ov-speed-val">1.0x</span></div>
@@ -60,7 +60,11 @@
             <div class="row-text"><b>모션 줄이기</b><span>애니메이션 최소화(접근성)</span></div>
             <label class="switch"><input type="checkbox" id="ov-motion" /><i></i></label>
           </div>
-          <p class="hint">알림화면을 드래그하면 위치가 '사용자 지정'으로 저장돼요(해상도 비율 기준).</p>
+          <div class="row">
+            <div class="row-text"><b>항상 위에 표시</b><span>다른 창보다 위에 똑띠를 띄워요</span></div>
+            <label class="switch"><input type="checkbox" id="ov-top" checked /><i></i></label>
+          </div>
+          <p class="hint">알림화면을 드래그하면 위치가 '사용자 지정'으로 저장돼요(작업표시줄 제외 화면 비율 기준).</p>
           <button id="test-overlay" class="btn">알림화면 미리보기</button>
         </section>
 
