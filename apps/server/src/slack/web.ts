@@ -37,6 +37,41 @@ export async function listUserChannels(userId: string): Promise<ChannelInfo[]> {
   return out;
 }
 
+export interface UserProfile {
+  displayName: string;
+  avatar: string | null;
+}
+
+/** 사용자 프로필(이름+아바타) (users:read). Redis 1h 캐싱. */
+export async function getProfile(userId: string): Promise<UserProfile> {
+  const cacheKey = `profile:${userId}`;
+  const cached = await redis().get(cacheKey);
+  if (cached) {
+    try {
+      return JSON.parse(cached) as UserProfile;
+    } catch {
+      /* fall through */
+    }
+  }
+  let profile: UserProfile = { displayName: userId, avatar: null };
+  try {
+    const token = await getUserToken(userId);
+    if (token) {
+      const res = await new WebClient(token).users.info({ user: userId });
+      const u = res.user;
+      const p = u?.profile;
+      profile = {
+        displayName: p?.display_name || u?.real_name || u?.name || userId,
+        avatar: p?.image_192 || p?.image_72 || p?.image_48 || null,
+      };
+    }
+  } catch (err) {
+    logger.warn({ err, userId }, "users.info failed");
+  }
+  await redis().set(cacheKey, JSON.stringify(profile), "EX", 3600);
+  return profile;
+}
+
 /**
  * 사용자가 현재 Slack 방해금지(DND)/스누즈 중인지 (PRD §5.3).
  * dnd.info 결과를 Redis에 60초 캐싱.

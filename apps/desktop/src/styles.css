@@ -246,6 +246,17 @@ input[type="range"] {
 .check-list input {
   accent-color: var(--accent);
 }
+.account-row {
+  gap: 12px;
+  justify-content: flex-start;
+}
+.avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  flex: none;
+  object-fit: cover;
+}
 .field-inline {
   display: inline-flex;
   align-items: center;

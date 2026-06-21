@@ -42,6 +42,8 @@ const qhEnd = $<HTMLInputElement>("qh-end");
 const autostartCb = $<HTMLInputElement>("autostart");
 const appVersion = $("app-version");
 const accountId = $("account-id");
+const accountHandle = $("account-handle");
+const accountAvatar = $<HTMLImageElement>("account-avatar");
 const logoutBtn = $<HTMLButtonElement>("logout");
 
 interface DisplaySettings {
@@ -156,6 +158,7 @@ function startSse(): void {
       notif = settings;
       fillAlarm();
       fillDnd();
+      void loadMe();
     },
     onSettings: (settings) => {
       notif = settings;
@@ -188,6 +191,27 @@ function inQuietHours(): boolean {
 
 function pushSettings(): void {
   void sse?.updateSettings(notif);
+}
+
+// 연결된 Slack 계정 표시 이름 로드
+async function loadMe(): Promise<void> {
+  if (!sessionToken) return;
+  try {
+    const res = await fetch(`${SERVER_URL}/me`, {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { displayName?: string; userId?: string; avatar?: string | null };
+      accountId.textContent = data.displayName || data.userId || "연결됨";
+      if (accountHandle) accountHandle.textContent = data.userId ?? "";
+      if (data.avatar) {
+        accountAvatar.src = data.avatar;
+        accountAvatar.hidden = false;
+      }
+    }
+  } catch {
+    /* 이름 못 가져오면 userId 유지 */
+  }
 }
 
 // ── 알림 탭 ──
