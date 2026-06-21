@@ -66,6 +66,39 @@ services:
     networks:
       - internal
 
+  # 자동 업데이트 피드 (S3 호환). 도메인 updates-ddoktti-here... → minio:9000
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - internal
+
+  # 최초 1회: 버킷 생성 + 공개(읽기) 정책
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set m http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do sleep 2; done;
+      mc mb -p m/desktop-updates || true;
+      mc anonymous set download m/desktop-updates || true;
+      echo 'minio bucket ready'; exit 0;"
+    networks:
+      - internal
+    restart: "no"
+
 networks:
   dokploy-network:
     external: true
@@ -75,3 +108,4 @@ networks:
 volumes:
   pgdata:
   redisdata:
+  miniodata:

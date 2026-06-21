@@ -107,6 +107,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           set -e
+          aws configure set default.s3.addressing_style path  # MinIO 호환
           VER="${VERSION#v}"
           # 설치본/업데이터 아티팩트를 버전 경로로 업로드
           for d in artifacts/*/; do
