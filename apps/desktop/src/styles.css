@@ -102,6 +102,9 @@ body.settings {
   gap: 2px;
 }
 .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   text-align: left;
   font: inherit;
   cursor: pointer;
@@ -110,6 +113,11 @@ body.settings {
   color: var(--muted);
   padding: 9px 10px;
   border-radius: 8px;
+}
+.nav-item svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
 }
 .nav-item:hover {
   background: rgba(255, 255, 255, 0.04);
