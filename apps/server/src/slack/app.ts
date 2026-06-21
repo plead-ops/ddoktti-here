@@ -5,6 +5,7 @@ import { logger } from "../logger.js";
 import {
   buildSlackDeepLink,
   evaluateTrigger,
+  extractText,
   isNoiseMessage,
   toConversationType,
   type SlackMessageEvent,
@@ -75,7 +76,7 @@ export function createSlackApp(deps: SlackDeps): { app: App; receiver: ExpressRe
         results.push({ userId, outcome: "no-ctx" });
       }
     }
-    const txt = ev.text ?? "";
+    const txt = extractText(ev);
     diagPush({
       channelType: ev.channel_type,
       channel: ev.channel,

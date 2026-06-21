@@ -18,6 +18,41 @@ export interface SlackMessageEvent {
   ts: string;
   thread_ts?: string;
   hidden?: boolean;
+  blocks?: unknown; // 봇 메시지는 멘션이 text 대신 blocks 에 담기기도 함
+  attachments?: unknown;
+}
+
+/**
+ * 멘션/키워드 판정용 "유효 텍스트" — ev.text + blocks/attachments 에서 추출.
+ * 봇/앱 메시지는 <@U…> 멘션을 blocks(rich_text user 요소·section mrkdwn)에 담는 경우가 많음.
+ * 추출 시 user/broadcast/usergroup 요소를 <@U>/<!here>/<!subteam^S> 형태로 정규화해
+ * parseMentions 가 그대로 인식하게 한다.
+ */
+export function extractText(ev: SlackMessageEvent): string {
+  const out: string[] = [];
+  if (ev.text) out.push(ev.text);
+  collect(ev.blocks, out);
+  collect(ev.attachments, out);
+  return out.join(" ");
+}
+
+function collect(node: unknown, out: string[]): void {
+  if (!node) return;
+  if (Array.isArray(node)) {
+    for (const n of node) collect(n, out);
+    return;
+  }
+  if (typeof node !== "object") return;
+  const o = node as Record<string, unknown>;
+  if (o.type === "user" && typeof o.user_id === "string") out.push(`<@${o.user_id}>`);
+  else if (o.type === "broadcast" && typeof o.range === "string") out.push(`<!${o.range}>`);
+  else if (o.type === "usergroup" && typeof o.usergroup_id === "string")
+    out.push(`<!subteam^${o.usergroup_id}>`);
+  if (typeof o.text === "string") out.push(o.text);
+  else collect(o.text, out);
+  collect(o.elements, out);
+  collect(o.blocks, out);
+  collect(o.attachments, out);
 }
 
 /**
@@ -96,7 +131,7 @@ export function evaluateTrigger(
   ctx: { selfUserId: string; myUsergroupIds: ReadonlySet<string> },
 ): TriggerType | null {
   const convo = toConversationType(ev.channel_type);
-  const text = ev.text ?? "";
+  const text = extractText(ev); // text + blocks/attachments (봇 멘션 대응)
 
   if (settings.triggers.dm && (convo === "im" || convo === "mpim")) return "dm";
 

@@ -4,6 +4,7 @@ import {
   mentionsUser,
   isNoiseMessage,
   evaluateTrigger,
+  extractText,
   type SlackMessageEvent,
 } from "./filters.js";
 import { defaultNotificationSettings } from "@ddoktti/shared";
@@ -50,6 +51,44 @@ describe("isNoiseMessage", () => {
     expect(isNoiseMessage({ ...base, subtype: "message_changed" }, ME)).toBe(true);
     expect(isNoiseMessage({ ...base, subtype: "thread_broadcast" }, ME)).toBe(false);
     expect(isNoiseMessage({ ...base, user: "U_X" }, ME)).toBe(false);
+  });
+});
+
+describe("extractText (봇 blocks 멘션)", () => {
+  it("text 비어도 blocks 의 rich_text user 요소에서 멘션 추출", () => {
+    const ev: SlackMessageEvent = {
+      type: "message",
+      subtype: "bot_message",
+      channel: "C1",
+      ts: "1.1",
+      text: "",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "user", user_id: ME },
+                { type: "text", text: " 점심" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const t = extractText(ev);
+    expect(t).toContain(`<@${ME}>`);
+    expect(mentionsUser(t, ME, noGroups)).toBe(true);
+  });
+  it("section mrkdwn 의 <@U> 도 추출", () => {
+    const ev: SlackMessageEvent = {
+      type: "message",
+      channel: "C1",
+      ts: "1.1",
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: `<@${ME}> 안녕` } }],
+    };
+    expect(mentionsUser(extractText(ev), ME, noGroups)).toBe(true);
   });
 });
 
