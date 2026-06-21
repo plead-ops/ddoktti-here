@@ -35,7 +35,9 @@ export async function sendTestMention(
   userId: string,
 ): Promise<{ ok: boolean; channel?: string; reason?: string }> {
   const bot = botClient();
-  const channels = await listUserChannels(userId); // 사용자 채널 (user token)
+  const all = await listUserChannels(userId); // 사용자 채널 (user token)
+  // 비공개 채널 우선 — 공개 채널에 테스트 멘션이 노출되지 않도록
+  const channels = [...all].sort((a, b) => Number(b.isPrivate) - Number(a.isPrivate));
   for (const c of channels.slice(0, 25)) {
     try {
       await bot.chat.postMessage({
