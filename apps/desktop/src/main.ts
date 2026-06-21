@@ -568,18 +568,21 @@ const testNotifyBtn = $<HTMLButtonElement>("test-notify");
 const testNotifyStatus = $("test-notify-status");
 testNotifyBtn?.addEventListener("click", async () => {
   if (!sessionToken) return;
-  testNotifyStatus.textContent = "봇이 DM 보내는 중…";
+  testNotifyStatus.textContent = "봇이 채널에서 멘션 보내는 중…";
   try {
     const res = await fetch(`${SERVER_URL}/test/dm`, {
       method: "POST",
       headers: { Authorization: `Bearer ${sessionToken}` },
     });
+    const data = (await res.json().catch(() => ({}))) as { channel?: string; reason?: string };
     if (!res.ok) {
-      testNotifyStatus.textContent = `실패(${res.status}) — 봇 권한/재설치 확인`;
+      testNotifyStatus.textContent =
+        data.reason === "no-shared-channel"
+          ? "봇과 공통 채널이 없어요 — 채널에 @ddoktti 초대 후 다시"
+          : `실패(${res.status})`;
       return;
     }
-    testNotifyStatus.textContent = "보냈어요 — 수신 확인 중…";
-    // 3초 후 서버 진단 조회 → 어디서 막혔는지 표시
+    testNotifyStatus.textContent = `#${data.channel}에 멘션 보냄 — 곧 오버레이가 떠요`;
     setTimeout(() => void checkDiag(), 3000);
   } catch {
     testNotifyStatus.textContent = "전송 실패";
@@ -593,28 +596,19 @@ async function checkDiag(): Promise<void> {
     });
     if (!res.ok) return;
     const data = (await res.json()) as {
-      slackConnected?: boolean;
       total?: number;
       recent?: Array<Record<string, unknown>>;
     };
-    const ims = (data.recent ?? []).filter((r) => r.channelType === "im");
-    const last = ims[ims.length - 1];
+    const recent = data.recent ?? [];
+    const last = recent[recent.length - 1] as
+      | { channelType?: string; candidates?: number; results?: Array<{ outcome: string }> }
+      | undefined;
     if (!last) {
-      const sock = data.slackConnected ? "연결O" : "연결X";
-      testNotifyStatus.textContent = `❌ DM 이벤트 미수신 — Socket=${sock}, 부팅후총이벤트=${data.total ?? 0}`;
+      testNotifyStatus.textContent = `이벤트 미수신 (총=${data.total ?? 0}) — 슬랙 이벤트 설정 확인`;
       return;
     }
-    const results = (last.results as Array<{ outcome: string; trigger?: string }>) ?? [];
-    const cand = last.candidates as number;
-    if (cand === 0) {
-      testNotifyStatus.textContent = "❌ 이벤트는 왔으나 수신자(candidate) 0 — authorizations 문제";
-      return;
-    }
-    const outcome = results.map((r) => r.outcome).join(",");
-    testNotifyStatus.textContent =
-      outcome.includes("dispatched")
-        ? "✅ 서버 디스패치됨 — 오버레이 안 떴으면 클라 표시 문제"
-        : `서버 결과: ${outcome} (candidate=${cand})`;
+    const outcomes = (last.results ?? []).map((r) => r.outcome).join(",") || "없음";
+    testNotifyStatus.textContent = `총${data.total ?? 0} · 최근[${last.channelType}] 수신자${last.candidates} 결과:${outcomes}`;
   } catch {
     /* noop */
   }

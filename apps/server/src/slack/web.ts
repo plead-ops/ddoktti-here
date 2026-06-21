@@ -27,24 +27,27 @@ export function botClient(): WebClient {
 }
 
 /**
- * 테스트 알림: 봇이 사용자에게 DM 발송 (chat:write·im:write).
- * 실제 슬랙 이벤트 푸시→수신→트리거→오버레이 전 경로를 검증하는 정식 기능.
+ * 테스트 알림: 봇이 (사용자도 멤버인) 채널에서 사용자를 @멘션 → 실제 멘션 트리거 검증.
+ * 봇 DM 은 자기-중복방지로 user 이벤트가 안 와서 테스트 불가 → 채널 멘션으로 발송.
+ * 사용자가 속한 채널들 중 봇도 멤버인 첫 채널에 게시(봇 미초대 채널은 not_in_channel 로 건너뜀).
  */
-export async function sendTestDm(userId: string): Promise<boolean> {
-  try {
-    const bot = botClient();
-    const open = await bot.conversations.open({ users: userId });
-    const channel = (open.channel as { id?: string } | undefined)?.id;
-    if (!channel) return false;
-    await bot.chat.postMessage({
-      channel,
-      text: "🔔 똑띠왔어요 테스트 알림이에요! 이 메시지로 화면에 캐릭터가 떴다면 정상입니다.",
-    });
-    return true;
-  } catch (err) {
-    logger.warn({ err, userId }, "sendTestDm failed");
-    return false;
+export async function sendTestMention(
+  userId: string,
+): Promise<{ ok: boolean; channel?: string; reason?: string }> {
+  const bot = botClient();
+  const channels = await listUserChannels(userId); // 사용자 채널 (user token)
+  for (const c of channels.slice(0, 25)) {
+    try {
+      await bot.chat.postMessage({
+        channel: c.id,
+        text: `<@${userId}> 🔔 똑띠왔어요 테스트 멘션이에요! 화면에 캐릭터가 떴다면 정상입니다.`,
+      });
+      return { ok: true, channel: c.name };
+    } catch {
+      // not_in_channel 등 → 다음 채널 시도
+    }
   }
+  return { ok: false, reason: "no-shared-channel" }; // 봇이 멤버인 공통 채널 없음
 }
 
 /**
