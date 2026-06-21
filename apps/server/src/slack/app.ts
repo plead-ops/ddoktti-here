@@ -27,6 +27,10 @@ export interface SlackDeps {
   isDnd: (userId: string) => Promise<boolean>;
   /** 토큰 취소/앱 제거 시 — 토큰 폐기 + 재인증 유도 */
   onTokenRevoked: (userId: string) => void | Promise<void>;
+  /** 멘션된 쓰레드 팔로우 시작/갱신 */
+  followThread: (userId: string, channel: string, threadTs: string) => void | Promise<void>;
+  /** 팔로우 중인 쓰레드인지 */
+  isFollowedThread: (userId: string, channel: string, threadTs: string) => Promise<boolean>;
 }
 
 /**
@@ -55,7 +59,22 @@ export function createSlackApp(deps: SlackDeps): App {
         if (isNoiseMessage(ev, ctx.selfUserId)) continue;
 
         const settings = await deps.getSettings(userId);
-        const trigger = evaluateTrigger(ev, settings, ctx);
+        let trigger = evaluateTrigger(ev, settings, ctx);
+
+        // 멘션된 쓰레드는 팔로우 → 이후 답글도 알림. threadTs 없으면 이 메시지 ts 가 루트.
+        if (trigger === "mention") {
+          void deps.followThread(userId, ev.channel, ev.thread_ts ?? ev.ts);
+        }
+        // 다른 트리거 미매칭이지만 팔로우 중인 쓰레드의 답글이면 알림
+        if (
+          !trigger &&
+          settings.triggers.thread &&
+          ev.thread_ts &&
+          (await deps.isFollowedThread(userId, ev.channel, ev.thread_ts))
+        ) {
+          trigger = "thread";
+          void deps.followThread(userId, ev.channel, ev.thread_ts); // 활성 쓰레드 TTL 갱신
+        }
         if (!trigger) continue;
 
         // Slack 방해금지 존중 (설정 on일 때만). 인앱 quietHours는 클라가 적용.

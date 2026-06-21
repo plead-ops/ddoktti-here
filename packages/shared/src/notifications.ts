@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** 알림을 발생시킨 트리거 종류 (PRD §5.2) */
-export const TriggerType = z.enum(["dm", "mention", "channel", "keyword"]);
+export const TriggerType = z.enum(["dm", "mention", "channel", "keyword", "thread"]);
 export type TriggerType = z.infer<typeof TriggerType>;
 
 export const ConversationType = z.enum(["im", "mpim", "channel", "group"]);

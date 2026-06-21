@@ -28,6 +28,8 @@ export const NotificationSettings = z.object({
     mention: z.boolean(),
     channel: z.boolean(),
     keyword: z.boolean(),
+    /** 내가 멘션된(참여 중인) 쓰레드의 새 답글 (PRD §4.2) */
+    thread: z.boolean().default(true),
   }),
   keywords: z.array(z.string()),
   channelIds: z.array(z.string()),
@@ -45,7 +47,7 @@ export const NotificationSettings = z.object({
 export type NotificationSettings = z.infer<typeof NotificationSettings>;
 
 export const defaultNotificationSettings: NotificationSettings = {
-  triggers: { dm: true, mention: true, channel: false, keyword: false },
+  triggers: { dm: true, mention: true, channel: false, keyword: false, thread: true },
   keywords: [],
   channelIds: [],
   respectDnd: true,

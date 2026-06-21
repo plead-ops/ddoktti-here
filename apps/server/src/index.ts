@@ -9,6 +9,7 @@ import { getUser, deleteUser } from "./store/users.js";
 import { addPending, removePending } from "./store/pending.js";
 import { isUserDnd, getUserGroupIds } from "./slack/web.js";
 import { startReadWatch, setOnRead } from "./slack/readWatch.js";
+import { followThread, isFollowedThread } from "./store/threads.js";
 import { ensureSchema, closeDb } from "./store/db.js";
 import { closeRedis } from "./store/redis.js";
 
@@ -56,6 +57,8 @@ async function main(): Promise<void> {
       };
     },
     isDnd: (userId) => isUserDnd(userId),
+    followThread,
+    isFollowedThread,
     onTokenRevoked: async (userId) => {
       await deleteUser(userId).catch(() => {});
       hub.send(userId, { type: "reauth", reason: "token-revoked" });

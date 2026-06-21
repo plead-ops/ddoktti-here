@@ -16,6 +16,7 @@
     "core:event:default",
     "opener:default",
     "updater:default",
+    "process:default",
     "autostart:default",
     "deep-link:default"
   ]

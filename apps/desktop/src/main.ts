@@ -16,6 +16,7 @@ const connStatus = $("conn-status");
 // 알림
 const tDm = $<HTMLInputElement>("t-dm");
 const tMention = $<HTMLInputElement>("t-mention");
+const tThread = $<HTMLInputElement>("t-thread");
 const tChannel = $<HTMLInputElement>("t-channel");
 const tKeyword = $<HTMLInputElement>("t-keyword");
 const channelsBlock = $("channels-block");
@@ -42,6 +43,7 @@ const qhStart = $<HTMLInputElement>("qh-start");
 const qhEnd = $<HTMLInputElement>("qh-end");
 // 일반/연결
 const autostartCb = $<HTMLInputElement>("autostart");
+const autoUpdateCb = $<HTMLInputElement>("auto-update");
 const appVersion = $("app-version");
 const checkUpdateBtn = $<HTMLButtonElement>("check-update");
 const updateStatus = $("update-status");
@@ -263,6 +265,7 @@ async function loadMe(): Promise<void> {
 function fillAlarm(): void {
   tDm.checked = notif.triggers.dm;
   tMention.checked = notif.triggers.mention;
+  tThread.checked = notif.triggers.thread;
   tChannel.checked = notif.triggers.channel;
   tKeyword.checked = notif.triggers.keyword;
   channelsBlock.hidden = !notif.triggers.channel;
@@ -276,6 +279,10 @@ tDm.addEventListener("change", () => {
 });
 tMention.addEventListener("change", () => {
   notif.triggers.mention = tMention.checked;
+  pushSettings();
+});
+tThread.addEventListener("change", () => {
+  notif.triggers.thread = tThread.checked;
   pushSettings();
 });
 tChannel.addEventListener("change", () => {
@@ -474,6 +481,7 @@ async function loadGeneral(): Promise<void> {
   } catch {
     /* noop */
   }
+  autoUpdateCb.checked = autoUpdateOn();
   try {
     const { isEnabled } = await import("@tauri-apps/plugin-autostart");
     autostartCb.checked = await isEnabled();
@@ -494,23 +502,35 @@ async function setAutostart(enabled: boolean): Promise<void> {
 }
 autostartCb.addEventListener("change", () => void setAutostart(autostartCb.checked));
 
-checkUpdateBtn?.addEventListener("click", async () => {
+// 자동 업데이트 (로컬 설정, 기본 ON)
+function autoUpdateOn(): boolean {
+  return localStorage.getItem("autoUpdate") !== "0";
+}
+autoUpdateCb?.addEventListener("change", () => {
+  localStorage.setItem("autoUpdate", autoUpdateCb.checked ? "1" : "0");
+});
+
+// 업데이트 확인 → 있으면 다운로드·설치·재시작. silent=자동 실행(에러 무시)
+async function doUpdate(silent: boolean): Promise<void> {
   if (!isTauri()) return;
-  updateStatus.textContent = "확인 중…";
+  if (!silent) updateStatus.textContent = "확인 중…";
   try {
     const { check } = await import("@tauri-apps/plugin-updater");
     const update = await check();
-    if (update) {
-      updateStatus.textContent = `새 버전 ${update.version} 설치 중…`;
-      await update.downloadAndInstall();
-      updateStatus.textContent = "설치 완료 — 앱을 재시작하세요";
-    } else {
-      updateStatus.textContent = "최신 버전입니다";
+    if (!update) {
+      if (!silent) updateStatus.textContent = "최신 버전입니다";
+      return;
     }
+    updateStatus.textContent = `새 버전 ${update.version} 다운로드 중…`;
+    await update.downloadAndInstall();
+    updateStatus.textContent = "설치 완료 — 재시작합니다";
+    const { relaunch } = await import("@tauri-apps/plugin-process");
+    await relaunch();
   } catch {
-    updateStatus.textContent = "업데이트 확인 실패";
+    if (!silent) updateStatus.textContent = "업데이트 확인 실패";
   }
-});
+}
+checkUpdateBtn?.addEventListener("click", () => void doUpdate(false));
 
 async function initConnectedUI(): Promise<void> {
   void loadMe();
@@ -533,4 +553,10 @@ if (isTauri()) {
       }
     })
     .catch(() => {});
+
+  // 부팅 시 + 실행 중 10분마다 자동 업데이트(설정 ON일 때) — 조용히 받아 재시작
+  if (autoUpdateOn()) void doUpdate(true);
+  setInterval(() => {
+    if (autoUpdateOn()) void doUpdate(true);
+  }, 10 * 60 * 1000);
 }
