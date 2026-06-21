@@ -38,15 +38,16 @@ describe("mentionsUser", () => {
 
 describe("isNoiseMessage", () => {
   const base: SlackMessageEvent = { type: "message", channel: "C1", ts: "1.1" };
-  it("봇/앱 메시지는 노이즈", () => {
-    expect(isNoiseMessage({ ...base, bot_id: "B1" }, ME)).toBe(true);
-    expect(isNoiseMessage({ ...base, app_id: "A1" }, ME)).toBe(true);
+  it("봇 메시지는 노이즈가 아님 (실제 슬랙처럼 멘션/DM 시 알림)", () => {
+    expect(isNoiseMessage({ ...base, bot_id: "B1" }, ME)).toBe(false); // 봇 유저 chat.postMessage
+    expect(isNoiseMessage({ ...base, subtype: "bot_message", bot_id: "B1" }, ME)).toBe(false);
   });
   it("내 메시지는 노이즈", () => {
     expect(isNoiseMessage({ ...base, user: ME }, ME)).toBe(true);
   });
-  it("시스템 subtype 은 노이즈, 일반/허용 subtype 은 통과", () => {
+  it("시스템/편집 subtype 은 노이즈, 일반/봇/허용 subtype 은 통과", () => {
     expect(isNoiseMessage({ ...base, subtype: "channel_join" }, ME)).toBe(true);
+    expect(isNoiseMessage({ ...base, subtype: "message_changed" }, ME)).toBe(true);
     expect(isNoiseMessage({ ...base, subtype: "thread_broadcast" }, ME)).toBe(false);
     expect(isNoiseMessage({ ...base, user: "U_X" }, ME)).toBe(false);
   });

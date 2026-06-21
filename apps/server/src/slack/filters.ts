@@ -20,17 +20,25 @@ export interface SlackMessageEvent {
   hidden?: boolean;
 }
 
-/** 알림 후보에서 제외해야 하는 노이즈인가? (내 메시지 제외는 호출부에서 selfUserId로 판단) */
+/**
+ * 알림 후보에서 제외해야 하는 노이즈인가? (내 메시지 제외는 호출부에서 selfUserId로 판단)
+ * 봇/앱 메시지는 막지 않는다 — 실제 슬랙처럼 봇이 @멘션/DM 하면 트리거 평가를 거쳐 알림.
+ * (봇 잡담은 멘션/키워드/지정채널이 아니면 어차피 트리거 안 됨 = 사람과 동일)
+ */
 export function isNoiseMessage(ev: SlackMessageEvent, selfUserId: string): boolean {
-  if (ev.bot_id || ev.app_id) return true; // 봇/앱 메시지
   if (ev.hidden) return true;
   if (ev.user && ev.user === selfUserId) return true; // 내가 보낸 메시지
   if (ev.subtype) {
-    // 일반 메시지는 subtype 없음. 시스템/편집/삭제 등은 기본 무시.
-    const allowed = new Set<string>(["thread_broadcast", "file_share"]);
+    // 시스템/편집/삭제 subtype 만 무시. 봇(bot_message)·스레드·파일·/me 는 정상 메시지로 취급.
+    const allowed = new Set<string>([
+      "bot_message",
+      "thread_broadcast",
+      "file_share",
+      "me_message",
+    ]);
     return !allowed.has(ev.subtype);
   }
-  return false;
+  return false; // subtype 없는 일반 메시지(봇 유저 chat.postMessage 포함)
 }
 
 export interface ParsedMentions {
