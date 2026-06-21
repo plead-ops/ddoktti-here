@@ -34,22 +34,5 @@ export function createHttpApp(): Express {
   app.use(oauthRouter());
   app.use(apiRouter());
 
-  // 임시 진단: 엣지가 SSE 를 버퍼링하는지 확인 (인증 없음, 제거 예정)
-  app.get("/sse-test", (req, res) => {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders?.();
-    let n = 0;
-    const t = setInterval(() => {
-      res.write(`data: tick ${++n} @${Date.now()}\n\n`);
-      if (n >= 5) {
-        clearInterval(t);
-        res.end();
-      }
-    }, 1000);
-    req.on("close", () => clearInterval(t));
-  });
-
   return app;
 }

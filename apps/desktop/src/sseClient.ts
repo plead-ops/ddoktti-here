@@ -23,6 +23,8 @@ export interface SseHandlers {
 export class SseClient {
   private es: EventSource | null = null;
   private stopped = false;
+  private backoff = 1000;
+  private retryTimer: number | null = null;
 
   constructor(
     private getToken: () => string | null,
@@ -35,6 +37,7 @@ export class SseClient {
   }
   stop(): void {
     this.stopped = true;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
     this.es?.close();
     this.es = null;
   }
@@ -46,8 +49,20 @@ export class SseClient {
     const es = new EventSource(`${SERVER_URL}/events?token=${encodeURIComponent(token)}`);
     this.es = es;
 
-    es.onopen = () => this.h.onStatus?.("open");
-    es.onerror = () => this.h.onStatus?.("closed"); // EventSource 가 자동 재연결
+    es.onopen = () => {
+      this.backoff = 1000;
+      this.h.onStatus?.("open");
+    };
+    // EventSource 는 HTTP 에러(404/401/5xx)엔 자동 재연결을 안 함 → 직접 백오프 재연결
+    es.onerror = () => {
+      this.h.onStatus?.("closed");
+      es.close();
+      this.es = null;
+      if (this.stopped) return;
+      if (this.retryTimer) clearTimeout(this.retryTimer);
+      this.retryTimer = window.setTimeout(() => this.connect(), this.backoff);
+      this.backoff = Math.min(this.backoff * 2, 30000);
+    };
 
     es.onmessage = (e) => {
       let parsed: unknown;
