@@ -67,7 +67,16 @@ export function sseRoutes(hub: SseHub): Router {
   const r = Router();
 
   // SSE 연결용 단기 티켓 발급 (세션 Bearer 인증) — 장기 토큰을 URL에 안 싣기 위함
-  r.post("/events/ticket", rateLimit({ name: "ticket", max: 60, windowSec: 60 }), async (req, res) => {
+  r.post(
+    "/events/ticket",
+    // 세션(Authorization) 기준 — 단일 NAT 뒤 다수 유저가 서로 막지 않게.
+    rateLimit({
+      name: "ticket",
+      max: 120,
+      windowSec: 60,
+      key: (req) => req.headers.authorization || req.ip || "unknown",
+    }),
+    async (req, res) => {
     const userId = await authUser(req);
     if (!userId) {
       res.status(401).json({ error: "unauthorized" });

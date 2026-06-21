@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "macOSPrivateApi": true,
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: data: http://asset.localhost https://*.slack-edge.com https://secure.gravatar.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ddoktti-here.app.plead.co.kr"
+      "csp": "default-src 'self'; img-src 'self' asset: data: http://asset.localhost https://*.slack-edge.com https://*.gravatar.com https://lh3.googleusercontent.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ddoktti-here.app.plead.co.kr"
     },
     "windows": [
       {

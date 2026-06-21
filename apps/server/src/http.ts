@@ -38,9 +38,18 @@ export function createHttpApp(): Express {
 
   app.use(express.json({ limit: "64kb" }));
 
-  // 인증 표면 레이트리밋 (브루트포스/남용 방지)
-  app.use(OAUTH_LOGIN_PATH, rateLimit({ name: "login", max: 20, windowSec: 60 }));
-  app.use(SESSION_EXCHANGE_PATH, rateLimit({ name: "session", max: 120, windowSec: 60 }));
+  // 인증 표면 레이트리밋 — 사내 단일 NAT 대비해 가능하면 신원 기준으로 키잉.
+  app.use(OAUTH_LOGIN_PATH, rateLimit({ name: "login", max: 60, windowSec: 60 }));
+  // /auth/session 은 verifier(로그인 시도)별 — 폴링은 ~30/분, 시도마다 새 키.
+  app.use(
+    SESSION_EXCHANGE_PATH,
+    rateLimit({
+      name: "session",
+      max: 100,
+      windowSec: 60,
+      key: (req) => String((req.body as { verifier?: string })?.verifier ?? req.ip),
+    }),
+  );
 
   // 헬스체크 — 최소 정보만 (PRD §13.6)
   app.get("/health", (_req, res) => {

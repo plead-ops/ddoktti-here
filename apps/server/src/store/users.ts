@@ -37,11 +37,19 @@ export async function listUserIdsByTeam(teamId: string): Promise<string[]> {
 /** 사용자 삭제 (토큰 취소/앱 제거 시). settings 는 CASCADE 로 함께 삭제. */
 export async function deleteUser(userId: string): Promise<void> {
   await db().query("DELETE FROM users WHERE slack_user_id = $1", [userId]);
-  await redis().del(userKey(userId));
+  await redis().del(userKey(userId), `settings:${userId}`);
+  tokenCache.delete(userId);
 }
+
+// 복호화 토큰 단기 인메모리 캐시 (readWatch 등 핫패스의 DB+복호화 반복 완화).
+// 평문은 프로세스 메모리에만, 짧은 TTL. 회전은 드물고 구토큰도 보통 유효해 staleness 무해.
+const tokenCache = new Map<string, { token: string; exp: number }>();
+const TOKEN_CACHE_MS = 60_000;
 
 /** 사용자 Slack user token(복호화). 없으면 null. */
 export async function getUserToken(userId: string): Promise<string | null> {
+  const hit = tokenCache.get(userId);
+  if (hit && hit.exp > Date.now()) return hit.token;
   const { rows } = await db().query<{ user_token_enc: string }>(
     "SELECT user_token_enc FROM users WHERE slack_user_id = $1",
     [userId],
@@ -49,7 +57,9 @@ export async function getUserToken(userId: string): Promise<string | null> {
   const enc = rows[0]?.user_token_enc;
   if (!enc) return null;
   try {
-    return decryptToken(enc);
+    const token = decryptToken(enc);
+    tokenCache.set(userId, { token, exp: Date.now() + TOKEN_CACHE_MS });
+    return token;
   } catch {
     return null;
   }

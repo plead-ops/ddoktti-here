@@ -18,7 +18,7 @@ export interface SseHandlers {
 
 /**
  * 클라↔서버 실시간 (SSE 수신 + POST 송신).
- * EventSource 는 끊기면 자동 재연결한다. 인증은 쿼리 토큰(헤더 불가).
+ * 인증은 단기 SSE 티켓(쿼리) — 장기 세션 토큰은 URL에 싣지 않는다. 끊기면 백오프 재연결.
  */
 export class SseClient {
   private es: EventSource | null = null;
@@ -43,7 +43,6 @@ export class SseClient {
     this.es = null;
   }
 
-  // 연결마다 단기 SSE 티켓을 받아 쿼리에 사용(장기 토큰 노출 방지). 실패 시 토큰 폴백.
   private scheduleRetry(): void {
     if (this.stopped) return;
     this.h.onStatus?.("closed");
@@ -52,16 +51,18 @@ export class SseClient {
     this.backoff = Math.min(this.backoff * 2, 30000);
   }
 
-  private async fetchTicket(token: string): Promise<string | null> {
+  // 단기 SSE 티켓 발급(헤더 인증). 401=세션 만료/취소, 그 외 실패=transient.
+  private async fetchTicket(token: string): Promise<{ ticket?: string; unauthorized?: boolean }> {
     try {
       const res = await fetch(`${SERVER_URL}/events/ticket`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return null;
-      return ((await res.json()) as { ticket?: string }).ticket ?? null;
+      if (res.status === 401) return { unauthorized: true };
+      if (!res.ok) return {};
+      return { ticket: ((await res.json()) as { ticket?: string }).ticket };
     } catch {
-      return null;
+      return {};
     }
   }
 
@@ -72,15 +73,19 @@ export class SseClient {
     this.h.onStatus?.("connecting");
     let es: EventSource;
     try {
-      const ticket = await this.fetchTicket(token);
+      const r = await this.fetchTicket(token);
       if (this.stopped) return;
-      if (!ticket) {
-        // 티켓 실패 → 백오프 후 재시도(장기 토큰은 URL에 싣지 않음)
-        this.scheduleRetry();
+      if (r.unauthorized) {
+        this.stop(); // 무한 재시도 대신 재로그인 유도
+        this.h.onReauth?.("unauthorized");
+        return;
+      }
+      if (!r.ticket) {
+        this.scheduleRetry(); // transient → 백오프 재시도(토큰은 URL에 안 싣음)
         return;
       }
       this.es?.close(); // 기존 연결 정리(중복 스트림 방지)
-      es = new EventSource(`${SERVER_URL}/events?ticket=${encodeURIComponent(ticket)}`);
+      es = new EventSource(`${SERVER_URL}/events?ticket=${encodeURIComponent(r.ticket)}`);
       this.es = es;
     } finally {
       this.connecting = false;
@@ -93,8 +98,11 @@ export class SseClient {
     // EventSource 는 HTTP 에러(404/401/5xx)엔 자동 재연결을 안 함 → 직접 백오프 재연결
     es.onerror = () => {
       es.close();
-      if (this.es === es) this.es = null;
-      this.scheduleRetry();
+      // 이미 새 연결로 교체된 stale ES 의 늦은 에러면 무시(살아있는 연결의 재시도 타이머를 덮어쓰지 않게)
+      if (this.es === es) {
+        this.es = null;
+        this.scheduleRetry();
+      }
     };
 
     es.onmessage = (e) => {
