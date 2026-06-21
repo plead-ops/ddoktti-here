@@ -563,23 +563,20 @@ async function doUpdate(silent: boolean): Promise<void> {
 }
 checkUpdateBtn?.addEventListener("click", () => void doUpdate(false));
 
-// 테스트 알림 (개발용) — 서버 DEBUG_SIMULATE 가 켜져 있어야 동작
+// 테스트 알림 — 봇이 나에게 DM 발송 → 실제 전 경로로 오버레이 확인
 const testNotifyBtn = $<HTMLButtonElement>("test-notify");
 const testNotifyStatus = $("test-notify-status");
 testNotifyBtn?.addEventListener("click", async () => {
   if (!sessionToken) return;
-  testNotifyStatus.textContent = "보내는 중…";
+  testNotifyStatus.textContent = "봇이 DM 보내는 중…";
   try {
-    const res = await fetch(`${SERVER_URL}/debug/simulate`, {
+    const res = await fetch(`${SERVER_URL}/test/dm`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-      body: JSON.stringify({ mention: true, text: "점심 같이 드실래요?" }),
+      headers: { Authorization: `Bearer ${sessionToken}` },
     });
     testNotifyStatus.textContent = res.ok
-      ? "보냈어요 — 잠시 후 오버레이가 떠야 해요"
-      : res.status === 404
-        ? "서버 테스트모드 꺼짐(DEBUG_SIMULATE)"
-        : `실패(${res.status})`;
+      ? "보냈어요 — 잠시 후 오버레이가 떠요 (방해금지/일시중지 중이면 안 뜸)"
+      : `실패(${res.status}) — 봇 권한/재설치 확인`;
   } catch {
     testNotifyStatus.textContent = "전송 실패";
   }

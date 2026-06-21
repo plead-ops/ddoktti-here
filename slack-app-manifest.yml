@@ -29,10 +29,12 @@ oauth_config:
       - groups:read
       - dnd:read
       - users:read
-    # 봇은 운영 최소치만 (그룹 멘션 판정용 usergroups:read 포함)
+    # 봇은 운영 최소치 + 테스트 알림 DM 발송용(chat:write·im:write)
     bot:
       - users:read
       - usergroups:read
+      - chat:write
+      - im:write
 
 settings:
   event_subscriptions:

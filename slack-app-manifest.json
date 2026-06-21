@@ -29,7 +29,9 @@
       ],
       "bot": [
         "users:read",
-        "usergroups:read"
+        "usergroups:read",
+        "chat:write",
+        "im:write"
       ]
     }
   },

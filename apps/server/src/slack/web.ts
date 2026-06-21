@@ -27,6 +27,27 @@ export function botClient(): WebClient {
 }
 
 /**
+ * 테스트 알림: 봇이 사용자에게 DM 발송 (chat:write·im:write).
+ * 실제 슬랙 이벤트 푸시→수신→트리거→오버레이 전 경로를 검증하는 정식 기능.
+ */
+export async function sendTestDm(userId: string): Promise<boolean> {
+  try {
+    const bot = botClient();
+    const open = await bot.conversations.open({ users: userId });
+    const channel = (open.channel as { id?: string } | undefined)?.id;
+    if (!channel) return false;
+    await bot.chat.postMessage({
+      channel,
+      text: "🔔 똑띠왔어요 테스트 알림이에요! 이 메시지로 화면에 캐릭터가 떴다면 정상입니다.",
+    });
+    return true;
+  } catch (err) {
+    logger.warn({ err, userId }, "sendTestDm failed");
+    return false;
+  }
+}
+
+/**
  * 메시지 퍼머링크 (chat.getPermalink) — 클릭 시 그 메시지(쓰레드 포함)로 정확히 점프.
  * slack:// 스킴은 채널만 열 수 있어 특정 메시지엔 퍼머링크가 유일한 방법.
  */

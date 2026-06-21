@@ -3,13 +3,13 @@ import { loadConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { createHttpApp } from "./http.js";
 import { SseHub, sseRoutes } from "./sse.js";
-import { createSlackApp, processMessageForUser, type SlackDeps } from "./slack/app.js";
-import type { SlackMessageEvent } from "./slack/filters.js";
+import { createSlackApp, type SlackDeps } from "./slack/app.js";
 import { resolveSession } from "./auth/session.js";
+import { rateLimit } from "./middleware.js";
 import { getSettings } from "./store/settings.js";
 import { getUser, deleteUser, listUserIdsByTeam } from "./store/users.js";
 import { addPending, removePending } from "./store/pending.js";
-import { isUserDnd, getUserGroupIds, getMessagePermalink } from "./slack/web.js";
+import { isUserDnd, getUserGroupIds, getMessagePermalink, sendTestDm } from "./slack/web.js";
 import { startReadWatch, setOnRead } from "./slack/readWatch.js";
 import { followThread } from "./store/threads.js";
 import { isThreadForUser } from "./slack/threadFollow.js";
@@ -85,40 +85,18 @@ async function main(): Promise<void> {
   };
   const slack = createSlackApp(slackDeps);
 
-  // 테스트용: 가상 메시지를 실제 핸들러에 흘려보내 알림 검증 (DEBUG_SIMULATE 일 때만)
-  if (cfg.DEBUG_SIMULATE === "1" || cfg.DEBUG_SIMULATE === "true") {
-    app.post("/debug/simulate", async (req, res) => {
-      const h = req.headers.authorization;
-      const token = h?.startsWith("Bearer ") ? h.slice(7) : "";
-      const userId = token ? await resolveSession(token) : null;
-      if (!userId) {
-        res.status(401).json({ error: "unauthorized" });
-        return;
-      }
-      const b = (req.body ?? {}) as {
-        text?: string;
-        channelType?: string;
-        channel?: string;
-        threadTs?: string;
-        mention?: boolean;
-      };
-      const text = b.mention ? `<@${userId}> ${b.text ?? "테스트 멘션"}` : (b.text ?? "테스트");
-      const ev: SlackMessageEvent = {
-        type: "message",
-        channel: b.channel || (b.channelType === "im" ? "D_DEBUG" : "C_DEBUG"),
-        channel_type: b.channelType || "channel",
-        user: "U_DEBUG_SENDER",
-        text,
-        ts: `${Math.floor(Date.now())}.000100`,
-        thread_ts: b.threadTs,
-      };
-      await processMessageForUser(userId, ev, slackDeps).catch((err) =>
-        logger.error({ err }, "simulate failed"),
-      );
-      res.json({ ok: true, simulated: { channelType: ev.channel_type, text } });
-    });
-    logger.warn("⚠️ DEBUG_SIMULATE 활성 — POST /debug/simulate 사용 가능");
-  }
+  // 테스트 알림(정식): 봇이 나에게 DM → 실제 슬랙 푸시→수신→트리거→오버레이 전 경로 검증
+  app.post("/test/dm", rateLimit({ name: "testdm", max: 10, windowSec: 60 }), async (req, res) => {
+    const h = req.headers.authorization;
+    const token = h?.startsWith("Bearer ") ? h.slice(7) : "";
+    const userId = token ? await resolveSession(token) : null;
+    if (!userId) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    const ok = await sendTestDm(userId);
+    res.status(ok ? 200 : 502).json({ ok });
+  });
 
   slack
     .start()
