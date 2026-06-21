@@ -118,14 +118,10 @@ function matchesKeyword(text: string, keywords: readonly string[]): boolean {
   return keywords.some((k) => k.trim() !== "" && lower.includes(k.toLowerCase()));
 }
 
-/** 클릭 시 해당 대화를 여는 slack:// 딥링크 (PRD §5.5). 쓰레드 답글이면 쓰레드를 연다. */
-export function buildSlackDeepLink(
-  teamId: string,
-  channelId: string,
-  ts: string,
-  threadTs?: string,
-): string {
-  const msgId = "p" + ts.replace(".", "");
-  const base = `slack://channel?team=${teamId}&id=${channelId}&message=${msgId}`;
-  return threadTs ? `${base}&thread_ts=${threadTs}` : base;
+/**
+ * 폴백 딥링크 — slack:// 는 채널만 열 수 있다(특정 메시지 점프 불가, 공식 스펙).
+ * 특정 메시지로 가려면 호출부에서 chat.getPermalink 를 쓰고, 실패 시에만 이걸로 채널을 연다.
+ */
+export function buildSlackDeepLink(teamId: string, channelId: string): string {
+  return `slack://channel?team=${teamId}&id=${channelId}`;
 }

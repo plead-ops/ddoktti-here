@@ -27,6 +27,26 @@ export function botClient(): WebClient {
 }
 
 /**
+ * 메시지 퍼머링크 (chat.getPermalink) — 클릭 시 그 메시지(쓰레드 포함)로 정확히 점프.
+ * slack:// 스킴은 채널만 열 수 있어 특정 메시지엔 퍼머링크가 유일한 방법.
+ */
+export async function getMessagePermalink(
+  userId: string,
+  channel: string,
+  ts: string,
+): Promise<string | null> {
+  try {
+    const token = await getUserToken(userId);
+    if (!token) return null;
+    const res = await clientFor(token).chat.getPermalink({ channel, message_ts: ts });
+    return res.permalink ?? null;
+  } catch (err) {
+    logger.warn({ err, userId, channel }, "getPermalink failed");
+    return null;
+  }
+}
+
+/**
  * 쓰레드 전체를 조회해 멤버 판정용 "사실"을 추출 — 팔로우셋 폴백용(유저 무관).
  * conversations.replies 1회(최대 200건). 결과는 호출부가 쓰레드별로 캐싱한다.
  * token 은 채널에 있는 아무 사용자(보통 답글 수신자)의 user token 을 쓴다.

@@ -39,6 +39,8 @@ export interface SlackDeps {
   ) => Promise<boolean>;
   /** 앱이 워크스페이스에서 제거됨 — 해당 팀 사용자 정리 + 재인증 */
   onAppUninstalled: (teamId: string) => void | Promise<void>;
+  /** 메시지 퍼머링크(클릭 시 그 메시지로 점프). 실패 시 null → slack:// 채널 링크 폴백 */
+  getPermalink: (userId: string, channel: string, ts: string) => Promise<string | null>;
 }
 
 /**
@@ -130,6 +132,8 @@ export async function processMessageForUser(
 
   if (settings.respectDnd && (await deps.isDnd(userId))) return; // Slack DND 존중
 
+  // 클릭 시 그 메시지로 점프하도록 퍼머링크 우선, 실패 시 채널만 여는 slack:// 폴백
+  const permalink = await deps.getPermalink(userId, ev.channel, ev.ts);
   const payload: NotificationPayload = {
     id: `${ev.channel}:${ev.ts}`,
     trigger,
@@ -137,7 +141,7 @@ export async function processMessageForUser(
     channelType: toConversationType(ev.channel_type),
     ts: ev.ts,
     threadTs: ev.thread_ts,
-    deepLink: buildSlackDeepLink(ctx.teamId, ev.channel, ev.ts, ev.thread_ts),
+    deepLink: permalink ?? buildSlackDeepLink(ctx.teamId, ev.channel),
     createdAt: Date.now(),
   };
   await deps.dispatch(userId, payload);
