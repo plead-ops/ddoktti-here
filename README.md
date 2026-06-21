@@ -64,13 +64,11 @@ pnpm icons            # 앱 아이콘 생성(1회)
 
 ## 릴리즈 (CI)
 
-`.github/workflows/desktop-release.yml` — GitHub Actions(Windows x64):
-
-- **수동 실행**(Actions → Run workflow): nsis 설치본을 워크플로 아티팩트로 업로드(테스트용)
-- **`v*` 태그 push**: 빌드 후 **GitHub Release를 생성하고 설치본을 첨부**
+`.github/workflows/desktop-release.yml` — GitHub Actions(Windows x64). **`v*` 태그를 push하면**
+nsis 설치본을 빌드해 **GitHub Release를 생성하고 첨부**합니다.
 
 ```bash
-# 새 버전 릴리즈
+# 새 버전 릴리즈 (예: package.json/tauri.conf.json 의 version 과 맞춰서)
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
