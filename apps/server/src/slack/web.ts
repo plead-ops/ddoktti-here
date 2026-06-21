@@ -27,29 +27,25 @@ export function botClient(): WebClient {
 }
 
 /**
- * 테스트 알림: 봇이 (사용자도 멤버인) 채널에서 사용자를 @멘션 → 실제 멘션 트리거 검증.
- * 봇 DM 은 자기-중복방지로 user 이벤트가 안 와서 테스트 불가 → 채널 멘션으로 발송.
- * 사용자가 속한 채널들 중 봇도 멤버인 첫 채널에 게시(봇 미초대 채널은 not_in_channel 로 건너뜀).
+ * 테스트 알림: 봇이 사용자에게 DM 발송 → DM 트리거(멘션 파싱 불필요)로 오버레이 검증.
+ * (봇 멘션은 슬랙이 이벤트 text/blocks 에 멘션을 안 실어줘 봇으론 검증 불가 → DM 사용.
+ *  실제 사람 멘션은 text 에 <@U> 가 들어와 정상 동작함.)
  */
-export async function sendTestMention(
-  userId: string,
-): Promise<{ ok: boolean; channel?: string; reason?: string }> {
-  const bot = botClient();
-  const all = await listUserChannels(userId); // 사용자 채널 (user token)
-  // 비공개 채널 우선 — 공개 채널에 테스트 멘션이 노출되지 않도록
-  const channels = [...all].sort((a, b) => Number(b.isPrivate) - Number(a.isPrivate));
-  for (const c of channels.slice(0, 25)) {
-    try {
-      await bot.chat.postMessage({
-        channel: c.id,
-        text: `<@${userId}> 🔔 똑띠왔어요 테스트 멘션이에요! 화면에 캐릭터가 떴다면 정상입니다.`,
-      });
-      return { ok: true, channel: c.name };
-    } catch {
-      // not_in_channel 등 → 다음 채널 시도
-    }
+export async function sendTestDm(userId: string): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const bot = botClient();
+    const open = await bot.conversations.open({ users: userId });
+    const channel = (open.channel as { id?: string } | undefined)?.id;
+    if (!channel) return { ok: false, reason: "open-failed" };
+    await bot.chat.postMessage({
+      channel,
+      text: "🔔 똑띠왔어요 테스트 알림이에요! 화면에 캐릭터가 떴다면 정상입니다.",
+    });
+    return { ok: true };
+  } catch (err) {
+    logger.warn({ err, userId }, "sendTestDm failed");
+    return { ok: false, reason: "post-failed" };
   }
-  return { ok: false, reason: "no-shared-channel" }; // 봇이 멤버인 공통 채널 없음
 }
 
 /**
