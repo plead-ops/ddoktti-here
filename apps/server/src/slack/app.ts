@@ -75,12 +75,15 @@ export function createSlackApp(deps: SlackDeps): { app: App; receiver: ExpressRe
         results.push({ userId, outcome: "no-ctx" });
       }
     }
+    const txt = ev.text ?? "";
     diagPush({
       channelType: ev.channel_type,
       channel: ev.channel,
       bot: Boolean(ev.bot_id),
       subtype: ev.subtype ?? null,
       candidates: candidates.length,
+      hasAtMention: /<@[A-Z0-9]+>/.test(txt),
+      textLen: txt.length,
       results,
     });
   });

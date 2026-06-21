@@ -601,14 +601,22 @@ async function checkDiag(): Promise<void> {
     };
     const recent = data.recent ?? [];
     const last = recent[recent.length - 1] as
-      | { channelType?: string; candidates?: number; results?: Array<{ outcome: string }> }
+      | {
+          channelType?: string;
+          candidates?: number;
+          bot?: boolean;
+          subtype?: string | null;
+          hasAtMention?: boolean;
+          textLen?: number;
+          results?: Array<{ outcome: string }>;
+        }
       | undefined;
     if (!last) {
       testNotifyStatus.textContent = `이벤트 미수신 (총=${data.total ?? 0}) — 슬랙 이벤트 설정 확인`;
       return;
     }
     const outcomes = (last.results ?? []).map((r) => r.outcome).join(",") || "없음";
-    testNotifyStatus.textContent = `총${data.total ?? 0} · 최근[${last.channelType}] 수신자${last.candidates} 결과:${outcomes}`;
+    testNotifyStatus.textContent = `총${data.total ?? 0} · [${last.channelType}] sub=${last.subtype ?? "없음"} 멘션포함=${last.hasAtMention} len=${last.textLen} → ${outcomes}`;
   } catch {
     /* noop */
   }

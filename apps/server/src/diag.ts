@@ -6,6 +6,8 @@ interface DiagRecord {
   bot: boolean;
   subtype: string | null;
   candidates: number;
+  hasAtMention: boolean; // 텍스트에 <@U…> 멘션 마크업이 있는지 (본문은 저장 안 함)
+  textLen: number;
   results: Array<{ userId: string; outcome: string; trigger?: string | null }>;
 }
 
