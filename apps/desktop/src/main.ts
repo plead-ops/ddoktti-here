@@ -112,12 +112,7 @@ async function doLogin(): Promise<void> {
     const vh = await sha256Hex(verifier);
     console.log("[doLogin] open browser, vh=", vh.slice(0, 10));
     await openExternal(`${SERVER_URL}/oauth/login?vh=${vh}`);
-    const token = await pollSession(verifier, {
-      cancelled: () => epoch !== loginEpoch,
-      onTick: (i) => {
-        obStatus.textContent = `세션 확인 중… (${i + 1})`;
-      },
-    });
+    const token = await pollSession(verifier, { cancelled: () => epoch !== loginEpoch });
     console.log("[doLogin] got token:", token.slice(0, 6), "… epoch", epoch, "cur", loginEpoch);
     if (epoch !== loginEpoch) {
       console.warn("[doLogin] stale epoch — ignoring");
