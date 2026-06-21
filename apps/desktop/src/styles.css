@@ -140,12 +140,81 @@ body.settings {
   color: var(--accent);
   font-weight: 600;
 }
-.conn-status {
+/* 사이드바 하단 계정 + 로그아웃 */
+.sidebar-foot {
   margin-top: auto;
-  font-size: 12px;
-  color: var(--muted);
-  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 6px 2px;
   border-top: 1px solid var(--line);
+}
+.avatar-sm {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  flex: none;
+  object-fit: cover;
+}
+.acc {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.acc b {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acc .conn {
+  font-size: 11px;
+  color: var(--muted);
+}
+.icon-btn {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  display: flex;
+}
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg);
+}
+.icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* 위치 3×3 그리드 */
+.pos-row {
+  align-items: center;
+}
+.pos-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 24px);
+  grid-template-rows: repeat(3, 24px);
+  gap: 4px;
+  flex: none;
+}
+.pos-grid button {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+}
+.pos-grid button:hover {
+  border-color: var(--muted);
+}
+.pos-grid button.active {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 /* 콘텐츠 */

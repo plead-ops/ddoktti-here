@@ -40,12 +40,17 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="var(--bg-2)"/><circle cx="15" cy="12" r="2" fill="var(--bg-2)"/><circle cx="8" cy="18" r="2" fill="var(--bg-2)"/></svg>
             <span>일반</span>
           </button>
-          <button class="nav-item" data-tab="account">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>연결</span>
-          </button>
         </nav>
-        <div class="conn-status" id="conn-status">연결됨</div>
+        <div class="sidebar-foot">
+          <img id="account-avatar" class="avatar-sm" alt="" hidden />
+          <div class="acc">
+            <b id="account-id">연결됨</b>
+            <span id="conn-status" class="conn">연결 중…</span>
+          </div>
+          <button id="logout" class="icon-btn" title="로그아웃 / 연결 해제" aria-label="로그아웃">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
       </aside>
 
       <main class="content">
@@ -59,7 +64,7 @@
             <label class="switch"><input type="checkbox" id="t-dm" /><i></i></label>
           </div>
           <div class="row">
-            <div class="row-text"><b>@멘션</b><span>나를 부른 멘션·@here·@channel</span></div>
+            <div class="row-text"><b>멘션</b><span>나를 콕 집거나 @here·@channel·그룹(@팀) 멘션</span></div>
             <label class="switch"><input type="checkbox" id="t-mention" /><i></i></label>
           </div>
           <div class="row">
@@ -86,20 +91,19 @@
         <section class="panel" data-panel="display" hidden>
           <h2>표시</h2>
           <p class="panel-desc">오버레이가 어떻게 보일지 설정해요.</p>
-          <div class="row">
-            <div class="row-text"><b>위치</b><span>메인 디스플레이 기준</span></div>
-            <select id="ov-position">
-              <option value="top-left">좌상</option>
-              <option value="top">상</option>
-              <option value="top-right">우상</option>
-              <option value="left">좌</option>
-              <option value="center">중앙</option>
-              <option value="right">우</option>
-              <option value="bottom-left">좌하</option>
-              <option value="bottom">하</option>
-              <option value="bottom-right">우하</option>
-              <option value="custom">사용자 지정 (드래그)</option>
-            </select>
+          <div class="row pos-row">
+            <div class="row-text"><b>위치</b><span id="pos-label">메인 디스플레이 기준</span></div>
+            <div class="pos-grid" id="pos-grid">
+              <button data-pos="top-left" title="좌상"></button>
+              <button data-pos="top" title="상단"></button>
+              <button data-pos="top-right" title="우상"></button>
+              <button data-pos="left" title="좌측"></button>
+              <button data-pos="center" title="중앙"></button>
+              <button data-pos="right" title="우측"></button>
+              <button data-pos="bottom-left" title="좌하"></button>
+              <button data-pos="bottom" title="하단"></button>
+              <button data-pos="bottom-right" title="우하"></button>
+            </div>
           </div>
           <div class="row">
             <div class="row-text"><b>이미지 크기</b><span id="ov-scale-val">1.0x</span></div>
@@ -124,18 +128,24 @@
         <!-- 방해 금지 -->
         <section class="panel" data-panel="dnd" hidden>
           <h2>방해 금지</h2>
-          <p class="panel-desc">과한 알림을 막아요.</p>
+          <p class="panel-desc">알림이 너무 많아지지 않게 조절해요.</p>
           <div class="row">
-            <div class="row-text"><b>Slack 방해금지 존중</b><span>슬랙 DND·스누즈 중엔 안 띄움</span></div>
+            <div class="row-text">
+              <b>슬랙 방해 금지 중엔 끄기</b>
+              <span>슬랙에서 방해 금지(DND)·일시정지를 켜두면 똑띠도 함께 쉬어요</span>
+            </div>
             <label class="switch"><input type="checkbox" id="respect-dnd" /><i></i></label>
           </div>
           <div class="row">
-            <div class="row-text"><b>인앱 방해금지 시간</b><span>지정 시간대엔 안 띄움(로컬 시간)</span></div>
+            <div class="row-text">
+              <b>지정한 시간엔 끄기</b>
+              <span>아래 시간대(내 컴퓨터 시각 기준)엔 알림을 띄우지 않아요</span>
+            </div>
             <label class="switch"><input type="checkbox" id="qh-enabled" /><i></i></label>
           </div>
           <div class="subblock" id="qh-block" hidden>
-            <label class="field-inline">시작 <input type="time" id="qh-start" /></label>
-            <label class="field-inline">종료 <input type="time" id="qh-end" /></label>
+            <label class="field-inline">시작 시각 <input type="time" id="qh-start" /></label>
+            <label class="field-inline">종료 시각 <input type="time" id="qh-end" /></label>
           </div>
         </section>
 
@@ -155,15 +165,6 @@
           </div>
         </section>
 
-        <!-- 연결 -->
-        <section class="panel" data-panel="account" hidden>
-          <h2>연결</h2>
-          <div class="row account-row">
-            <img id="account-avatar" class="avatar" alt="" hidden />
-            <div class="row-text"><b id="account-id">연결됨</b><span id="account-handle"></span></div>
-          </div>
-          <button id="logout" class="btn ghost">로그아웃 / 연결 해제</button>
-        </section>
       </main>
     </div>
 

@@ -25,7 +25,8 @@ const keywordsBlock = $("keywords-block");
 const keywordInput = $<HTMLInputElement>("keyword-input");
 const keywordChips = $("keyword-chips");
 // 표시
-const ovPosition = $<HTMLSelectElement>("ov-position");
+const posGrid = $("pos-grid");
+const posLabel = $("pos-label");
 const ovScale = $<HTMLInputElement>("ov-scale");
 const ovScaleVal = $("ov-scale-val");
 const ovSpeed = $<HTMLInputElement>("ov-speed");
@@ -362,11 +363,32 @@ qhStart.addEventListener("change", saveQh);
 qhEnd.addEventListener("change", saveQh);
 
 // ── 표시 탭 (로컬, Rust) ──
+const POS_LABEL: Record<string, string> = {
+  "top-left": "좌상단", top: "상단", "top-right": "우상단",
+  left: "좌측", center: "중앙", right: "우측",
+  "bottom-left": "좌하단", bottom: "하단", "bottom-right": "우하단",
+  custom: "사용자 지정 (드래그)",
+};
+function setPosUI(pos: string): void {
+  posGrid?.querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.pos === pos);
+  });
+  if (posLabel) posLabel.textContent = POS_LABEL[pos] ?? "메인 디스플레이 기준";
+}
+posGrid?.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (!display) return;
+    display.position = btn.dataset.pos ?? "bottom-right";
+    setPosUI(display.position);
+    void saveDisplay();
+  });
+});
+
 async function loadDisplay(): Promise<void> {
   if (!isTauri()) return;
   display = await invoke<DisplaySettings>("get_display_settings").catch(() => null);
   if (!display) return;
-  ovPosition.value = display.position;
+  setPosUI(display.position);
   ovScale.value = String(display.scale);
   ovScaleVal.textContent = `${display.scale.toFixed(1)}x`;
   ovSpeed.value = String(display.speed);
@@ -378,7 +400,6 @@ async function saveDisplay(): Promise<void> {
   if (!isTauri() || !display) return;
   display = {
     ...display,
-    position: ovPosition.value,
     scale: parseFloat(ovScale.value),
     speed: parseFloat(ovSpeed.value),
     sound: ovSound.checked,
@@ -388,7 +409,6 @@ async function saveDisplay(): Promise<void> {
   ovSpeedVal.textContent = `${display.speed.toFixed(1)}x`;
   await invoke("set_display_settings", { settings: display }).catch(() => {});
 }
-ovPosition.addEventListener("change", () => void saveDisplay());
 ovScale.addEventListener("input", () => void saveDisplay());
 ovSpeed.addEventListener("input", () => void saveDisplay());
 ovSound.addEventListener("change", () => void saveDisplay());
@@ -405,7 +425,7 @@ if (isTauri()) {
     const { listen } = await import("@tauri-apps/api/event");
     await listen<DisplaySettings>("display-settings", (e) => {
       display = e.payload;
-      ovPosition.value = display.position;
+      setPosUI(display.position);
     });
     // 트레이 일시중지/스누즈
     await listen<number>("pause-change", (e) => {
