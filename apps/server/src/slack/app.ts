@@ -56,6 +56,13 @@ export function createSlackApp(deps: SlackDeps): App {
       try {
         const ctx = await deps.getUserContext(userId);
         if (!ctx) continue; // 우리 DB에 없는 사용자
+
+        // 내가 쓴 메시지/답글 → 그 쓰레드 팔로우(참여·작성). 슬랙의 자동 구독과 동일.
+        // (알림 자체는 isNoiseMessage 로 걸러져 발생하지 않음)
+        if (ev.user === ctx.selfUserId && (!ev.subtype || ev.subtype === "thread_broadcast")) {
+          void deps.followThread(userId, ev.channel, ev.thread_ts ?? ev.ts);
+        }
+
         if (isNoiseMessage(ev, ctx.selfUserId)) continue;
 
         const settings = await deps.getSettings(userId);
