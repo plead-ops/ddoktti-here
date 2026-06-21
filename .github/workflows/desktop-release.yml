@@ -2,14 +2,14 @@ name: desktop-release
 
 # Windows nsis 인스톨러 빌드.
 #  - 수동 실행(Actions 탭의 Run workflow): 설치본을 워크플로 아티팩트로 업로드 → 다운로드해 테스트.
-#  - v* 태그 push: 동일 빌드(아티팩트 업로드). 자동 업데이트/서명 피드 없음.
+#  - v* 태그 push: 빌드 + GitHub Release 생성(설치본 첨부). 자동 업데이트/서명 피드 없음.
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write # 태그 빌드 시 Release 생성
 
 jobs:
   build:
@@ -37,3 +37,10 @@ jobs:
           name: ddoktti-windows-nsis
           path: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
+
+      - name: Create GitHub Release (v* 태그일 때만)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          generate_release_notes: true
