@@ -393,18 +393,17 @@ async function initConnectedUI(): Promise<void> {
 }
 
 // ── 시작 ──
-void (async () => {
-  if (isTauri()) {
-    try {
-      sessionToken = await invoke<string | null>("get_session");
-    } catch {
-      sessionToken = null;
-    }
-  }
-  if (sessionToken) {
-    render(true);
-    startSse();
-  } else {
-    render(false);
-  }
-})();
+// UI를 먼저 그리고(절대 멈추지 않게), 세션은 백그라운드로 복원.
+// (macOS dev 빌드는 Keychain 접근 시 권한 팝업으로 get_session 이 지연될 수 있음)
+render(false);
+if (isTauri()) {
+  invoke<string | null>("get_session")
+    .then((token) => {
+      if (token) {
+        sessionToken = token;
+        render(true);
+        startSse();
+      }
+    })
+    .catch(() => {});
+}
