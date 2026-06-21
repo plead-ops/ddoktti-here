@@ -24,6 +24,8 @@ const Env = z.object({
   REDIS_URL: z.string().min(1),
 
   LOG_LEVEL: z.string().default("info"),
+  // 테스트용 알림 시뮬레이트 엔드포인트 활성화("1"/"true"). 평소엔 비활성.
+  DEBUG_SIMULATE: z.string().default(""),
 });
 
 export type AppConfig = z.infer<typeof Env>;

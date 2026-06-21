@@ -3,7 +3,9 @@ import { loadConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { createHttpApp } from "./http.js";
 import { SseHub, sseRoutes } from "./sse.js";
-import { createSlackApp } from "./slack/app.js";
+import { createSlackApp, processMessageForUser, type SlackDeps } from "./slack/app.js";
+import type { SlackMessageEvent } from "./slack/filters.js";
+import { resolveSession } from "./auth/session.js";
 import { getSettings } from "./store/settings.js";
 import { getUser, deleteUser, listUserIdsByTeam } from "./store/users.js";
 import { addPending, removePending } from "./store/pending.js";
@@ -42,7 +44,7 @@ async function main(): Promise<void> {
   ensureSchema().catch((err) => logger.error({ err }, "ensureSchema 실패 — DB 연결 확인"));
 
   // Slack (Socket Mode) — 연결 실패는 비치명적
-  const slack = createSlackApp({
+  const slackDeps: SlackDeps = {
     // 큐에 먼저 적재(중복 제거) → 새 알림만 푸시. 오프라인이어도 큐에 남아 재접속 시 복원.
     dispatch: async (userId, payload) => {
       if (await addPending(userId, payload)) {
@@ -79,7 +81,43 @@ async function main(): Promise<void> {
       }
       logger.info({ teamId, count: ids.length }, "app uninstalled → users removed");
     },
-  });
+  };
+  const slack = createSlackApp(slackDeps);
+
+  // 테스트용: 가상 메시지를 실제 핸들러에 흘려보내 알림 검증 (DEBUG_SIMULATE 일 때만)
+  if (cfg.DEBUG_SIMULATE === "1" || cfg.DEBUG_SIMULATE === "true") {
+    app.post("/debug/simulate", async (req, res) => {
+      const h = req.headers.authorization;
+      const token = h?.startsWith("Bearer ") ? h.slice(7) : "";
+      const userId = token ? await resolveSession(token) : null;
+      if (!userId) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
+      const b = (req.body ?? {}) as {
+        text?: string;
+        channelType?: string;
+        channel?: string;
+        threadTs?: string;
+        mention?: boolean;
+      };
+      const text = b.mention ? `<@${userId}> ${b.text ?? "테스트 멘션"}` : (b.text ?? "테스트");
+      const ev: SlackMessageEvent = {
+        type: "message",
+        channel: b.channel || (b.channelType === "im" ? "D_DEBUG" : "C_DEBUG"),
+        channel_type: b.channelType || "channel",
+        user: "U_DEBUG_SENDER",
+        text,
+        ts: `${Math.floor(Date.now())}.000100`,
+        thread_ts: b.threadTs,
+      };
+      await processMessageForUser(userId, ev, slackDeps).catch((err) =>
+        logger.error({ err }, "simulate failed"),
+      );
+      res.json({ ok: true, simulated: { channelType: ev.channel_type, text } });
+    });
+    logger.warn("⚠️ DEBUG_SIMULATE 활성 — POST /debug/simulate 사용 가능");
+  }
 
   slack
     .start()

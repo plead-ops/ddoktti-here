@@ -563,6 +563,28 @@ async function doUpdate(silent: boolean): Promise<void> {
 }
 checkUpdateBtn?.addEventListener("click", () => void doUpdate(false));
 
+// 테스트 알림 (개발용) — 서버 DEBUG_SIMULATE 가 켜져 있어야 동작
+const testNotifyBtn = $<HTMLButtonElement>("test-notify");
+const testNotifyStatus = $("test-notify-status");
+testNotifyBtn?.addEventListener("click", async () => {
+  if (!sessionToken) return;
+  testNotifyStatus.textContent = "보내는 중…";
+  try {
+    const res = await fetch(`${SERVER_URL}/debug/simulate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+      body: JSON.stringify({ mention: true, text: "점심 같이 드실래요?" }),
+    });
+    testNotifyStatus.textContent = res.ok
+      ? "보냈어요 — 잠시 후 오버레이가 떠야 해요"
+      : res.status === 404
+        ? "서버 테스트모드 꺼짐(DEBUG_SIMULATE)"
+        : `실패(${res.status})`;
+  } catch {
+    testNotifyStatus.textContent = "전송 실패";
+  }
+});
+
 async function initConnectedUI(): Promise<void> {
   void loadMe();
   refreshPauseUI();

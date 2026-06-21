@@ -56,57 +56,11 @@ export function createSlackApp(deps: SlackDeps): App {
 
   app.event("message", async ({ event, body }: { event: unknown; body: unknown }) => {
     const ev = event as SlackMessageEvent;
-
     // user token 권한으로 인가된 사용자(들) = 이 이벤트를 받아야 할 후보 (PRD §4.2)
     const candidates = await resolveCandidateUsers(body);
-
     for (const userId of candidates) {
       try {
-        const ctx = await deps.getUserContext(userId);
-        if (!ctx) continue; // 우리 DB에 없는 사용자
-
-        // 내가 쓴 메시지/답글 → 그 쓰레드 팔로우(참여·작성). 슬랙의 자동 구독과 동일.
-        // (알림 자체는 isNoiseMessage 로 걸러져 발생하지 않음)
-        if (ev.user === ctx.selfUserId && (!ev.subtype || ev.subtype === "thread_broadcast")) {
-          void deps.followThread(userId, ev.channel, ev.thread_ts ?? ev.ts);
-        }
-
-        if (isNoiseMessage(ev, ctx.selfUserId)) continue;
-
-        const settings = await deps.getSettings(userId);
-        let trigger = evaluateTrigger(ev, settings, ctx);
-
-        // 멘션된 쓰레드는 팔로우 → 이후 답글도 알림. threadTs 없으면 이 메시지 ts 가 루트.
-        if (trigger === "mention") {
-          void deps.followThread(userId, ev.channel, ev.thread_ts ?? ev.ts);
-        }
-        // 다른 트리거 미매칭이지만 내가 참여/멘션된 쓰레드의 답글이면 알림
-        // (팔로우셋에 없으면 replies 폴백으로 14일 지난 쓰레드까지 확인)
-        if (
-          !trigger &&
-          settings.triggers.thread &&
-          ev.thread_ts &&
-          (await deps.isThreadForUser(userId, ev.channel, ev.thread_ts, ctx.myUsergroupIds))
-        ) {
-          trigger = "thread";
-        }
-        if (!trigger) continue;
-
-        // Slack 방해금지 존중 (설정 on일 때만). 인앱 quietHours는 클라가 적용.
-        if (settings.respectDnd && (await deps.isDnd(userId))) continue;
-
-        const payload: NotificationPayload = {
-          id: `${ev.channel}:${ev.ts}`,
-          trigger,
-          channelId: ev.channel,
-          channelType: toConversationType(ev.channel_type),
-          ts: ev.ts,
-          threadTs: ev.thread_ts,
-          // 프라이버시 단계는 클라 표시에서 적용. 서버는 최소 메타만 채운다(§13.7).
-          deepLink: buildSlackDeepLink(ctx.teamId, ev.channel, ev.ts, ev.thread_ts),
-          createdAt: Date.now(),
-        };
-        await deps.dispatch(userId, payload);
+        await processMessageForUser(userId, ev, deps);
       } catch (err) {
         logger.error({ err, userId }, "message dispatch failed");
       }
@@ -138,6 +92,55 @@ export function createSlackApp(deps: SlackDeps): App {
   // TODO(M5): dnd_updated 이벤트로 DND 캐시 갱신(현재는 호출 시점 dnd.info 캐싱)
 
   return app;
+}
+
+/**
+ * 한 사용자에 대해 메시지 1건을 평가→디스패치 (실 핸들러와 디버그 시뮬레이트가 공유).
+ */
+export async function processMessageForUser(
+  userId: string,
+  ev: SlackMessageEvent,
+  deps: SlackDeps,
+): Promise<void> {
+  const ctx = await deps.getUserContext(userId);
+  if (!ctx) return; // 우리 DB에 없는 사용자
+
+  // 내가 쓴 메시지/답글 → 그 쓰레드 팔로우(참여·작성). 슬랙 자동 구독과 동일.
+  if (ev.user === ctx.selfUserId && (!ev.subtype || ev.subtype === "thread_broadcast")) {
+    void deps.followThread(userId, ev.channel, ev.thread_ts ?? ev.ts);
+  }
+
+  if (isNoiseMessage(ev, ctx.selfUserId)) return;
+
+  const settings = await deps.getSettings(userId);
+  let trigger = evaluateTrigger(ev, settings, ctx);
+
+  if (trigger === "mention") {
+    void deps.followThread(userId, ev.channel, ev.thread_ts ?? ev.ts);
+  }
+  if (
+    !trigger &&
+    settings.triggers.thread &&
+    ev.thread_ts &&
+    (await deps.isThreadForUser(userId, ev.channel, ev.thread_ts, ctx.myUsergroupIds))
+  ) {
+    trigger = "thread";
+  }
+  if (!trigger) return;
+
+  if (settings.respectDnd && (await deps.isDnd(userId))) return; // Slack DND 존중
+
+  const payload: NotificationPayload = {
+    id: `${ev.channel}:${ev.ts}`,
+    trigger,
+    channelId: ev.channel,
+    channelType: toConversationType(ev.channel_type),
+    ts: ev.ts,
+    threadTs: ev.thread_ts,
+    deepLink: buildSlackDeepLink(ctx.teamId, ev.channel, ev.ts, ev.thread_ts),
+    createdAt: Date.now(),
+  };
+  await deps.dispatch(userId, payload);
 }
 
 interface Authorization {
