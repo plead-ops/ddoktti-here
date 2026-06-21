@@ -574,13 +574,46 @@ testNotifyBtn?.addEventListener("click", async () => {
       method: "POST",
       headers: { Authorization: `Bearer ${sessionToken}` },
     });
-    testNotifyStatus.textContent = res.ok
-      ? "보냈어요 — 잠시 후 오버레이가 떠요 (방해금지/일시중지 중이면 안 뜸)"
-      : `실패(${res.status}) — 봇 권한/재설치 확인`;
+    if (!res.ok) {
+      testNotifyStatus.textContent = `실패(${res.status}) — 봇 권한/재설치 확인`;
+      return;
+    }
+    testNotifyStatus.textContent = "보냈어요 — 수신 확인 중…";
+    // 3초 후 서버 진단 조회 → 어디서 막혔는지 표시
+    setTimeout(() => void checkDiag(), 3000);
   } catch {
     testNotifyStatus.textContent = "전송 실패";
   }
 });
+async function checkDiag(): Promise<void> {
+  if (!sessionToken) return;
+  try {
+    const res = await fetch(`${SERVER_URL}/test/diag`, {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as { recent?: Array<Record<string, unknown>> };
+    const ims = (data.recent ?? []).filter((r) => r.channelType === "im");
+    const last = ims[ims.length - 1];
+    if (!last) {
+      testNotifyStatus.textContent = "❌ 서버가 DM 이벤트를 못 받음 (이벤트 구독/전달 문제)";
+      return;
+    }
+    const results = (last.results as Array<{ outcome: string; trigger?: string }>) ?? [];
+    const cand = last.candidates as number;
+    if (cand === 0) {
+      testNotifyStatus.textContent = "❌ 이벤트는 왔으나 수신자(candidate) 0 — authorizations 문제";
+      return;
+    }
+    const outcome = results.map((r) => r.outcome).join(",");
+    testNotifyStatus.textContent =
+      outcome.includes("dispatched")
+        ? "✅ 서버 디스패치됨 — 오버레이 안 떴으면 클라 표시 문제"
+        : `서버 결과: ${outcome} (candidate=${cand})`;
+  } catch {
+    /* noop */
+  }
+}
 
 async function initConnectedUI(): Promise<void> {
   void loadMe();

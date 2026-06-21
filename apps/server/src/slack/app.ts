@@ -10,6 +10,7 @@ import {
   type SlackMessageEvent,
 } from "./filters.js";
 import { botClient } from "./web.js";
+import { diagPush } from "../diag.js";
 
 export interface UserContext {
   selfUserId: string;
@@ -60,13 +61,23 @@ export function createSlackApp(deps: SlackDeps): App {
     const ev = event as SlackMessageEvent;
     // user token 권한으로 인가된 사용자(들) = 이 이벤트를 받아야 할 후보 (PRD §4.2)
     const candidates = await resolveCandidateUsers(body);
+    const results: ProcessResult[] = [];
     for (const userId of candidates) {
       try {
-        await processMessageForUser(userId, ev, deps);
+        results.push(await processMessageForUser(userId, ev, deps));
       } catch (err) {
         logger.error({ err, userId }, "message dispatch failed");
+        results.push({ userId, outcome: "no-ctx" });
       }
     }
+    diagPush({
+      channelType: ev.channel_type,
+      channel: ev.channel,
+      bot: Boolean(ev.bot_id),
+      subtype: ev.subtype ?? null,
+      candidates: candidates.length,
+      results,
+    });
   });
 
   // 토큰 취소 → 토큰 폐기 + 재인증 (PRD §5.10, §6)
@@ -99,20 +110,26 @@ export function createSlackApp(deps: SlackDeps): App {
 /**
  * 한 사용자에 대해 메시지 1건을 평가→디스패치 (실 핸들러와 디버그 시뮬레이트가 공유).
  */
+export interface ProcessResult {
+  userId: string;
+  outcome: "no-ctx" | "noise" | "no-trigger" | "dnd" | "dispatched";
+  trigger?: string | null;
+}
+
 export async function processMessageForUser(
   userId: string,
   ev: SlackMessageEvent,
   deps: SlackDeps,
-): Promise<void> {
+): Promise<ProcessResult> {
   const ctx = await deps.getUserContext(userId);
-  if (!ctx) return; // 우리 DB에 없는 사용자
+  if (!ctx) return { userId, outcome: "no-ctx" }; // 우리 DB에 없는 사용자
 
   // 내가 쓴 메시지/답글 → 그 쓰레드 팔로우(참여·작성). 슬랙 자동 구독과 동일.
   if (ev.user === ctx.selfUserId && (!ev.subtype || ev.subtype === "thread_broadcast")) {
     void deps.followThread(userId, ev.channel, ev.thread_ts ?? ev.ts);
   }
 
-  if (isNoiseMessage(ev, ctx.selfUserId)) return;
+  if (isNoiseMessage(ev, ctx.selfUserId)) return { userId, outcome: "noise" };
 
   const settings = await deps.getSettings(userId);
   let trigger = evaluateTrigger(ev, settings, ctx);
@@ -128,9 +145,9 @@ export async function processMessageForUser(
   ) {
     trigger = "thread";
   }
-  if (!trigger) return;
+  if (!trigger) return { userId, outcome: "no-trigger" };
 
-  if (settings.respectDnd && (await deps.isDnd(userId))) return; // Slack DND 존중
+  if (settings.respectDnd && (await deps.isDnd(userId))) return { userId, outcome: "dnd", trigger };
 
   // 클릭 시 그 메시지로 점프하도록 퍼머링크 우선, 실패 시 채널만 여는 slack:// 폴백
   const permalink = await deps.getPermalink(userId, ev.channel, ev.ts);
@@ -145,6 +162,7 @@ export async function processMessageForUser(
     createdAt: Date.now(),
   };
   await deps.dispatch(userId, payload);
+  return { userId, outcome: "dispatched", trigger };
 }
 
 interface Authorization {

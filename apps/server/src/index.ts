@@ -6,6 +6,7 @@ import { SseHub, sseRoutes } from "./sse.js";
 import { createSlackApp, type SlackDeps } from "./slack/app.js";
 import { resolveSession } from "./auth/session.js";
 import { rateLimit } from "./middleware.js";
+import { diagRecent } from "./diag.js";
 import { getSettings } from "./store/settings.js";
 import { getUser, deleteUser, listUserIdsByTeam } from "./store/users.js";
 import { addPending, removePending } from "./store/pending.js";
@@ -96,6 +97,18 @@ async function main(): Promise<void> {
     }
     const ok = await sendTestDm(userId);
     res.status(ok ? 200 : 502).json({ ok });
+  });
+
+  // 임시 진단: 최근 메시지 이벤트 처리 결과 (디버깅용)
+  app.get("/test/diag", async (req, res) => {
+    const h = req.headers.authorization;
+    const token = h?.startsWith("Bearer ") ? h.slice(7) : "";
+    const userId = token ? await resolveSession(token) : null;
+    if (!userId) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    res.json({ recent: diagRecent(20) });
   });
 
   slack
