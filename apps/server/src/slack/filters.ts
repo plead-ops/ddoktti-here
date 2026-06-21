@@ -104,12 +104,20 @@ export function evaluateTrigger(
 
 function matchesKeyword(text: string, keywords: readonly string[]): boolean {
   if (keywords.length === 0) return false;
-  const lower = text.toLowerCase();
+  // 멘션/링크 마크업(<@U…>, <#C…|name>, <https…>) 제거 후 매칭 — 마크업 내부 오탐 방지.
+  // 한국어는 단어경계가 모호해 부분일치를 유지(예: "회의"가 "회의를" 매칭).
+  const lower = text.replace(/<[^>]+>/g, " ").toLowerCase();
   return keywords.some((k) => k.trim() !== "" && lower.includes(k.toLowerCase()));
 }
 
-/** 클릭 시 해당 대화를 여는 slack:// 딥링크 (PRD §5.5) */
-export function buildSlackDeepLink(teamId: string, channelId: string, ts: string): string {
+/** 클릭 시 해당 대화를 여는 slack:// 딥링크 (PRD §5.5). 쓰레드 답글이면 쓰레드를 연다. */
+export function buildSlackDeepLink(
+  teamId: string,
+  channelId: string,
+  ts: string,
+  threadTs?: string,
+): string {
   const msgId = "p" + ts.replace(".", "");
-  return `slack://channel?team=${teamId}&id=${channelId}&message=${msgId}`;
+  const base = `slack://channel?team=${teamId}&id=${channelId}&message=${msgId}`;
+  return threadTs ? `${base}&thread_ts=${threadTs}` : base;
 }

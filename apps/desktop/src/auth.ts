@@ -4,10 +4,6 @@ export const SERVER_URL: string =
   (import.meta.env.VITE_SERVER_URL as string | undefined) ??
   "https://ddoktti-here.app.plead.co.kr";
 
-export function wsUrl(): string {
-  return SERVER_URL.replace(/^http/, "ws") + "/ws";
-}
-
 /** 충분한 엔트로피의 1회성 verifier */
 export function randomVerifier(): string {
   const bytes = new Uint8Array(32);

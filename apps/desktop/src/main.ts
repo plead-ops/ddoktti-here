@@ -107,10 +107,22 @@ function refreshPauseUI(): void {
   resumeBtn?.toggleAttribute("hidden", !paused);
   refreshConnStatus();
 }
+function savePause(): void {
+  localStorage.setItem("pausedUntil", pausedUntil === Infinity ? "Infinity" : String(pausedUntil));
+}
+function restorePause(): void {
+  const v = localStorage.getItem("pausedUntil");
+  if (v === "Infinity") pausedUntil = Infinity;
+  else if (v) {
+    const n = Number(v);
+    if (!Number.isNaN(n)) pausedUntil = n;
+  }
+}
 function setSnooze(kind: string): void {
   if (kind === "resume") pausedUntil = 0;
   else if (kind === "inf") pausedUntil = Infinity;
   else pausedUntil = Date.now() + Number(kind) * 60000;
+  savePause();
   refreshPauseUI();
 }
 document.querySelectorAll<HTMLButtonElement>("button[data-snooze]").forEach((b) => {
@@ -158,8 +170,10 @@ document.querySelectorAll<HTMLButtonElement>(".nav-item").forEach((btn) => {
 
 // ── 로그인 ──
 let loginEpoch = 0;
+let loginInFlight = false; // 자동 업데이트가 로그인 도중 재시작하지 않도록
 async function doLogin(): Promise<void> {
   const epoch = ++loginEpoch;
+  loginInFlight = true;
   obStatus.textContent = "브라우저에서 Slack 연결을 완료해 주세요…";
   try {
     const verifier = randomVerifier();
@@ -176,6 +190,8 @@ async function doLogin(): Promise<void> {
     if (epoch !== loginEpoch) return;
     obStatus.textContent = "로그인 실패: " + ((err as Error)?.message ?? String(err));
     render(false);
+  } finally {
+    if (epoch === loginEpoch) loginInFlight = false;
   }
 }
 async function doLogout(): Promise<void> {
@@ -231,8 +247,10 @@ function inQuietHours(): boolean {
   const cur = now.getHours() * 60 + now.getMinutes();
   const [sh, sm] = q.start.split(":").map(Number);
   const [eh, em] = q.end.split(":").map(Number);
-  const s = (sh ?? 0) * 60 + (sm ?? 0);
-  const e = (eh ?? 0) * 60 + (em ?? 0);
+  if ([sh, sm, eh, em].some((n) => n === undefined || Number.isNaN(n))) return false; // 잘못된 시각
+  const s = sh! * 60 + sm!;
+  const e = eh! * 60 + em!;
+  if (s === e) return false;
   return s <= e ? cur >= s && cur < e : cur >= s || cur < e; // 자정 넘김
 }
 
@@ -465,6 +483,7 @@ if (isTauri()) {
       const m = e.payload;
       if (m === 0) pausedUntil = isPaused() ? 0 : Infinity; // 토글
       else pausedUntil = Date.now() + m * 60000;
+      savePause();
       refreshPauseUI();
     });
     // 오버레이에서 닫음 → 서버에도 dismiss 전파(전 기기)
@@ -511,8 +530,11 @@ autoUpdateCb?.addEventListener("change", () => {
 });
 
 // 업데이트 확인 → 있으면 다운로드·설치·재시작. silent=자동 실행(에러 무시)
+let updating = false;
 async function doUpdate(silent: boolean): Promise<void> {
-  if (!isTauri()) return;
+  if (!isTauri() || updating) return;
+  if (silent && loginInFlight) return; // 로그인 중엔 자동 업데이트 보류
+  updating = true;
   if (!silent) updateStatus.textContent = "확인 중…";
   try {
     const { check } = await import("@tauri-apps/plugin-updater");
@@ -521,13 +543,22 @@ async function doUpdate(silent: boolean): Promise<void> {
       if (!silent) updateStatus.textContent = "최신 버전입니다";
       return;
     }
+    // 동일 버전 재설치 루프 방지(서버 latest.json 오설정 대비)
+    if (silent && localStorage.getItem("lastUpdateVersion") === update.version) return;
     updateStatus.textContent = `새 버전 ${update.version} 다운로드 중…`;
     await update.downloadAndInstall();
+    localStorage.setItem("lastUpdateVersion", update.version);
+    if (silent && loginInFlight) {
+      updateStatus.textContent = "업데이트 받음 — 다음 재시작 때 적용";
+      return; // 로그인 도중이면 강제 재시작하지 않음
+    }
     updateStatus.textContent = "설치 완료 — 재시작합니다";
     const { relaunch } = await import("@tauri-apps/plugin-process");
     await relaunch();
   } catch {
     if (!silent) updateStatus.textContent = "업데이트 확인 실패";
+  } finally {
+    updating = false;
   }
 }
 checkUpdateBtn?.addEventListener("click", () => void doUpdate(false));
@@ -542,6 +573,7 @@ async function initConnectedUI(): Promise<void> {
 // ── 시작 ──
 // UI를 먼저 그리고(절대 멈추지 않게), 세션은 백그라운드로 복원.
 // (macOS dev 빌드는 Keychain 접근 시 권한 팝업으로 get_session 이 지연될 수 있음)
+restorePause(); // 재시작 후에도 스누즈 유지
 render(false);
 if (isTauri()) {
   invoke<string | null>("get_session")

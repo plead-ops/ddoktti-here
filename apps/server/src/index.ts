@@ -14,6 +14,9 @@ import { isThreadForUser } from "./slack/threadFollow.js";
 import { ensureSchema, closeDb } from "./store/db.js";
 import { closeRedis } from "./store/redis.js";
 
+process.on("unhandledRejection", (reason) => logger.error({ reason }, "unhandledRejection"));
+process.on("uncaughtException", (err) => logger.error({ err }, "uncaughtException"));
+
 async function main(): Promise<void> {
   const cfg = loadConfig();
 
@@ -22,7 +25,7 @@ async function main(): Promise<void> {
 
   // 자동 읽음 닫힘: 슬랙에서 먼저 읽으면 큐 제거 + 전 기기 dismiss
   setOnRead((userId, id) => {
-    void removePending(userId, id);
+    void removePending(userId, id).catch((err) => logger.warn({ err, userId, id }, "removePending"));
     hub.send(userId, { type: "dismiss", id });
   });
 
@@ -44,7 +47,10 @@ async function main(): Promise<void> {
     dispatch: async (userId, payload) => {
       if (await addPending(userId, payload)) {
         hub.notify(userId, payload);
-        startReadWatch(userId, payload.id, payload.channelId, payload.ts); // 자동 읽음 닫힘
+        // 자동 읽음 닫힘 — 쓰레드는 채널 last_read 로 판정 불가하므로 제외
+        if (payload.trigger !== "thread") {
+          startReadWatch(userId, payload.id, payload.channelId, payload.ts);
+        }
       }
     },
     getSettings,

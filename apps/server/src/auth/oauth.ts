@@ -68,8 +68,16 @@ export function oauthRouter(): Router {
   });
 
   // 3) 콜백 — code 교환 + 토큰 저장 + 세션 생성
+  const allowedTeams = cfg.SLACK_ALLOWED_TEAM_IDS.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   router.get(OAUTH_CALLBACK_PATH, async (req: Request, res: Response) => {
     try {
+      if (req.query.error) {
+        res.status(400).send("연결이 취소되었습니다. 앱에서 다시 시도해 주세요.");
+        return;
+      }
       const code = String(req.query.code ?? "");
       const state = String(req.query.state ?? "");
       const verifierHash = await redis().getdel(STATE_PREFIX + state);
@@ -93,6 +101,12 @@ export function oauthRouter(): Router {
         res.status(500).send("oauth: missing user token");
         return;
       }
+      // 내부앱: 허용된 워크스페이스만 (allowlist 비면 전체 허용)
+      if (allowedTeams.length > 0 && !allowedTeams.includes(teamId)) {
+        logger.warn({ teamId }, "oauth: team not allowed");
+        res.status(403).send("이 워크스페이스에서는 사용할 수 없어요.");
+        return;
+      }
 
       await db().query(
         `INSERT INTO users (slack_user_id, slack_team_id, user_token_enc, updated_at)
@@ -101,6 +115,8 @@ export function oauthRouter(): Router {
          DO UPDATE SET user_token_enc = EXCLUDED.user_token_enc, slack_team_id = EXCLUDED.slack_team_id, updated_at = now()`,
         [userId, teamId, encryptToken(userToken)],
       );
+      // 캐시 무효화(재인증/신규 가입 즉시 반영)
+      await redis().del(`user:${userId}`, `settings:${userId}`).catch(() => {});
 
       const sessionToken = await createSession(userId);
       await stashSessionForLink(verifierHash, sessionToken);

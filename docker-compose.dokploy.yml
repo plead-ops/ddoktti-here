@@ -67,9 +67,11 @@ services:
       - internal
 
   # 자동 업데이트 피드 (S3 호환). 도메인 updates-ddoktti-here... → minio:9000
+  # 운영시 image 를 특정 RELEASE 태그로 고정 권장(:latest 는 깨지는 릴리스 자동반영 위험).
   minio:
     image: minio/minio:latest
-    command: server /data --console-address ":9001"
+    # 콘솔(9001)은 컨테이너 로컬에만 바인딩 → 외부 라우팅/노출 차단. API(9000)만 도메인 연결.
+    command: server /data --address ":9000" --console-address "127.0.0.1:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -93,7 +95,7 @@ services:
       /bin/sh -c "
       until mc alias set m http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do sleep 2; done;
       mc mb -p m/desktop-updates || true;
-      mc anonymous set download m/desktop-updates || true;
+      mc anonymous set download m/desktop-updates;
       echo 'minio bucket ready'; exit 0;"
     networks:
       - internal

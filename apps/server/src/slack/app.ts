@@ -103,7 +103,7 @@ export function createSlackApp(deps: SlackDeps): App {
           ts: ev.ts,
           threadTs: ev.thread_ts,
           // 프라이버시 단계는 클라 표시에서 적용. 서버는 최소 메타만 채운다(§13.7).
-          deepLink: buildSlackDeepLink(ctx.teamId, ev.channel, ev.ts),
+          deepLink: buildSlackDeepLink(ctx.teamId, ev.channel, ev.ts, ev.thread_ts),
           createdAt: Date.now(),
         };
         await deps.dispatch(userId, payload);

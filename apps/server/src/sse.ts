@@ -9,6 +9,7 @@ import { resolveSession, createSseTicket, consumeSseTicket } from "./auth/sessio
 import { getSettings, saveSettings } from "./store/settings.js";
 import { listPending, removePending } from "./store/pending.js";
 import { stopReadWatch } from "./slack/readWatch.js";
+import { rateLimit } from "./middleware.js";
 import { logger } from "./logger.js";
 
 /**
@@ -38,7 +39,18 @@ export class SseHub {
     const set = this.byUser.get(userId);
     if (!set) return;
     const line = `data: ${JSON.stringify(msg)}\n\n`;
-    for (const res of set) res.write(line);
+    for (const res of set) {
+      if (res.writableEnded || res.destroyed) {
+        set.delete(res);
+        continue;
+      }
+      try {
+        res.write(line);
+      } catch {
+        set.delete(res); // 죽은 소켓 정리
+      }
+    }
+    if (set.size === 0) this.byUser.delete(userId);
   }
   notify(userId: string, payload: NotificationPayload): void {
     this.send(userId, { type: "notify", payload });
@@ -48,15 +60,14 @@ export class SseHub {
 async function authUser(req: Request): Promise<string | null> {
   const h = req.headers.authorization;
   const bearer = h?.startsWith("Bearer ") ? h.slice(7) : "";
-  const token = bearer || String(req.query.token ?? "");
-  return token ? resolveSession(token) : null;
+  return bearer ? resolveSession(bearer) : null; // 토큰은 Authorization 헤더로만
 }
 
 export function sseRoutes(hub: SseHub): Router {
   const r = Router();
 
   // SSE 연결용 단기 티켓 발급 (세션 Bearer 인증) — 장기 토큰을 URL에 안 싣기 위함
-  r.post("/events/ticket", async (req, res) => {
+  r.post("/events/ticket", rateLimit({ name: "ticket", max: 60, windowSec: 60 }), async (req, res) => {
     const userId = await authUser(req);
     if (!userId) {
       res.status(401).json({ error: "unauthorized" });
@@ -65,10 +76,10 @@ export function sseRoutes(hub: SseHub): Router {
     res.json({ ticket: await createSseTicket(userId) });
   });
 
-  // 서버→클라 이벤트 스트림 (티켓 우선, 하위호환으로 token 쿼리도 허용)
+  // 서버→클라 이벤트 스트림 — 단기 티켓 전용(장기 토큰을 URL에 싣지 않음)
   r.get("/events", async (req, res) => {
     const ticket = String(req.query.ticket ?? "");
-    const userId = ticket ? await consumeSseTicket(ticket) : await authUser(req);
+    const userId = await consumeSseTicket(ticket);
     if (!userId) {
       res.status(401).end();
       return;
@@ -90,11 +101,25 @@ export function sseRoutes(hub: SseHub): Router {
     }
     logger.info({ userId }, "sse connected");
 
-    const ka = setInterval(() => res.write(": ka\n\n"), 25000);
-    req.on("close", () => {
+    const ka = setInterval(() => {
+      if (res.writableEnded || res.destroyed) {
+        clearInterval(ka);
+        hub.remove(userId, res);
+        return;
+      }
+      try {
+        res.write(": ka\n\n");
+      } catch {
+        clearInterval(ka);
+        hub.remove(userId, res);
+      }
+    }, 25000);
+    const cleanup = () => {
       clearInterval(ka);
       hub.remove(userId, res);
-    });
+    };
+    req.on("close", cleanup);
+    res.on("error", cleanup); // 소켓 에러로 인한 unhandled 'error' 방지
   });
 
   // 클라→서버: 알림 닫기 (큐 제거 + 전 기기 전파)
@@ -106,7 +131,7 @@ export function sseRoutes(hub: SseHub): Router {
     }
     const id = String((req.body as { id?: string })?.id ?? "");
     if (id) {
-      stopReadWatch(id);
+      stopReadWatch(userId, id);
       await removePending(userId, id);
       hub.send(userId, { type: "dismiss", id });
     }

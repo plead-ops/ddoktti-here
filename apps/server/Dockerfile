@@ -7,11 +7,11 @@ WORKDIR /repo
 
 # ── 의존성 설치 (매니페스트만 먼저 복사해 캐시 활용) ──
 FROM base AS deps
-COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY pnpm-workspace.yaml package.json tsconfig.base.json pnpm-lock.yaml ./
 COPY packages/shared/package.json packages/shared/package.json
 COPY apps/server/package.json apps/server/package.json
-# 주: 루트에 pnpm-lock.yaml 커밋 후 `--frozen-lockfile` 로 교체 권장.
-RUN pnpm install
+# 락파일 고정 — 테스트한 버전과 동일하게 재현 가능한 빌드
+RUN pnpm install --frozen-lockfile
 
 # ── 빌드 + prod 산출물 추출 ──
 FROM deps AS build

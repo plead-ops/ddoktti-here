@@ -25,8 +25,10 @@ export const NotificationPayload = z.object({
   senderName: z.string().optional(),
   /** 'full' 모드에서만 채워짐 */
   preview: z.string().optional(),
-  /** 클릭 시 해당 대화를 여는 slack:// 딥링크 */
-  deepLink: z.string(),
+  /** 클릭 시 해당 대화를 여는 딥링크 — slack:// 또는 https:// 만 허용(스킴 악용 방지) */
+  deepLink: z.string().refine((v) => v.startsWith("slack://") || /^https:\/\//.test(v), {
+    message: "deepLink must be slack:// or https://",
+  }),
   createdAt: z.number(),
 });
 export type NotificationPayload = z.infer<typeof NotificationPayload>;

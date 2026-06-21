@@ -23,6 +23,7 @@ export interface SseHandlers {
 export class SseClient {
   private es: EventSource | null = null;
   private stopped = false;
+  private connecting = false;
   private backoff = 1000;
   private retryTimer: number | null = null;
 
@@ -43,6 +44,14 @@ export class SseClient {
   }
 
   // 연결마다 단기 SSE 티켓을 받아 쿼리에 사용(장기 토큰 노출 방지). 실패 시 토큰 폴백.
+  private scheduleRetry(): void {
+    if (this.stopped) return;
+    this.h.onStatus?.("closed");
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = window.setTimeout(() => void this.connect(), this.backoff);
+    this.backoff = Math.min(this.backoff * 2, 30000);
+  }
+
   private async fetchTicket(token: string): Promise<string | null> {
     try {
       const res = await fetch(`${SERVER_URL}/events/ticket`, {
@@ -58,15 +67,24 @@ export class SseClient {
 
   private async connect(): Promise<void> {
     const token = this.getToken();
-    if (!token || this.stopped) return;
+    if (!token || this.stopped || this.connecting) return;
+    this.connecting = true;
     this.h.onStatus?.("connecting");
-    const ticket = await this.fetchTicket(token);
-    if (this.stopped) return;
-    const url = ticket
-      ? `${SERVER_URL}/events?ticket=${encodeURIComponent(ticket)}`
-      : `${SERVER_URL}/events?token=${encodeURIComponent(token)}`;
-    const es = new EventSource(url);
-    this.es = es;
+    let es: EventSource;
+    try {
+      const ticket = await this.fetchTicket(token);
+      if (this.stopped) return;
+      if (!ticket) {
+        // 티켓 실패 → 백오프 후 재시도(장기 토큰은 URL에 싣지 않음)
+        this.scheduleRetry();
+        return;
+      }
+      this.es?.close(); // 기존 연결 정리(중복 스트림 방지)
+      es = new EventSource(`${SERVER_URL}/events?ticket=${encodeURIComponent(ticket)}`);
+      this.es = es;
+    } finally {
+      this.connecting = false;
+    }
 
     es.onopen = () => {
       this.backoff = 1000;
@@ -74,13 +92,9 @@ export class SseClient {
     };
     // EventSource 는 HTTP 에러(404/401/5xx)엔 자동 재연결을 안 함 → 직접 백오프 재연결
     es.onerror = () => {
-      this.h.onStatus?.("closed");
       es.close();
-      this.es = null;
-      if (this.stopped) return;
-      if (this.retryTimer) clearTimeout(this.retryTimer);
-      this.retryTimer = window.setTimeout(() => void this.connect(), this.backoff);
-      this.backoff = Math.min(this.backoff * 2, 30000);
+      if (this.es === es) this.es = null;
+      this.scheduleRetry();
     };
 
     es.onmessage = (e) => {

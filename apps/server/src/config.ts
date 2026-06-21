@@ -14,6 +14,10 @@ const Env = z.object({
   PUBLIC_BASE_URL: z.string().url().default("https://ddoktti-here.app.plead.co.kr"),
   SESSION_TTL_SECONDS: z.coerce.number().default(60 * 60 * 24 * 30),
   TOKEN_ENC_KEY: z.string().min(1),
+  // 허용 워크스페이스(team_id) — 비우면 전체 허용. 내부앱이면 회사 팀ID로 제한.
+  SLACK_ALLOWED_TEAM_IDS: z.string().default(""),
+  // CORS 허용 Origin(콤마구분) — 비우면 tauri/localhost 기본값.
+  ALLOWED_ORIGINS: z.string().default(""),
 
   // 저장소
   DATABASE_URL: z.string().min(1),

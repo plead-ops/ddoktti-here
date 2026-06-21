@@ -81,18 +81,19 @@ export async function getUserGroupIds(userId: string): Promise<Set<string>> {
       /* fall through */
     }
   }
-  const ids = new Set<string>();
   try {
     const res = await botClient().usergroups.list({ include_users: true });
+    const ids = new Set<string>();
     for (const g of res.usergroups ?? []) {
       const users = (g as { users?: string[] }).users;
       if (g.id && users?.includes(userId)) ids.add(g.id);
     }
+    await redis().set(cacheKey, JSON.stringify([...ids]), "EX", 3600); // 성공 시에만 캐싱
+    return ids;
   } catch (err) {
     logger.warn({ err, userId }, "usergroups.list failed");
+    return new Set(); // 실패는 캐싱하지 않음(다음에 재시도)
   }
-  await redis().set(cacheKey, JSON.stringify([...ids]), "EX", 3600);
-  return ids;
 }
 
 export interface ChannelInfo {
@@ -145,23 +146,23 @@ export async function getProfile(userId: string): Promise<UserProfile> {
       /* fall through */
     }
   }
-  let profile: UserProfile = { displayName: userId, avatar: null };
+  const fallback: UserProfile = { displayName: userId, avatar: null };
   try {
     const token = await getUserToken(userId);
-    if (token) {
-      const res = await clientFor(token).users.info({ user: userId });
-      const u = res.user;
-      const p = u?.profile;
-      profile = {
-        displayName: p?.display_name || u?.real_name || u?.name || userId,
-        avatar: p?.image_192 || p?.image_72 || p?.image_48 || null,
-      };
-    }
+    if (!token) return fallback; // 토큰 없으면 캐싱 안 함
+    const res = await clientFor(token).users.info({ user: userId });
+    const u = res.user;
+    const p = u?.profile;
+    const profile: UserProfile = {
+      displayName: p?.display_name || u?.real_name || u?.name || userId,
+      avatar: p?.image_192 || p?.image_72 || p?.image_48 || null,
+    };
+    await redis().set(cacheKey, JSON.stringify(profile), "EX", 3600); // 성공 시에만
+    return profile;
   } catch (err) {
     logger.warn({ err, userId }, "users.info failed");
+    return fallback; // 실패는 캐싱하지 않음
   }
-  await redis().set(cacheKey, JSON.stringify(profile), "EX", 3600);
-  return profile;
 }
 
 /**
@@ -173,29 +174,28 @@ export async function isUserDnd(userId: string): Promise<boolean> {
   const cached = await redis().get(cacheKey);
   if (cached !== null) return cached === "1";
 
-  let dnd = false;
   try {
     const token = await getUserToken(userId);
-    if (token) {
-      const web = clientFor(token);
-      const res = (await web.dnd.info({ user: userId })) as {
-        dnd_enabled?: boolean;
-        snooze_enabled?: boolean;
-        next_dnd_start_ts?: number;
-        next_dnd_end_ts?: number;
-      };
-      const now = Date.now() / 1000;
-      const inWindow =
-        Boolean(res.dnd_enabled) &&
-        typeof res.next_dnd_start_ts === "number" &&
-        typeof res.next_dnd_end_ts === "number" &&
-        now >= res.next_dnd_start_ts &&
-        now < res.next_dnd_end_ts;
-      dnd = Boolean(res.snooze_enabled) || inWindow;
-    }
+    if (!token) return false; // 토큰 없으면 캐싱 안 함
+    const web = clientFor(token);
+    const res = (await web.dnd.info({ user: userId })) as {
+      dnd_enabled?: boolean;
+      snooze_enabled?: boolean;
+      next_dnd_start_ts?: number;
+      next_dnd_end_ts?: number;
+    };
+    const now = Date.now() / 1000;
+    const inWindow =
+      Boolean(res.dnd_enabled) &&
+      typeof res.next_dnd_start_ts === "number" &&
+      typeof res.next_dnd_end_ts === "number" &&
+      now >= res.next_dnd_start_ts &&
+      now < res.next_dnd_end_ts;
+    const dnd = Boolean(res.snooze_enabled) || inWindow;
+    await redis().set(cacheKey, dnd ? "1" : "0", "EX", 60); // 성공 시에만
+    return dnd;
   } catch (err) {
     logger.warn({ err, userId }, "dnd.info failed");
+    return false; // 실패는 캐싱하지 않음(DND 모를 땐 알림 허용)
   }
-  await redis().set(cacheKey, dnd ? "1" : "0", "EX", 60);
-  return dnd;
 }

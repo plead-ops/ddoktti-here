@@ -63,8 +63,11 @@ export async function ensureSchema(): Promise<void> {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(901274)"); // 동시 기동 직렬화
       await client.query(m.sql);
-      await client.query("INSERT INTO schema_migrations (id) VALUES ($1)", [m.id]);
+      await client.query("INSERT INTO schema_migrations (id) VALUES ($1) ON CONFLICT DO NOTHING", [
+        m.id,
+      ]);
       await client.query("COMMIT");
       logger.info({ id: m.id }, "migration applied");
     } catch (err) {
