@@ -568,17 +568,21 @@ const testNotifyBtn = $<HTMLButtonElement>("test-notify");
 const testNotifyStatus = $("test-notify-status");
 testNotifyBtn?.addEventListener("click", async () => {
   if (!sessionToken) return;
-  testNotifyStatus.textContent = "봇이 DM 보내는 중…";
+  testNotifyStatus.textContent = "봇이 채널에 게시 중…";
   try {
     const res = await fetch(`${SERVER_URL}/test/dm`, {
       method: "POST",
       headers: { Authorization: `Bearer ${sessionToken}` },
     });
+    const data = (await res.json().catch(() => ({}))) as { channel?: string; reason?: string };
     if (!res.ok) {
-      testNotifyStatus.textContent = `실패(${res.status}) — 봇 권한/재설치 확인`;
+      testNotifyStatus.textContent =
+        data.reason === "no-shared-channel"
+          ? "봇과 공통 채널 없음 — 채널에 @ddoktti 초대 후 다시"
+          : `실패(${res.status})`;
       return;
     }
-    testNotifyStatus.textContent = "DM 보냄 — 곧 오버레이가 떠요 (수신 확인 중…)";
+    testNotifyStatus.textContent = `#${data.channel}에 게시 — 그 채널이 '지정 채널'이면 오버레이가 떠요`;
     setTimeout(() => void checkDiag(), 6000);
   } catch {
     testNotifyStatus.textContent = "전송 실패";

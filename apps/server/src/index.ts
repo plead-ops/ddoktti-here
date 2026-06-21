@@ -9,7 +9,12 @@ import { diagSummary, setSlackConnected } from "./diag.js";
 import { getSettings } from "./store/settings.js";
 import { getUser, deleteUser, listUserIdsByTeam } from "./store/users.js";
 import { addPending, removePending } from "./store/pending.js";
-import { isUserDnd, getUserGroupIds, getMessagePermalink, sendTestDm } from "./slack/web.js";
+import {
+  isUserDnd,
+  getUserGroupIds,
+  getMessagePermalink,
+  sendTestChannelMessage,
+} from "./slack/web.js";
 import { startReadWatch, setOnRead } from "./slack/readWatch.js";
 import { followThread } from "./store/threads.js";
 import { isThreadForUser } from "./slack/threadFollow.js";
@@ -84,8 +89,8 @@ async function main(): Promise<void> {
       res.status(401).json({ error: "unauthorized" });
       return;
     }
-    const r = await sendTestDm(userId);
-    res.status(r.ok ? 200 : 502).json(r);
+    const r = await sendTestChannelMessage(userId);
+    res.status(r.ok ? 200 : 409).json(r);
   });
 
   // 임시 진단: 최근 메시지 이벤트 처리 결과 (디버깅용)

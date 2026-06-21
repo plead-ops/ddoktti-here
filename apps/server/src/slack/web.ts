@@ -27,25 +27,28 @@ export function botClient(): WebClient {
 }
 
 /**
- * 테스트 알림: 봇이 사용자에게 DM 발송 → DM 트리거(멘션 파싱 불필요)로 오버레이 검증.
- * (봇 멘션은 슬랙이 이벤트 text/blocks 에 멘션을 안 실어줘 봇으론 검증 불가 → DM 사용.
- *  실제 사람 멘션은 text 에 <@U> 가 들어와 정상 동작함.)
+ * 테스트 알림: 봇이 (사용자도 멤버인) 채널에 게시 → 그 채널이 '지정 채널'이면 channel 트리거로 오버레이.
+ * 봇 DM 은 슬랙이 앱 자신에게 안 돌려주고, 봇 멘션은 이벤트에서 벗겨지므로 채널 본문 트리거를 사용.
+ * 비공개 채널 우선(노출 방지), 봇 미초대 채널은 not_in_channel 로 건너뜀.
  */
-export async function sendTestDm(userId: string): Promise<{ ok: boolean; reason?: string }> {
-  try {
-    const bot = botClient();
-    const open = await bot.conversations.open({ users: userId });
-    const channel = (open.channel as { id?: string } | undefined)?.id;
-    if (!channel) return { ok: false, reason: "open-failed" };
-    await bot.chat.postMessage({
-      channel,
-      text: "🔔 똑띠왔어요 테스트 알림이에요! 화면에 캐릭터가 떴다면 정상입니다.",
-    });
-    return { ok: true };
-  } catch (err) {
-    logger.warn({ err, userId }, "sendTestDm failed");
-    return { ok: false, reason: "post-failed" };
+export async function sendTestChannelMessage(
+  userId: string,
+): Promise<{ ok: boolean; channel?: string; reason?: string }> {
+  const bot = botClient();
+  const all = await listUserChannels(userId);
+  const channels = [...all].sort((a, b) => Number(b.isPrivate) - Number(a.isPrivate)); // 비공개 우선
+  for (const c of channels.slice(0, 25)) {
+    try {
+      await bot.chat.postMessage({
+        channel: c.id,
+        text: `<@${userId}> 🔔 똑띠왔어요 테스트 멘션입니다!`,
+      });
+      return { ok: true, channel: c.name };
+    } catch {
+      // not_in_channel 등 → 다음 채널
+    }
   }
+  return { ok: false, reason: "no-shared-channel" };
 }
 
 /**
