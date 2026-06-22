@@ -47,7 +47,6 @@ apps/desktop/         Tauri 데스크탑 앱
     notifier.rs       Windows 알림 폴링 → 오버레이 트리거 (windows 크레이트)
 packages/shared/      오버레이 페이로드 타입 (zod)
 assets/               스프라이트 · 아이콘
-spike/                검증 스파이크 (C#/Rust 알림 PoC)
 ```
 
 **사전 요구**: Node 22+ · pnpm 9 (`npm i -g pnpm`) · Rust + Visual Studio **C++ Build Tools(MSVC)** · WebView2
@@ -72,8 +71,7 @@ nsis 설치본을 빌드해 **GitHub Release를 생성하고 첨부**합니다.
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-자동 업데이트는 없습니다 — 사용자는 Releases에서 새 설치본을 받습니다. 일반 exe 설치만으로 동작하며
-별도 패키지 서명/식별자(sparse package)는 필요 없습니다.
+자동 업데이트는 없습니다 — 사용자는 Releases에서 새 설치본을 받습니다. 일반 exe 설치만으로 동작합니다.
 
 ## 한계
 

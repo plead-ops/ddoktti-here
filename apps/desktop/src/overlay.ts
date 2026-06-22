@@ -247,9 +247,8 @@ if (isTauri()) {
     addNotification({
       id: "demo:1",
       trigger: "dm",
-      channelId: "D000",
-      channelType: "im",
-      ts: "1700000000.000100",
+      title: "데모",
+      body: "브라우저 미리보기",
       deepLink: "slack://open",
       createdAt: Date.now(),
     });

@@ -16,7 +16,7 @@ html,
 body {
   margin: 0;
 }
-/* hidden 속성이 .onboarding/.app/.subblock 등의 display 규칙을 항상 이기도록 */
+/* hidden 속성이 display 규칙을 항상 이기도록 */
 [hidden] {
   display: none !important;
 }
@@ -30,38 +30,6 @@ body.settings {
   overflow: hidden;
   font-size: 14px;
 }
-.muted {
-  color: var(--muted);
-}
-
-/* 온보딩(미연결) */
-.onboarding {
-  height: 100vh;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 6px;
-  text-align: center;
-}
-.onboarding .logo {
-  width: 200px;
-  height: 200px;
-}
-.onboarding h1 {
-  margin: 4px 0 2px;
-}
-.ob-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 13px;
-  cursor: pointer;
-}
-.ob-check input {
-  accent-color: var(--accent);
-}
 
 /* 버튼 */
 .btn {
@@ -73,18 +41,15 @@ body.settings {
   border-radius: 10px;
   padding: 9px 16px;
 }
-.btn.primary {
+.btn:hover {
+  filter: brightness(1.08);
+}
+/* 미리보기가 떠 있을 때 버튼 강조 */
+.btn.active {
   background: var(--accent);
   color: var(--accent-ink);
   border-color: transparent;
   font-weight: 700;
-}
-.btn.ghost {
-  background: transparent;
-  color: var(--muted);
-}
-.btn:hover {
-  filter: brightness(1.08);
 }
 
 /* ───────── 앱 레이아웃 ───────── */
@@ -139,56 +104,6 @@ body.settings {
   background: rgba(56, 249, 105, 0.12);
   color: var(--accent);
   font-weight: 600;
-}
-/* 사이드바 하단 계정 + 로그아웃 */
-.sidebar-foot {
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 6px 2px;
-  border-top: 1px solid var(--line);
-}
-.avatar-sm {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  flex: none;
-  object-fit: cover;
-}
-.acc {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-.acc b {
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.acc .conn {
-  font-size: 11px;
-  color: var(--muted);
-}
-.icon-btn {
-  flex: none;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 8px;
-  display: flex;
-}
-.icon-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--fg);
-}
-.icon-btn svg {
-  width: 17px;
-  height: 17px;
 }
 
 /* 위치 = 화면 미니맵 (모니터 모양 안에서 위치 선택) */
@@ -307,95 +222,19 @@ body.settings {
   transform: translateX(18px);
 }
 
-/* 셀렉트/슬라이더/인풋 */
-select,
-input[type="time"],
-input[type="text"],
-input[type="search"] {
-  font: inherit;
-  background: var(--card);
-  color: var(--fg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 7px 10px;
-}
+/* 슬라이더 */
 input[type="range"] {
   width: 160px;
   accent-color: var(--accent);
 }
 
-/* 하위 블록(채널/키워드/시간) */
-.subblock {
-  padding: 12px 0 12px 4px;
-  border-bottom: 1px solid var(--line);
+/* 알림 접근 권한 버튼들 */
+.na-actions {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.check-list {
-  max-height: 220px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.check-list label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.check-list label:hover {
-  background: rgba(255, 255, 255, 0.04);
-}
-.check-list input {
-  accent-color: var(--accent);
-}
-.account-row {
-  gap: 12px;
-  justify-content: flex-start;
-}
-.avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
+  gap: 6px;
   flex: none;
-  object-fit: cover;
-}
-.field-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: 16px;
-  color: var(--muted);
 }
 
-/* 키워드 칩 */
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(56, 249, 105, 0.12);
-  color: var(--accent);
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 12px;
-}
-.chip button {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-}
 .hint {
   color: var(--muted);
   font-size: 12px;
@@ -455,19 +294,4 @@ body.overlay-body {
 }
 .badge:hover {
   filter: brightness(1.1);
-}
-
-/* 알림 접근 권한 버튼들 */
-.na-actions {
-  display: flex;
-  gap: 6px;
-  flex: none;
-}
-
-/* 미리보기가 떠 있을 때 버튼 강조 */
-.btn.active {
-  background: var(--accent);
-  color: var(--accent-ink);
-  border-color: transparent;
-  font-weight: 700;
 }

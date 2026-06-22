@@ -5,7 +5,7 @@
   "description": "똑띠왔어요 — 윈도우 슬랙 알림 감지 오버레이 데스크탑 앱",
   "packageManager": "pnpm@9.15.9",
   "engines": {
-    "node": ">=26"
+    "node": ">=22"
   },
   "scripts": {
     "build": "pnpm -r build",

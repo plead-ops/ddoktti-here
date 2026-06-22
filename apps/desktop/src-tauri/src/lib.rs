@@ -227,10 +227,10 @@ fn preview_overlay(app: AppHandle) -> Result<(), String> {
     let payload = serde_json::json!({
         "id": "preview:1",
         "trigger": "dm",
-        "channelId": "D0",
-        "channelType": "im",
-        "ts": "1700000000.0001",
+        "title": "똑띠 미리보기",
+        "body": "이렇게 알림이 떠요!",
         "deepLink": "slack://open",
+        "source": "preview",
         "createdAt": 0
     });
     display_notification(app, payload)
@@ -276,8 +276,6 @@ pub fn run() {
             show_settings(app);
         }))
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]), // 로그인 자동시작 시 이 인자로 실행 → 설정창 숨김 판별

@@ -16,9 +16,8 @@ apps/desktop/src-tauri/gen/
 .env.*
 !.env.example
 
-# tauri updater signing keys (NEVER commit)
+# signing keys (NEVER commit)
 *.key
-ddoktti-updater.key*
 
 # logs
 *.log

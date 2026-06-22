@@ -1,11 +1,8 @@
 import { z } from "zod";
 
-/** 알림을 발생시킨 트리거 종류 (PRD §5.2) */
+/** 알림 트리거 종류 (표시용 메타) */
 export const TriggerType = z.enum(["dm", "mention", "channel", "keyword", "thread"]);
 export type TriggerType = z.infer<typeof TriggerType>;
-
-export const ConversationType = z.enum(["im", "mpim", "channel", "group"]);
-export type ConversationType = z.infer<typeof ConversationType>;
 
 /**
  * 오버레이로 전달되는 알림 페이로드.
@@ -32,14 +29,5 @@ export const NotificationPayload = z.object({
     })
     .optional(),
   createdAt: z.number().default(0),
-
-  // ── 레거시(서버 기반) 필드 — 서버 제거 후 정리 예정, 현재 optional ──
-  channelId: z.string().optional(),
-  channelType: ConversationType.optional(),
-  ts: z.string().optional(),
-  threadTs: z.string().optional(),
-  senderId: z.string().optional(),
-  senderName: z.string().optional(),
-  preview: z.string().optional(),
 });
 export type NotificationPayload = z.infer<typeof NotificationPayload>;
