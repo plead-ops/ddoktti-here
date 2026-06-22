@@ -53,7 +53,8 @@
     ],
     "windows": {
       "nsis": {
-        "languages": ["Korean"]
+        "languages": ["Korean"],
+        "installerHooks": "nsis-hooks.nsh"
       }
     }
   },
