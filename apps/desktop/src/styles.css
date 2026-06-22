@@ -295,3 +295,14 @@ body.overlay-body {
 .badge:hover {
   filter: brightness(1.1);
 }
+
+/* 사이드바 최하단 미리보기 버튼 */
+.sidebar-preview {
+  margin-top: auto;
+  font-size: 13px;
+  padding: 9px 10px;
+}
+/* 비활성화된 설정 행(애니메이션 끄기 시 속도) */
+.row.disabled {
+  opacity: 0.45;
+}

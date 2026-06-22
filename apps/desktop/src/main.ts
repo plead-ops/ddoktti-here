@@ -12,6 +12,7 @@ const ovScale = $<HTMLInputElement>("ov-scale");
 const ovScaleVal = $("ov-scale-val");
 const ovSpeed = $<HTMLInputElement>("ov-speed");
 const ovSpeedVal = $("ov-speed-val");
+const ovSpeedRow = $("ov-speed-row");
 const ovSound = $<HTMLInputElement>("ov-sound");
 const ovMotion = $<HTMLInputElement>("ov-motion");
 const ovTop = $<HTMLInputElement>("ov-top");
@@ -94,6 +95,13 @@ async function loadDisplay(): Promise<void> {
   ovSound.checked = display.sound;
   ovMotion.checked = display.reduce_motion;
   ovTop.checked = display.always_on_top;
+  syncMotion();
+}
+// 애니메이션 끄기 ON → 속도 슬라이더 비활성화
+function syncMotion(): void {
+  const off = ovMotion.checked;
+  ovSpeed.disabled = off;
+  ovSpeedRow.classList.toggle("disabled", off);
 }
 async function saveDisplay(): Promise<void> {
   if (!isTauri() || !display) return;
@@ -112,7 +120,10 @@ async function saveDisplay(): Promise<void> {
 ovScale.addEventListener("input", () => void saveDisplay());
 ovSpeed.addEventListener("input", () => void saveDisplay());
 ovSound.addEventListener("change", () => void saveDisplay());
-ovMotion.addEventListener("change", () => void saveDisplay());
+ovMotion.addEventListener("change", () => {
+  syncMotion();
+  void saveDisplay();
+});
 ovTop.addEventListener("change", () => void saveDisplay());
 // 미리보기 버튼: 오버레이가 떠 있으면 "닫기"로 변형(상태 표시)
 let overlayShown = false;
