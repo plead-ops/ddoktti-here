@@ -8,7 +8,10 @@
       "Bash(curl -s -o nsis.txt -w \"http=%{http_code} \" --max-time 25 \"https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi\")",
       "Bash(git add *)",
       "Bash(git commit -q -m 'fix\\(installer\\): 바탕화면 바로가기 기본 해제\\(MUI_FINISHPAGE_SHOWREADME_NOTCHECKED\\) + silent 설치분 제거 *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git commit -q -m 'release: v0.1.2 *)",
+      "Bash(git tag *)",
+      "Bash(gh run *)"
     ]
   }
 }
