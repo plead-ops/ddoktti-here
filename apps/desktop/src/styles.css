@@ -254,6 +254,8 @@ body.overlay-body {
   display: grid;
   place-items: center;
   cursor: grab;
+  /* 창 안쪽 10% 여백 — 스프라이트는 창의 80%에만 그려, 그림자가 창 밖으로 잘리지 않게 함 */
+  padding: 10%;
 }
 .overlay:active {
   cursor: grabbing;
@@ -264,7 +266,9 @@ body.overlay-body {
   object-fit: contain;
   -webkit-user-drag: none;
   pointer-events: none;
-  filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.35));
+  /* 그림자를 창 비율(vmin)로 — 어떤 배율에서도 안 잘림.
+     padding 10% 예산 안에서 최대치: 퍼짐 ≈ offset + blur×1.5 = 1 + 8.25 = 9.25% (≤10%). */
+  filter: drop-shadow(0 1vmin 5.5vmin rgba(0, 0, 0, 0.4));
   animation: pop 280ms cubic-bezier(0.2, 1.4, 0.4, 1);
 }
 @keyframes pop {
@@ -282,8 +286,9 @@ body.overlay-body {
 }
 .badge {
   position: absolute;
-  top: 8%;
-  right: 8%;
+  /* 스프라이트가 창의 80%(여백 10%) 안에 있으므로 배지도 그 안쪽으로 */
+  top: 13%;
+  right: 13%;
   background: var(--accent);
   color: var(--accent-ink);
   font: 700 13px system-ui, sans-serif;
