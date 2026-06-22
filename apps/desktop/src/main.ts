@@ -19,6 +19,9 @@ const testBtn = $<HTMLButtonElement>("test-overlay");
 // 일반
 const autostartCb = $<HTMLInputElement>("autostart");
 const appVersion = $("app-version");
+const autoUpdateCb = $<HTMLInputElement>("auto-update");
+const checkUpdateBtn = $<HTMLButtonElement>("check-update");
+const updateStatus = $("update-status");
 const naStatus = $("na-status");
 const naRequest = $<HTMLButtonElement>("na-request");
 const naSettings = $<HTMLButtonElement>("na-settings");
@@ -159,6 +162,7 @@ async function loadGeneral(): Promise<void> {
   } catch {
     /* noop */
   }
+  autoUpdateCb.checked = autoUpdateOn();
 }
 async function setAutostart(enabled: boolean): Promise<void> {
   if (!isTauri()) return;
@@ -172,6 +176,39 @@ async function setAutostart(enabled: boolean): Promise<void> {
   autostartCb.checked = enabled;
 }
 autostartCb.addEventListener("change", () => void setAutostart(autostartCb.checked));
+
+// ── 자동 업데이트 (GitHub Releases) ──
+function autoUpdateOn(): boolean {
+  return localStorage.getItem("autoUpdate") !== "0";
+}
+autoUpdateCb.addEventListener("change", () => {
+  localStorage.setItem("autoUpdate", autoUpdateCb.checked ? "1" : "0");
+});
+let updating = false;
+// silent=true: 자동 확인(조용히, 실패 무시). false: 버튼 클릭(상태 표시).
+async function doUpdate(silent: boolean): Promise<void> {
+  if (!isTauri() || updating) return;
+  updating = true;
+  if (!silent) updateStatus.textContent = "확인 중…";
+  try {
+    const { check } = await import("@tauri-apps/plugin-updater");
+    const update = await check();
+    if (!update) {
+      if (!silent) updateStatus.textContent = "최신 버전입니다";
+      return;
+    }
+    updateStatus.textContent = `새 버전 ${update.version} 설치 중…`;
+    await update.downloadAndInstall();
+    updateStatus.textContent = "설치 완료 — 재시작합니다";
+    const { relaunch } = await import("@tauri-apps/plugin-process");
+    await relaunch();
+  } catch {
+    if (!silent) updateStatus.textContent = "업데이트 확인 실패";
+  } finally {
+    updating = false;
+  }
+}
+checkUpdateBtn.addEventListener("click", () => void doUpdate(false));
 
 // ── 알림 접근 권한 ──
 const NA_LABEL: Record<string, string> = {
@@ -207,3 +244,4 @@ window.addEventListener("focus", () => void loadAccess());
 void loadDisplay();
 void loadGeneral();
 void loadAccess();
+if (autoUpdateOn()) void doUpdate(true); // 시작 시 조용히 업데이트 확인

@@ -1,7 +1,7 @@
 {
   "name": "ddoktti-here",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "똑띠왔어요 — 윈도우 슬랙 알림 감지 오버레이 데스크탑 앱",
   "packageManager": "pnpm@9.15.9",
   "engines": {
