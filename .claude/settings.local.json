@@ -11,7 +11,9 @@
       "Bash(git push *)",
       "Bash(git commit -q -m 'release: v0.1.2 *)",
       "Bash(git tag *)",
-      "Bash(gh run *)"
+      "Bash(gh run *)",
+      "Bash(gh release *)",
+      "Bash(pnpm typecheck *)"
     ]
   }
 }

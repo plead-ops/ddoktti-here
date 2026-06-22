@@ -198,12 +198,9 @@ el.badge.addEventListener("click", (e) => {
   void dismissAll();
 });
 async function dismissAll(): Promise<void> {
-  const ids = queue.map((q) => q.id);
   queue = [];
-  renderOverlay();
+  renderOverlay(); // 큐 비움 → overlay-hidden 이벤트 발생(버튼 상태 동기화)
   if (isTauri()) {
-    const { emit } = await import("@tauri-apps/api/event");
-    for (const id of ids) await emit("overlay-dismiss", { id }).catch(() => {});
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("hide_overlay").catch(() => {});
   }
@@ -221,6 +218,8 @@ async function wireTauri(): Promise<void> {
     addNotification(e.payload);
   });
   await listen<{ id: string }>("dismiss-one", (e) => void removeOne(e.payload.id));
+  // 설정창 미리보기 '닫기' → 오버레이 모두 비우고 숨김
+  await listen("overlay-clear", () => void dismissAll());
   // 설정 변경 즉시 반영(속도/모션 등) — 떠있는 오버레이에도 적용
   await listen<{ speed?: number; sound?: boolean; reduce_motion?: boolean }>(
     "display-settings",

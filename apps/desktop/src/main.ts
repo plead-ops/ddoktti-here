@@ -123,7 +123,13 @@ testBtn.addEventListener("click", async () => {
     alert("오버레이 미리보기는 데스크탑 앱에서 동작합니다.");
     return;
   }
-  await invoke(overlayShown ? "hide_overlay" : "preview_overlay");
+  if (overlayShown) {
+    // 닫기: 오버레이가 큐를 비우고 스스로 숨김 → overlay-hidden 이벤트로 버튼 갱신
+    const { emit } = await import("@tauri-apps/api/event");
+    await emit("overlay-clear").catch(() => {});
+  } else {
+    await invoke("preview_overlay");
+  }
 });
 if (isTauri()) {
   void (async () => {

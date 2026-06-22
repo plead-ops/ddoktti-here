@@ -47,6 +47,23 @@ mod imp {
 
             let mut seen: HashSet<u32> = HashSet::new(); // 직전 폴링에 존재하던 모든 id
             let mut shown: HashSet<u32> = HashSet::new(); // 우리가 오버레이를 띄운 슬랙 메시지 id
+
+            // 시작 시점에 이미 떠 있던 알림은 baseline 으로 기록(오버레이 안 띄움).
+            // 앱을 켤 때 기존 알림들이 한꺼번에 뜨는 것을 방지 — 이후 새로 도착하는 것만 반응.
+            if let Ok(op) = listener.GetNotificationsAsync(NotificationKinds::Toast) {
+                if let Ok(notifs) = op.get() {
+                    if let Ok(size) = notifs.Size() {
+                        for i in 0..size {
+                            if let Ok(n) = notifs.GetAt(i) {
+                                if let Ok(id) = n.Id() {
+                                    seen.insert(id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             loop {
                 let _ = poll(&app, &listener, &mut seen, &mut shown);
                 thread::sleep(Duration::from_secs(1));
