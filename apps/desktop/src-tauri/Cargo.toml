@@ -1,6 +1,6 @@
 [package]
 name = "ddoktti-here"
-version = "0.1.0"
+version = "0.1.1"
 description = "똑띠왔어요 — 슬랙 알림 오버레이"
 authors = ["plead"]
 edition = "2021"

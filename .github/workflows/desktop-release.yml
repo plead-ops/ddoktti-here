@@ -29,8 +29,19 @@ jobs:
           projectPath: apps/desktop
           args: "--bundles nsis"
 
+      # productName 이 한글(똑띠왔어요)이라 설치본 파일명이 GitHub 에서 깨짐 → ASCII 로 리네임
+      - name: Rename installer (ASCII)
+        shell: pwsh
+        run: |
+          $dir = "apps/desktop/src-tauri/target/release/bundle/nsis"
+          $f = Get-ChildItem "$dir/*-setup.exe" | Select-Object -First 1
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          $dest = Join-Path $dir "ddoktti-here_${ver}_x64-setup.exe"
+          Move-Item $f.FullName $dest -Force
+          Write-Host "renamed -> $dest"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          files: apps/desktop/src-tauri/target/release/bundle/nsis/ddoktti-here_*-setup.exe
           generate_release_notes: true
