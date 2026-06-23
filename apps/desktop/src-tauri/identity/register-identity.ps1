@@ -9,6 +9,18 @@
 #>
 param([Parameter(Mandatory = $true)][string]$InstallDir)
 
+# 설치 결과를 진단 리포트가 읽을 수 있도록 로그 파일에도 남긴다(앱 local data\logs\install.log).
+$LogFile = Join-Path $env:LOCALAPPDATA 'kr.co.plead.ddoktti-here\logs\install.log'
+function Log([string]$m) {
+  Write-Host $m
+  try {
+    $dir = Split-Path $LogFile
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $stamp = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+    Add-Content -Path $LogFile -Value "$stamp  $m" -Encoding utf8
+  } catch {}
+}
+
 # 리소스가 $INSTDIR 직하 또는 하위 폴더에 놓일 수 있어 양쪽 모두 탐색.
 function Resolve-Asset([string]$name) {
   $direct = Join-Path $InstallDir $name
@@ -37,9 +49,9 @@ if (-not $trusted) {
   try {
     Start-Process -FilePath 'powershell' -Verb RunAs -Wait -WindowStyle Hidden `
       -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $enc)
-    Write-Host "cert trusted in LocalMachine\Root via elevation"
+    Log "cert trusted in LocalMachine\Root via elevation"
   } catch {
-    Write-Host "elevation/cert trust failed or declined: $($_.Exception.Message)"
+    Log "elevation/cert trust failed or declined: $($_.Exception.Message)"
   }
 }
 
@@ -47,7 +59,7 @@ if (-not $trusted) {
 try { Get-AppxPackage *PleadDdoktti* | Remove-AppxPackage -ErrorAction SilentlyContinue } catch {}
 try {
   Add-AppxPackage -Path $msix -ExternalLocation $InstallDir -ForceApplicationShutdown -ErrorAction Stop
-  Write-Host "identity package registered"
+  Log "identity package registered"
 } catch {
-  Write-Host "identity registration failed: $($_.Exception.Message)"
+  Log "identity registration failed: $($_.Exception.Message)"
 }

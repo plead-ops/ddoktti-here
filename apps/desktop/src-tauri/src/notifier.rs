@@ -41,7 +41,10 @@ mod imp {
             }
             let listener = match UserNotificationListener::Current() {
                 Ok(l) => l,
-                Err(_) => return,
+                Err(e) => {
+                    crate::diag::log(&format!("listener Current() 실패: {e:?}"));
+                    return;
+                }
             };
             // 권한이 없으면 1회 요청(이미 Allowed 면 통과). 실패해도 폴링은 시도.
             if listener.GetAccessStatus() != Ok(UserNotificationListenerAccessStatus::Allowed) {
@@ -49,6 +52,12 @@ mod imp {
                     let _ = op.get();
                 }
             }
+            crate::diag::log(&format!(
+                "listener 시작: access={} pkg={} focus={}",
+                access_status(),
+                crate::diag::package_status(),
+                crate::diag::focus_status()
+            ));
 
             let mut seen: HashSet<u32> = HashSet::new(); // 직전 폴링에 존재하던 모든 id
             let mut shown: HashSet<u32> = HashSet::new(); // 우리가 오버레이를 띄운 슬랙 메시지 id
@@ -69,8 +78,16 @@ mod imp {
                 }
             }
 
+            let mut last_err = String::new();
             loop {
-                let _ = poll(&app, &listener, &mut seen, &mut shown);
+                if let Err(e) = poll(&app, &listener, &mut seen, &mut shown) {
+                    crate::diag::inc_err();
+                    let es = format!("{e:?}");
+                    if es != last_err {
+                        crate::diag::log(&format!("poll 에러: {es}"));
+                        last_err = es;
+                    }
+                }
                 thread::sleep(Duration::from_secs(1));
             }
         });
@@ -82,6 +99,7 @@ mod imp {
         seen: &mut HashSet<u32>,
         shown: &mut HashSet<u32>,
     ) -> windows::core::Result<()> {
+        crate::diag::inc_poll();
         let notifs: IVectorView<UserNotification> =
             listener.GetNotificationsAsync(NotificationKinds::Toast)?.get()?;
 
@@ -99,18 +117,29 @@ mod imp {
             }
             let aumid = aumid(n).unwrap_or_default();
             let app_label = app_name(n).unwrap_or_default();
+            crate::diag::inc_seen();
             if !is_slack(&aumid, &app_label) {
+                crate::diag::log(&format!("notif aumid={aumid} app={app_label:?} isSlack=N → skip(슬랙아님)"));
                 continue; // 슬랙 외 앱(설정 등) 무시
             }
+            crate::diag::inc_slack();
             let (title, body) = text(n);
             // 제목/본문이 모두 있어야 실제 메시지로 본다.
             // (슬랙 시스템 공지가 드물게 통과할 순 있으나, "놓침"을 막는 게 우선 — false negative 회피)
             if title.trim().is_empty() || body.trim().is_empty() {
+                crate::diag::inc_empty();
+                crate::diag::log(&format!(
+                    "notif aumid={aumid} app={app_label:?} tLen={} bLen={} isSlack=Y → skip(제목/본문 빔)",
+                    title.trim().len(),
+                    body.trim().len()
+                ));
                 continue;
             }
             // 사용자가 슬랙을 보고 있으면 억제(오버레이 안 띄움).
             // seen 은 루프 끝에서 일괄 갱신되므로 재평가되지 않음.
             if foreground_is_slack() {
+                crate::diag::inc_suppress();
+                crate::diag::log(&format!("notif aumid={aumid} app={app_label:?} isSlack=Y → skip(슬랙 포커스 억제)"));
                 continue;
             }
             let payload = serde_json::json!({
@@ -126,6 +155,12 @@ mod imp {
                 "source": "os"
             });
             let _ = crate::push_overlay(app, payload);
+            crate::diag::inc_push();
+            crate::diag::log(&format!(
+                "notif aumid={aumid} app={app_label:?} tLen={} bLen={} → PUSH(오버레이)",
+                title.trim().len(),
+                body.trim().len()
+            ));
             shown.insert(*id);
         }
 
@@ -241,10 +276,41 @@ mod imp {
             "unspecified"
         }
     }
+
+    /// 진단용: 현재 액션센터의 알림을 메타데이터만으로 덤프(내용 없음).
+    /// COM 미초기화 스레드에서 호출될 수 있어, MTA 전용 스레드에서 수행 후 join.
+    pub fn snapshot() -> String {
+        let h = thread::spawn(|| {
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            }
+            let work = || -> windows::core::Result<String> {
+                let listener = UserNotificationListener::Current()?;
+                let notifs = listener.GetNotificationsAsync(NotificationKinds::Toast)?.get()?;
+                let size = notifs.Size()?;
+                let mut out = format!("총 {size}개\n");
+                for i in 0..size {
+                    let n = notifs.GetAt(i)?;
+                    let aumid = aumid(&n).unwrap_or_default();
+                    let app = app_name(&n).unwrap_or_default();
+                    let (t, b) = text(&n);
+                    out.push_str(&format!(
+                        "  aumid={aumid} app={app:?} tLen={} bLen={} isSlack={}\n",
+                        t.trim().len(),
+                        b.trim().len(),
+                        if is_slack(&aumid, &app) { "Y" } else { "N" }
+                    ));
+                }
+                Ok(out)
+            };
+            work().unwrap_or_else(|e| format!("(스냅샷 실패: {e:?})"))
+        });
+        h.join().unwrap_or_else(|_| "(스냅샷 스레드 패닉)".into())
+    }
 }
 
 #[cfg(target_os = "windows")]
-pub use imp::{access_status, request_access, start};
+pub use imp::{access_status, request_access, snapshot, start};
 
 // Windows 외 플랫폼: no-op / 미지원 (개발 빌드용).
 #[cfg(not(target_os = "windows"))]
@@ -256,4 +322,8 @@ pub fn access_status() -> &'static str {
 #[cfg(not(target_os = "windows"))]
 pub fn request_access() -> &'static str {
     "unsupported"
+}
+#[cfg(not(target_os = "windows"))]
+pub fn snapshot() -> String {
+    "(Windows 전용)".into()
 }

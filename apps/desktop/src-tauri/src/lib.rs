@@ -8,6 +8,7 @@ use tauri::{
     WindowEvent,
 };
 
+mod diag;
 mod notifier;
 
 /// 오버레이 한 변 기본 크기(논리 px). scale 을 곱한다.
@@ -298,6 +299,50 @@ fn open_slack(aumid: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 진단 리포트 텍스트(조회 모달/복사용). 메시지 내용은 포함하지 않음.
+#[tauri::command]
+fn collect_diagnostics(app: AppHandle) -> String {
+    diag::collect(&app)
+}
+
+/// 진단 리포트를 Slack 웹훅으로 전송(개발자에게). 웹훅은 빌드시 시크릿으로 주입.
+#[tauri::command]
+fn send_diagnostics(app: AppHandle) -> Result<(), String> {
+    let webhook = option_env!("DIAG_SLACK_WEBHOOK").unwrap_or("");
+    if webhook.is_empty() {
+        return Err("전송이 설정되지 않았어요(웹훅 미설정 빌드)".into());
+    }
+    let report = diag::collect(&app);
+    let truncated: String = report.chars().take(35000).collect();
+    let payload = serde_json::json!({ "text": format!("```\n{truncated}\n```") });
+    let body = serde_json::to_vec(&payload).map_err(|e| e.to_string())?;
+    let mut tmp = std::env::temp_dir();
+    tmp.push("ddoktti-diag.json");
+    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        let cmd = format!(
+            "try {{ Invoke-RestMethod -Uri '{webhook}' -Method Post -ContentType 'application/json' -InFile '{}'; exit 0 }} catch {{ exit 1 }}",
+            tmp.display()
+        );
+        let status = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &cmd])
+            .status();
+        let _ = std::fs::remove_file(&tmp);
+        match status {
+            Ok(s) if s.success() => Ok(()),
+            Ok(_) => Err("전송 실패(네트워크/웹훅 확인)".into()),
+            Err(e) => Err(format!("전송 실행 실패: {e}")),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (webhook, tmp);
+        Err("Windows 전용".into())
+    }
+}
+
 #[tauri::command]
 fn preview_overlay(app: AppHandle) -> Result<(), String> {
     let payload = serde_json::json!({
@@ -372,7 +417,9 @@ pub fn run() {
             open_slack,
             notification_access,
             request_notification_access,
-            open_notification_settings
+            open_notification_settings,
+            collect_diagnostics,
+            send_diagnostics
         ])
         .setup(|app| {
             let settings_i = MenuItem::with_id(app, "settings", "설정…", true, None::<&str>)?;
@@ -432,6 +479,8 @@ pub fn run() {
                 show_settings(&handle);
             }
 
+            // 진단 로깅 초기화(notifier 가 기록하므로 먼저). 그 외 플랫폼은 no-op.
+            diag::init(&handle);
             // Windows OS 알림(슬랙) 폴링 시작. 그 외 플랫폼은 no-op.
             notifier::start(handle);
             Ok(())

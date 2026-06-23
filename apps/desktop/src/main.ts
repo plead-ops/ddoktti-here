@@ -27,6 +27,14 @@ const updateStatus = $("update-status");
 const naStatus = $("na-status");
 const naRequest = $<HTMLButtonElement>("na-request");
 const naSettings = $<HTMLButtonElement>("na-settings");
+// 문제 해결(진단)
+const diagView = $<HTMLButtonElement>("diag-view");
+const diagSend = $<HTMLButtonElement>("diag-send");
+const diagStatus = $("diag-status");
+const diagModal = $("diag-modal");
+const diagText = $("diag-text");
+const diagCopy = $<HTMLButtonElement>("diag-copy");
+const diagClose = $<HTMLButtonElement>("diag-close");
 
 interface DisplaySettings {
   position: string;
@@ -278,6 +286,56 @@ naRequest.addEventListener("click", async () => {
   if (s !== "allowed") await invoke("open_notification_settings").catch(() => {}); // 동의창이 안 뜨면 설정으로
 });
 naSettings.addEventListener("click", () => void invoke("open_notification_settings").catch(() => {}));
+
+// ── 문제 해결(진단) ──
+function copyText(t: string): void {
+  const ta = document.createElement("textarea");
+  ta.value = t;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } catch {
+    /* noop */
+  }
+  ta.remove();
+}
+diagView.addEventListener("click", async () => {
+  if (!isTauri()) {
+    alert("진단은 데스크탑 앱에서 동작합니다.");
+    return;
+  }
+  diagText.textContent = "수집 중…";
+  diagModal.hidden = false;
+  diagText.textContent = await invoke<string>("collect_diagnostics").catch(() => "(조회 실패)");
+});
+diagClose.addEventListener("click", () => {
+  diagModal.hidden = true;
+});
+diagModal.addEventListener("click", (e) => {
+  if (e.target === diagModal) diagModal.hidden = true; // 바깥 클릭 닫기
+});
+diagCopy.addEventListener("click", () => {
+  copyText(diagText.textContent ?? "");
+  diagCopy.textContent = "복사됨";
+  setTimeout(() => (diagCopy.textContent = "복사"), 1200);
+});
+diagSend.addEventListener("click", async () => {
+  if (!isTauri()) return;
+  if (!confirm("진단 정보를 개발자에게 보낼까요?\n(메시지 내용은 포함되지 않아요)")) return;
+  diagSend.disabled = true;
+  diagStatus.textContent = "보내는 중…";
+  try {
+    await invoke("send_diagnostics");
+    diagStatus.textContent = "보냈어요 ✅";
+  } catch (e) {
+    diagStatus.textContent = "전송 실패 ❌ " + String(e);
+  } finally {
+    diagSend.disabled = false;
+  }
+});
 // 설정에서 권한을 바꾸고 돌아오면 상태 갱신 + 모니터 목록 갱신(연결 변동 반영)
 window.addEventListener("focus", () => {
   void loadAccess();

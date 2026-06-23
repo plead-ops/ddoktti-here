@@ -102,8 +102,30 @@
           <div class="row">
             <div class="row-text"><b>버전</b><span id="app-version">—</span></div>
           </div>
+          <div class="row">
+            <div class="row-text"><b>문제 해결</b><span>알림이 안 뜨면 진단 기록을 확인하거나 개발자에게 보내주세요</span></div>
+            <div class="na-actions">
+              <button id="diag-view" class="btn">진단 기록 조회</button>
+              <button id="diag-send" class="btn">보내기</button>
+            </div>
+          </div>
+          <p class="hint" id="diag-status">　</p>
         </section>
       </main>
+    </div>
+
+    <!-- 진단 기록 조회 모달 -->
+    <div id="diag-modal" class="modal" hidden>
+      <div class="modal-box">
+        <div class="modal-head">
+          <b>진단 기록</b>
+          <span class="modal-actions">
+            <button id="diag-copy" class="btn">복사</button>
+            <button id="diag-close" class="btn">닫기</button>
+          </span>
+        </div>
+        <pre id="diag-text" class="modal-body"></pre>
+      </div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

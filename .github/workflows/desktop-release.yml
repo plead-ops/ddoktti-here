@@ -80,6 +80,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          DIAG_SLACK_WEBHOOK: ${{ secrets.DIAG_SLACK_WEBHOOK }} # 진단 전송 웹훅(option_env! 로 컴파일 주입)
         with:
           projectPath: apps/desktop
           args: "--bundles nsis"
