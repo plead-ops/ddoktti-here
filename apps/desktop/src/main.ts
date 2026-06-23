@@ -123,11 +123,14 @@ async function loadMonitors(): Promise<void> {
     o.textContent = text;
     ovMonitor.append(o);
   };
-  add("active", "활성 화면 (커서 따라)");
+  add("active", "커서 있는 모니터");
+  add("primary", "주 디스플레이");
   for (const m of mons) add(m.id, m.label);
   const cur = display.monitor || "active";
   // 고정 지정한 모니터가 현재 분리돼 목록에 없으면, 선택이 유지되도록 항목 추가
-  if (cur !== "active" && !mons.some((m) => m.id === cur)) add(cur, "지정한 모니터 (연결 안 됨)");
+  if (cur !== "active" && cur !== "primary" && !mons.some((m) => m.id === cur)) {
+    add(cur, "지정한 모니터 (연결 안 됨)");
+  }
   ovMonitor.value = cur;
 }
 // 애니메이션 끄기 ON → 속도 슬라이더 비활성화

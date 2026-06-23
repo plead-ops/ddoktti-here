@@ -51,7 +51,7 @@ struct DisplaySettings {
     /// 항상 위에 표시
     #[serde(default = "default_true")]
     always_on_top: bool,
-    /// 출력 화면: "active"(커서 있는 화면, 기본) | 모니터 name(고정, 사라지면 폴백)
+    /// 출력 화면: "active"(커서 있는 화면, 기본) | "primary"(주 디스플레이) | 모니터 name(고정, 제거 시 주 화면 폴백)
     #[serde(default = "default_monitor")]
     monitor: String,
 }
@@ -151,25 +151,31 @@ fn set_display_settings(app: AppHandle, settings: DisplaySettings) -> Result<(),
 /// - "active"(기본)/빈값 → 커서가 있는 모니터(핫플러그 안전). 못 찾으면 주 모니터.
 /// - 그 외(특정 모니터 name) → 연결된 모니터 중 name 일치. 없으면(분리됨) 활성/주 모니터로 폴백.
 fn resolve_monitor(win: &WebviewWindow, s: &DisplaySettings) -> Option<Monitor> {
-    if s.monitor != "active" && !s.monitor.is_empty() {
-        if let Ok(monitors) = win.available_monitors() {
-            if let Some(m) = monitors
-                .into_iter()
-                .find(|m| m.name().map(|n| n.to_string()) == Some(s.monitor.clone()))
-            {
-                return Some(m);
+    match s.monitor.as_str() {
+        // 커서가 있는 모니터(없으면 주 디스플레이)
+        "" | "active" => {
+            if let Ok(p) = win.cursor_position() {
+                if let Ok(Some(m)) = win.monitor_from_point(p.x, p.y) {
+                    return Some(m);
+                }
             }
+            win.primary_monitor().ok().flatten()
         }
-        // 고정한 모니터가 제거됨 → 주 디스플레이로 폴백(안내 문구와 일치)
-        return win.primary_monitor().ok().flatten();
-    }
-    // "active": 커서가 있는 모니터(없으면 주 모니터)
-    if let Ok(p) = win.cursor_position() {
-        if let Ok(Some(m)) = win.monitor_from_point(p.x, p.y) {
-            return Some(m);
+        // 주 디스플레이(주 화면이 바뀌면 따라감)
+        "primary" => win.primary_monitor().ok().flatten(),
+        // 특정 모니터 고정 — 제거되면 주 디스플레이로 폴백
+        name => {
+            if let Ok(monitors) = win.available_monitors() {
+                if let Some(m) = monitors
+                    .into_iter()
+                    .find(|m| m.name().map(|n| n.to_string()) == Some(name.to_string()))
+                {
+                    return Some(m);
+                }
+            }
+            win.primary_monitor().ok().flatten()
         }
     }
-    win.primary_monitor().ok().flatten()
 }
 
 /// 오버레이 창 크기·위치를 현재 설정대로 적용 (대상 모니터의 작업영역=작업표시줄 제외 기준)
