@@ -109,6 +109,7 @@ mod imp {
             current.push((n.Id()?, n));
         }
         let current_ids: HashSet<u32> = current.iter().map(|(id, _)| *id).collect();
+        crate::diag::note_poll(current.len());
 
         // ── Added: 이번에 새로 나타난 알림 ─────────────────────────────────
         for (id, n) in &current {
@@ -118,6 +119,7 @@ mod imp {
             let aumid = aumid(n).unwrap_or_default();
             let app_label = app_name(n).unwrap_or_default();
             crate::diag::inc_seen();
+            crate::diag::note_aumid(&aumid); // 슬랙 외 포함 — 어떤 앱이 알림 내는지
             if !is_slack(&aumid, &app_label) {
                 crate::diag::log(&format!("notif aumid={aumid} app={app_label:?} isSlack=N → skip(슬랙아님)"));
                 continue; // 슬랙 외 앱(설정 등) 무시
@@ -293,6 +295,7 @@ mod imp {
                     let n = notifs.GetAt(i)?;
                     let aumid = aumid(&n).unwrap_or_default();
                     let app = app_name(&n).unwrap_or_default();
+                    crate::diag::note_aumid(&aumid);
                     let (t, b) = text(&n);
                     out.push_str(&format!(
                         "  aumid={aumid} app={app:?} tLen={} bLen={} isSlack={}\n",

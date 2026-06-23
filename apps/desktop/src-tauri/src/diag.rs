@@ -5,7 +5,7 @@
 
 #[cfg(target_os = "windows")]
 mod imp {
-    use std::collections::VecDeque;
+    use std::collections::{BTreeSet, VecDeque};
     use std::fs;
     use std::io::Write;
     use std::os::windows::process::CommandExt;
@@ -25,6 +25,10 @@ mod imp {
     static EVENTS: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
     static LOG_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
     static STARTED: OnceLock<String> = OnceLock::new();
+    /// 이 세션에서 새 알림을 낸 모든 앱의 AUMID(슬랙 외 포함) — "다른 앱은 되는데 슬랙만?" 판별용.
+    static AUMIDS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+    static LAST_POLL: AtomicU64 = AtomicU64::new(0); // 마지막 폴링 epoch초(루프 생존 확인)
+    static MAX_NOTIFS: AtomicU64 = AtomicU64::new(0); // 한 폴링에서 본 최대 알림 수
 
     static C_POLL: AtomicU64 = AtomicU64::new(0);
     static C_SEEN: AtomicU64 = AtomicU64::new(0);
@@ -42,9 +46,23 @@ mod imp {
     pub fn inc_empty() { C_EMPTY.fetch_add(1, Ordering::Relaxed); }
     pub fn inc_err() { C_ERR.fetch_add(1, Ordering::Relaxed); }
 
+    /// 새 알림을 낸 앱 AUMID 기록(슬랙 외 포함).
+    pub fn note_aumid(a: &str) {
+        if !a.is_empty() {
+            AUMIDS.lock().unwrap().insert(a.to_string());
+        }
+    }
+    /// 폴링 1회 — 마지막 폴링 시각 + 본 알림 최대치 갱신.
+    pub fn note_poll(count: usize) {
+        LAST_POLL.store(now_secs(), Ordering::Relaxed);
+        MAX_NOTIFS.fetch_max(count as u64, Ordering::Relaxed);
+    }
+
+    fn now_secs() -> u64 {
+        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    }
     fn now_hms() -> String {
-        let s = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let t = s % 86_400;
+        let t = now_secs() % 86_400;
         format!("{:02}:{:02}:{:02}", t / 3600, (t % 3600) / 60, t % 60)
     }
 
@@ -132,17 +150,39 @@ mod imp {
 $cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
 'os: ' + $cv.ProductName + ' ' + $cv.DisplayVersion + ' build ' + $cv.CurrentBuild + '.' + $cv.UBR
 'locale: ' + (Get-Culture).Name + ' / sys ' + (Get-WinSystemLocale).Name
+'elevated: ' + ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 'slack_proc_count: ' + (@(Get-Process slack -ErrorAction SilentlyContinue).Count)
+
+# Windows 푸시 알림 사용자 서비스(멈춰있으면 알림 시스템 자체가 깨짐)
+$wpn = Get-Service -Name 'WpnUserService*' -ErrorAction SilentlyContinue | Select-Object -First 1
+'WpnUserService: ' + $(if ($wpn) { $wpn.Status } else { 'NOT_FOUND' })
+
+# 알림 전역 마스터 + 그룹정책 차단
+$pn = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\PushNotifications'
+'push_ToastEnabled_master: ' + (Get-ItemProperty $pn -ErrorAction SilentlyContinue).ToastEnabled
+'policy_NoToast_HKCU: ' + (Get-ItemProperty 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications' -ErrorAction SilentlyContinue).NoToastApplicationNotification
+'policy_NoToast_HKLM: ' + (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications' -ErrorAction SilentlyContinue).NoToastApplicationNotification
+'policy_NoCloud_HKLM: ' + (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications' -ErrorAction SilentlyContinue).NoCloudApplicationNotification
+
+# 슬랙 앱별 알림 설정 — 값 전체 덤프(ShowInActionCenter=0 이면 리스너가 못 봄)
 $ns = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings'
 'toast_ToastEnabled: ' + (Get-ItemProperty $ns -ErrorAction SilentlyContinue).ToastEnabled
-Get-ChildItem $ns -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match 'slack' } | ForEach-Object { 'notif_setting: ' + $_.PSChildName + ' Enabled=' + (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).Enabled }
+Get-ChildItem $ns -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match 'slack' } | ForEach-Object {
+  $k = $_.PSChildName
+  (Get-ItemProperty $_.PSPath).PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | ForEach-Object { 'notif_setting: ' + $k + ' ' + $_.Name + '=' + $_.Value }
+}
+
+# 시스템에 등록된 슬랙 앱 AUMID(실제 슬랙이 쓰는 식별자 확인)
+Get-StartApps -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'slack' } | ForEach-Object { 'startapp: ' + $_.Name + ' = ' + $_.AppID }
+Get-AppxPackage *slack* -ErrorAction SilentlyContinue | ForEach-Object { 'appx_slack: ' + $_.PackageFamilyName }
+
+# WebView2 / 인증서 신뢰
 $g = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
 $wv = (Get-ItemProperty ('HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\' + $g) -ErrorAction SilentlyContinue).pv
 if (-not $wv) { $wv = (Get-ItemProperty ('HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\' + $g) -ErrorAction SilentlyContinue).pv }
 'webview2: ' + $wv
 'cert_LocalMachine_Root_CN_Plead: ' + (@(Get-ChildItem Cert:\LocalMachine\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -eq 'CN=Plead' }).Count)
-'cert_LocalMachine_TrustedPeople_CN_Plead: ' + (@(Get-ChildItem Cert:\LocalMachine\TrustedPeople -ErrorAction SilentlyContinue | Where-Object { $_.Subject -eq 'CN=Plead' }).Count)
-'elevated: ' + ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"#;
+'cert_LocalMachine_TrustedPeople_CN_Plead: ' + (@(Get-ChildItem Cert:\LocalMachine\TrustedPeople -ErrorAction SilentlyContinue | Where-Object { $_.Subject -eq 'CN=Plead' }).Count)"#;
         match std::process::Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps])
             .creation_flags(0x0800_0000) // CREATE_NO_WINDOW — 콘솔 창 숨김
@@ -185,22 +225,41 @@ if (-not $wv) { $wv = (Get-ItemProperty ('HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Cl
         } else {
             events.join("\n")
         };
+        let aumids: Vec<String> = AUMIDS.lock().unwrap().iter().cloned().collect();
+        let aumids_txt = if aumids.is_empty() {
+            "(이 세션에서 관찰된 새 알림 없음)".to_string()
+        } else {
+            aumids.join("\n  ")
+        };
+        let last_poll = LAST_POLL.load(Ordering::Relaxed);
+        let poll_age = if last_poll == 0 {
+            "(폴링 기록 없음 — 리스너 미동작?)".to_string()
+        } else {
+            format!("{}초 전", now_secs().saturating_sub(last_poll))
+        };
+        const GUIDE: &str = "슬랙 AUMID 가 [스냅샷]/[관찰된 AUMID]에 전혀 없고 다른 앱은 보이면:\n\
+             - 슬랙 인앱 '환경설정 > 알림 > 알림 방식'이 'Windows 기본 알림'이 아닐 수 있음(슬랙 자체 알림 → Windows 토스트 미생성 → 감지 불가)\n\
+             - 또는 [시스템] notif_setting 의 ShowInActionCenter=0(배너만, 알림센터 미포함 → 리스너가 못 봄)";
         format!(
             "똑띠왔어요 진단 리포트\n\
              ※ 메시지 제목/본문 등 '내용'은 기록하지 않습니다 (식별자/길이/상태/카운트만).\n\n\
              [앱] v{ver}  PC={pc}  세션시작={started} UTC\n\
              [패키지ID] {pkg}\n\
              [알림접근] {access}\n\
-             [집중지원] {focus}\n\n\
+             [집중지원] {focus}\n\
+             [폴링] 마지막 {poll_age} · 한 폴링 최대 알림수 {maxn}\n\n\
              [시스템]\n{sys}\n\n\
              [요약] poll={poll} seen={seen} slack={slack} push={push} suppress={suppress} empty={empty} err={err}\n\n\
+             [관찰된 AUMID] (이 세션에서 새 알림을 낸 앱들)\n  {aumids}\n\n\
              [현재 알림함 스냅샷]\n{snap}\n\n\
              [설치 로그(최근)]\n{install}\n\n\
-             [최근 이벤트] ({nev}건, 내용 없이 메타데이터만)\n{events}\n",
+             [최근 이벤트] ({nev}건, 내용 없이 메타데이터만)\n{events}\n\n\
+             [해석 힌트]\n{guide}\n",
             ver = env!("CARGO_PKG_VERSION"),
             pkg = package_status(),
             access = crate::notifier::access_status(),
             focus = focus_status(),
+            maxn = MAX_NOTIFS.load(Ordering::Relaxed),
             sys = system_section(),
             poll = C_POLL.load(Ordering::Relaxed),
             seen = C_SEEN.load(Ordering::Relaxed),
@@ -213,6 +272,8 @@ if (-not $wv) { $wv = (Get-ItemProperty ('HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Cl
             install = read_install_log(app),
             nev = events.len(),
             events = ev_txt,
+            aumids = aumids_txt,
+            guide = GUIDE,
         )
     }
 }
@@ -220,7 +281,7 @@ if (-not $wv) { $wv = (Get-ItemProperty ('HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Cl
 #[cfg(target_os = "windows")]
 pub use imp::{
     collect, focus_status, inc_empty, inc_err, inc_poll, inc_push, inc_seen, inc_slack,
-    inc_suppress, init, log, package_status,
+    inc_suppress, init, log, note_aumid, note_poll, package_status,
 };
 
 // 비-Windows: no-op
@@ -239,8 +300,11 @@ mod stub {
     pub fn inc_suppress() {}
     pub fn inc_empty() {}
     pub fn inc_err() {}
+    pub fn note_aumid(_a: &str) {}
+    pub fn note_poll(_count: usize) {}
 }
 #[cfg(not(target_os = "windows"))]
 pub use stub::{
     collect, inc_empty, inc_err, inc_poll, inc_push, inc_seen, inc_slack, inc_suppress, init, log,
+    note_aumid, note_poll,
 };
