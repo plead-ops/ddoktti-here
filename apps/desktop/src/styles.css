@@ -228,6 +228,21 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
+/* 드롭다운(출력 화면 등) */
+.select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  max-width: 220px;
+  cursor: pointer;
+}
+.select:hover {
+  filter: brightness(1.08);
+}
+
 /* 알림 접근 권한 버튼들 */
 .na-actions {
   display: flex;

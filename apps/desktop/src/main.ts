@@ -16,6 +16,7 @@ const ovSpeedRow = $("ov-speed-row");
 const ovSound = $<HTMLInputElement>("ov-sound");
 const ovMotion = $<HTMLInputElement>("ov-motion");
 const ovTop = $<HTMLInputElement>("ov-top");
+const ovMonitor = $<HTMLSelectElement>("ov-monitor");
 const testBtn = $<HTMLButtonElement>("test-overlay");
 // 일반
 const autostartCb = $<HTMLInputElement>("autostart");
@@ -37,6 +38,11 @@ interface DisplaySettings {
   sound: boolean;
   reduce_motion: boolean;
   always_on_top: boolean;
+  monitor: string;
+}
+interface MonitorInfo {
+  id: string;
+  label: string;
 }
 
 let display: DisplaySettings | null = null;
@@ -96,6 +102,25 @@ async function loadDisplay(): Promise<void> {
   ovMotion.checked = display.reduce_motion;
   ovTop.checked = display.always_on_top;
   syncMotion();
+  await loadMonitors();
+}
+// 출력 화면 드롭다운 채우기 — "활성 화면" + 연결된 모니터들. 저장값 유지.
+async function loadMonitors(): Promise<void> {
+  if (!isTauri() || !display) return;
+  const mons = await invoke<MonitorInfo[]>("list_monitors").catch(() => [] as MonitorInfo[]);
+  ovMonitor.replaceChildren();
+  const add = (value: string, text: string): void => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    ovMonitor.append(o);
+  };
+  add("active", "활성 화면 (커서 따라)");
+  for (const m of mons) add(m.id, m.label);
+  const cur = display.monitor || "active";
+  // 고정 지정한 모니터가 현재 분리돼 목록에 없으면, 선택이 유지되도록 항목 추가
+  if (cur !== "active" && !mons.some((m) => m.id === cur)) add(cur, "지정한 모니터 (연결 안 됨)");
+  ovMonitor.value = cur;
 }
 // 애니메이션 끄기 ON → 속도 슬라이더 비활성화
 function syncMotion(): void {
@@ -125,6 +150,11 @@ ovMotion.addEventListener("change", () => {
   void saveDisplay();
 });
 ovTop.addEventListener("change", () => void saveDisplay());
+ovMonitor.addEventListener("change", () => {
+  if (!display) return;
+  display.monitor = ovMonitor.value;
+  void saveDisplay();
+});
 // 미리보기 버튼: 오버레이가 떠 있으면 "닫기"로 변형(상태 표시)
 let overlayShown = false;
 function setPreviewBtn(shown: boolean): void {
@@ -248,8 +278,11 @@ naRequest.addEventListener("click", async () => {
   if (s !== "allowed") await invoke("open_notification_settings").catch(() => {}); // 동의창이 안 뜨면 설정으로
 });
 naSettings.addEventListener("click", () => void invoke("open_notification_settings").catch(() => {}));
-// 설정에서 권한을 바꾸고 돌아오면 상태 갱신
-window.addEventListener("focus", () => void loadAccess());
+// 설정에서 권한을 바꾸고 돌아오면 상태 갱신 + 모니터 목록 갱신(연결 변동 반영)
+window.addEventListener("focus", () => {
+  void loadAccess();
+  void loadMonitors();
+});
 
 // ── 시작 ──
 void loadDisplay();

@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WindowEvent,
+    AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow,
+    WindowEvent,
 };
 
 mod notifier;
@@ -21,6 +22,9 @@ fn default_speed() -> f64 {
 }
 fn default_true() -> bool {
     true
+}
+fn default_monitor() -> String {
+    "active".into()
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -46,6 +50,9 @@ struct DisplaySettings {
     /// 항상 위에 표시
     #[serde(default = "default_true")]
     always_on_top: bool,
+    /// 출력 화면: "active"(커서 있는 화면, 기본) | 모니터 name(고정, 사라지면 폴백)
+    #[serde(default = "default_monitor")]
+    monitor: String,
 }
 
 impl Default for DisplaySettings {
@@ -60,6 +67,7 @@ impl Default for DisplaySettings {
             sound: true,
             reduce_motion: false,
             always_on_top: true,
+            monitor: "active".into(),
         }
     }
 }
@@ -88,6 +96,48 @@ fn get_display_settings(app: AppHandle) -> DisplaySettings {
     load_display(&app)
 }
 
+#[derive(Serialize)]
+struct MonitorInfo {
+    /// 매칭/저장용 식별자(모니터 name). 설정의 monitor 값으로 쓰인다.
+    id: String,
+    /// 설정창에 보일 사람이 읽기 좋은 라벨
+    label: String,
+}
+
+/// 연결된 모니터 목록(설정창의 '출력 화면' 드롭다운용).
+#[tauri::command]
+fn list_monitors(app: AppHandle) -> Vec<MonitorInfo> {
+    let Some(win) = app.get_webview_window("overlay") else {
+        return vec![];
+    };
+    let monitors = win.available_monitors().unwrap_or_default();
+    let primary = win
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .and_then(|m| m.name().map(|n| n.to_string()));
+    monitors
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let id = m
+                .name()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| format!("display-{i}"));
+            let size = m.size();
+            let is_primary = Some(&id) == primary.as_ref();
+            let label = format!(
+                "모니터 {}{} — {}×{}",
+                i + 1,
+                if is_primary { " (주)" } else { "" },
+                size.width,
+                size.height
+            );
+            MonitorInfo { id, label }
+        })
+        .collect()
+}
+
 #[tauri::command]
 fn set_display_settings(app: AppHandle, settings: DisplaySettings) -> Result<(), String> {
     save_display(&app, &settings)?;
@@ -96,16 +146,39 @@ fn set_display_settings(app: AppHandle, settings: DisplaySettings) -> Result<(),
     Ok(())
 }
 
-/// 오버레이 창 크기·위치를 현재 설정대로 적용 (메인 디스플레이의 작업영역=작업표시줄 제외 기준)
+/// 오버레이를 띄울 모니터를 정한다.
+/// - "active"(기본)/빈값 → 커서가 있는 모니터(핫플러그 안전). 못 찾으면 주 모니터.
+/// - 그 외(특정 모니터 name) → 연결된 모니터 중 name 일치. 없으면(분리됨) 활성/주 모니터로 폴백.
+fn resolve_monitor(win: &WebviewWindow, s: &DisplaySettings) -> Option<Monitor> {
+    if s.monitor != "active" && !s.monitor.is_empty() {
+        if let Ok(monitors) = win.available_monitors() {
+            if let Some(m) = monitors
+                .into_iter()
+                .find(|m| m.name().map(|n| n.to_string()) == Some(s.monitor.clone()))
+            {
+                return Some(m);
+            }
+        }
+        // 고정 모니터가 사라짐 → 아래 활성/주 모니터로 폴백
+    }
+    if let Ok(p) = win.cursor_position() {
+        if let Ok(Some(m)) = win.monitor_from_point(p.x, p.y) {
+            return Some(m);
+        }
+    }
+    win.primary_monitor().ok().flatten()
+}
+
+/// 오버레이 창 크기·위치를 현재 설정대로 적용 (대상 모니터의 작업영역=작업표시줄 제외 기준)
 fn apply_overlay_layout(app: &AppHandle) -> tauri::Result<()> {
     let Some(win) = app.get_webview_window("overlay") else {
         return Ok(());
     };
-    let Some(monitor) = win.primary_monitor()? else {
+    let s = load_display(app);
+    let Some(monitor) = resolve_monitor(&win, &s) else {
         return Ok(());
     };
     let sf = monitor.scale_factor();
-    let s = load_display(app);
 
     let _ = win.set_always_on_top(s.always_on_top);
 
@@ -245,9 +318,11 @@ fn persist_overlay_position(app: AppHandle) -> Result<(), String> {
     let win = app.get_webview_window("overlay").ok_or("no overlay")?;
     let pos = win.outer_position().map_err(|e| e.to_string())?;
     let size = win.outer_size().map_err(|e| e.to_string())?;
+    // 창이 실제로 떠 있는 모니터 기준(없으면 주 모니터) — 배치 시 대상 모니터와 일치
     let monitor = win
-        .primary_monitor()
+        .current_monitor()
         .map_err(|e| e.to_string())?
+        .or_else(|| win.primary_monitor().ok().flatten())
         .ok_or("no monitor")?;
     let wa = monitor.work_area(); // 작업표시줄 제외 영역 기준(배치와 일치)
     let aw = (wa.size.width as f64 - size.width as f64).max(1.0);
@@ -293,6 +368,7 @@ pub fn run() {
             persist_overlay_position,
             get_display_settings,
             set_display_settings,
+            list_monitors,
             open_slack,
             notification_access,
             request_notification_access,
