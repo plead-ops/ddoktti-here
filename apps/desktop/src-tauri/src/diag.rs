@@ -8,6 +8,7 @@ mod imp {
     use std::collections::VecDeque;
     use std::fs;
     use std::io::Write;
+    use std::os::windows::process::CommandExt;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Mutex, OnceLock};
@@ -144,6 +145,7 @@ if (-not $wv) { $wv = (Get-ItemProperty ('HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Cl
 'elevated: ' + ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"#;
         match std::process::Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW — 콘솔 창 숨김
             .output()
         {
             Ok(o) => {

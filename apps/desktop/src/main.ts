@@ -307,7 +307,7 @@ diagView.addEventListener("click", async () => {
     alert("진단은 데스크탑 앱에서 동작합니다.");
     return;
   }
-  diagText.textContent = "수집 중…";
+  diagText.textContent = "진단 수집 중… 잠시만 기다려 주세요 (몇 초 걸릴 수 있어요)";
   diagModal.hidden = false;
   diagText.textContent = await invoke<string>("collect_diagnostics").catch(() => "(조회 실패)");
 });
@@ -326,7 +326,7 @@ diagSend.addEventListener("click", async () => {
   if (!isTauri()) return;
   if (!confirm("진단 정보를 개발자에게 보낼까요?\n(메시지 내용은 포함되지 않아요)")) return;
   diagSend.disabled = true;
-  diagStatus.textContent = "보내는 중…";
+  diagStatus.textContent = "수집·전송 중… 잠시만 기다려 주세요";
   try {
     await invoke("send_diagnostics");
     diagStatus.textContent = "보냈어요 ✅";

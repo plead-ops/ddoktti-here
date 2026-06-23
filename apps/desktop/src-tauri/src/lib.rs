@@ -300,14 +300,15 @@ fn open_slack(aumid: String) -> Result<(), String> {
 }
 
 /// 진단 리포트 텍스트(조회 모달/복사용). 메시지 내용은 포함하지 않음.
+/// async = 메인 스레드를 막지 않음(수집에 수 초 걸려도 UI 안 멈춤).
 #[tauri::command]
-fn collect_diagnostics(app: AppHandle) -> String {
+async fn collect_diagnostics(app: AppHandle) -> String {
     diag::collect(&app)
 }
 
 /// 진단 리포트를 Slack 웹훅으로 전송(개발자에게). 웹훅은 빌드시 시크릿으로 주입.
 #[tauri::command]
-fn send_diagnostics(app: AppHandle) -> Result<(), String> {
+async fn send_diagnostics(app: AppHandle) -> Result<(), String> {
     let webhook = option_env!("DIAG_SLACK_WEBHOOK").unwrap_or("");
     if webhook.is_empty() {
         return Err("전송이 설정되지 않았어요(웹훅 미설정 빌드)".into());
@@ -322,12 +323,14 @@ fn send_diagnostics(app: AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
         let cmd = format!(
             "try {{ Invoke-RestMethod -Uri '{webhook}' -Method Post -ContentType 'application/json' -InFile '{}'; exit 0 }} catch {{ exit 1 }}",
             tmp.display()
         );
         let status = std::process::Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &cmd])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW — 콘솔 창 숨김
             .status();
         let _ = std::fs::remove_file(&tmp);
         match status {
