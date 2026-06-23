@@ -18,11 +18,16 @@ function Resolve-Asset([string]$name) {
 $cer = Resolve-Asset 'ddoktti-cert.cer'
 $msix = Resolve-Asset 'ddoktti-identity.msix'
 
-try {
-  Import-Certificate -FilePath $cer -CertStoreLocation Cert:\CurrentUser\TrustedPeople -ErrorAction Stop | Out-Null
-  Write-Host "cert imported to CurrentUser\TrustedPeople"
-} catch {
-  Write-Host "cert import failed: $($_.Exception.Message)"
+# 자체 서명 인증서는 잎=루트가 동일 → MSIX 체인 검증이 루트까지 확인한다.
+# TrustedPeople(서명자 신뢰) + Root(루트 신뢰) 둘 다 등록해야 0x800B0109 를 피한다.
+# CurrentUser 스토어라 관리자 권한 불필요, Import-Certificate 는 프롬프트도 없음.
+foreach ($store in @('Cert:\CurrentUser\Root', 'Cert:\CurrentUser\TrustedPeople')) {
+  try {
+    Import-Certificate -FilePath $cer -CertStoreLocation $store -ErrorAction Stop | Out-Null
+    Write-Host "cert imported to $store"
+  } catch {
+    Write-Host "cert import to $store failed: $($_.Exception.Message)"
+  }
 }
 
 # 같은 이름의 기존 등록을 먼저 제거(동일 버전 재설치/다운그레이드 충돌 방지)
