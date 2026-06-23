@@ -1,7 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "overlay",
-  "description": "오버레이 창 최소 권한 (창/이벤트/열기만 — 업데이터·프로세스 없음)",
+  "description": "오버레이 창 최소 권한 (창/드래그/이벤트/열기 — 업데이터·프로세스 없음)",
   "windows": ["overlay"],
-  "permissions": ["core:default", "core:window:default", "core:event:default", "opener:default"]
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-start-dragging",
+    "core:event:default",
+    "opener:default"
+  ]
 }
