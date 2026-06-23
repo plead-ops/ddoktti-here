@@ -1,6 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "똑띠왔어요",
+  "mainBinaryName": "ddoktti-here",
   "version": "0.1.5",
   "identifier": "kr.co.plead.ddoktti-here",
   "build": {
@@ -46,6 +47,12 @@
     "targets": ["nsis"],
     "publisher": "Plead",
     "createUpdaterArtifacts": true,
+    "resources": {
+      "identity/ddoktti-identity.msix": "ddoktti-identity.msix",
+      "identity/ddoktti-cert.cer": "ddoktti-cert.cer",
+      "identity/register-identity.ps1": "register-identity.ps1",
+      "identity/unregister-identity.ps1": "unregister-identity.ps1"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

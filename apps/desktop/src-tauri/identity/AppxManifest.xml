@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sparse Package(외부 위치 패키지) 신원 매니페스트.
+  목적: 비패키지 Win32 앱(똑띠왔어요)에 "패키지 ID"를 부여해
+        userNotificationListener 권한(알림 접근 동의)이 정상 작동하게 한다.
+  - Identity.Publisher 는 서명 인증서 Subject(CN=Plead)와 정확히 일치해야 함.
+  - Name/Publisher/Application.Id 는 app.manifest 의 <msix> 요소와 정확히 일치해야 함.
+  - __VERSION__ 은 CI 에서 앱 버전(x.y.z.0)으로 치환된다.
+  - Assets\*.png 는 MSIX 안에 동봉(MakeAppx 스테이징 시 복사).
+-->
+<Package IgnorableNamespaces="uap uap10 rescap"
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+  <Identity Name="PleadDdoktti" Publisher="CN=Plead" Version="__VERSION__" ProcessorArchitecture="neutral" />
+  <Properties>
+    <DisplayName>똑띠왔어요</DisplayName>
+    <PublisherDisplayName>Plead</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+  <Resources>
+    <Resource Language="ko-kr" />
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+    <uap:Capability Name="userNotificationListener" />
+  </Capabilities>
+  <Applications>
+    <Application Id="DdoktiHere" Executable="ddoktti-here.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements AppListEntry="none" DisplayName="똑띠왔어요" Description="똑띠왔어요 — 슬랙 알림 오버레이" BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+</Package>

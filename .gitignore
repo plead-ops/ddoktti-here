@@ -16,8 +16,11 @@ apps/desktop/src-tauri/gen/
 .env.*
 !.env.example
 
-# signing keys (NEVER commit)
+# signing keys (NEVER commit) — MSIX 코드서명 개인키/PFX 포함
+# 공개 인증서(identity/ddoktti-cert.cer)만 커밋, 개인키(*.pfx/*.pem/*.key)는 절대 금지
 *.key
+*.pfx
+*.pem
 
 # logs
 *.log
