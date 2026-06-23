@@ -25,8 +25,13 @@ mod imp {
     };
     use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
-    /// 슬랙 데스크톱 AUMID 접두사 (com.tinyspeck.slackdesktop_xxx!Slack)
-    const SLACK_AUMID: &str = "com.tinyspeck.slackdesktop";
+    /// 슬랙 알림 식별. 설치 형태별로 AUMID 가 다르다:
+    ///  - 공식 .exe / 구 스토어 : com.tinyspeck.slackdesktop_8yrtsj140pw4g!Slack
+    ///  - 신 Microsoft Store    : 91750D7E.Slack_8she8kybcnzg4!App
+    /// 둘 다 AUMID 에 "slack" 을 포함하고 표시이름이 "Slack" 이므로 둘 중 하나로 매칭.
+    fn is_slack(aumid: &str, app_name: &str) -> bool {
+        aumid.to_ascii_lowercase().contains("slack") || app_name.eq_ignore_ascii_case("slack")
+    }
 
     pub fn start(app: AppHandle) {
         thread::spawn(move || {
@@ -93,7 +98,8 @@ mod imp {
                 continue;
             }
             let aumid = aumid(n).unwrap_or_default();
-            if !aumid.starts_with(SLACK_AUMID) {
+            let app = app_name(n).unwrap_or_default();
+            if !is_slack(&aumid, &app) {
                 continue; // 슬랙 외 앱(설정 등) 무시
             }
             let (title, body) = text(n);
@@ -112,7 +118,7 @@ mod imp {
                 "trigger": "mention",
                 "title": title,
                 "body": body,
-                "app": app_name(n).unwrap_or_default(),
+                "app": app,
                 "aumid": aumid,
                 // OS 알림엔 정밀 딥링크가 없음 → 클릭 시 aumid 로 슬랙 열기(open_slack)
                 "deepLink": "",
