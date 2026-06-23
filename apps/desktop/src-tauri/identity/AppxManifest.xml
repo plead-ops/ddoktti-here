@@ -8,9 +8,10 @@
   - __VERSION__ 은 CI 에서 앱 버전(x.y.z.0)으로 치환된다.
   - Assets\*.png 는 MSIX 안에 동봉(MakeAppx 스테이징 시 복사).
 -->
-<Package IgnorableNamespaces="uap uap10 rescap"
+<Package IgnorableNamespaces="uap uap3 uap10 rescap"
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
   xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
   <Identity Name="PleadDdoktti" Publisher="CN=Plead" Version="__VERSION__" ProcessorArchitecture="neutral" />
@@ -29,7 +30,7 @@
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
     <rescap:Capability Name="unvirtualizedResources" />
-    <uap:Capability Name="userNotificationListener" />
+    <uap3:Capability Name="userNotificationListener" />
   </Capabilities>
   <Applications>
     <Application Id="DdoktiHere" Executable="ddoktti-here.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
