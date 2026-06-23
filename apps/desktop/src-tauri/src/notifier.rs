@@ -98,8 +98,8 @@ mod imp {
                 continue;
             }
             let aumid = aumid(n).unwrap_or_default();
-            let app = app_name(n).unwrap_or_default();
-            if !is_slack(&aumid, &app) {
+            let app_label = app_name(n).unwrap_or_default();
+            if !is_slack(&aumid, &app_label) {
                 continue; // 슬랙 외 앱(설정 등) 무시
             }
             let (title, body) = text(n);
@@ -118,7 +118,7 @@ mod imp {
                 "trigger": "mention",
                 "title": title,
                 "body": body,
-                "app": app,
+                "app": app_label,
                 "aumid": aumid,
                 // OS 알림엔 정밀 딥링크가 없음 → 클릭 시 aumid 로 슬랙 열기(open_slack)
                 "deepLink": "",
