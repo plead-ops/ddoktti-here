@@ -1,12 +1,15 @@
 <#
-  설치 직후 실행(NSIS POSTINSTALL). per-user, 관리자 권한 불필요.
-  1) 자체 서명 공개 인증서를 CurrentUser\TrustedPeople 에 등록(MSIX 신뢰).
-  2) 신원 패키지(Sparse Package)를 외부 위치=설치폴더로 등록.
+  설치 직후 실행(NSIS POSTINSTALL).
+  자체 서명 인증서는 잎=루트가 동일 → MSIX 체인 검증이 "신뢰된 루트"를 요구한다.
+  CurrentUser\Root 추가는 Windows 가 보안창을 강제(비대화형 설치선 실패)하므로,
+  머신 루트(LocalMachine\Root)에 1회만 UAC 승격으로 등록한다.
+  - 첫 설치: 인증서가 머신 루트에 없으면 UAC 승격 후 등록(관리자면 프롬프트 없이 UAC 만).
+  - 업데이트/재설치: 이미 신뢰되어 있으면 승격 생략 → Add-AppxPackage(per-user)만 조용히.
   실패해도 설치를 막지 않는다(앱은 그대로 실행되며 신원만 빠짐) — 로그만 남김.
 #>
 param([Parameter(Mandatory = $true)][string]$InstallDir)
 
-# 리소스가 $INSTDIR 직하 또는 하위 폴더(resources\ 등)에 놓일 수 있어 양쪽 모두 탐색.
+# 리소스가 $INSTDIR 직하 또는 하위 폴더에 놓일 수 있어 양쪽 모두 탐색.
 function Resolve-Asset([string]$name) {
   $direct = Join-Path $InstallDir $name
   if (Test-Path $direct) { return $direct }
@@ -18,21 +21,30 @@ function Resolve-Asset([string]$name) {
 $cer = Resolve-Asset 'ddoktti-cert.cer'
 $msix = Resolve-Asset 'ddoktti-identity.msix'
 
-# 자체 서명 인증서는 잎=루트가 동일 → MSIX 체인 검증이 루트까지 확인한다.
-# TrustedPeople(서명자 신뢰) + Root(루트 신뢰) 둘 다 등록해야 0x800B0109 를 피한다.
-# CurrentUser 스토어라 관리자 권한 불필요, Import-Certificate 는 프롬프트도 없음.
-foreach ($store in @('Cert:\CurrentUser\Root', 'Cert:\CurrentUser\TrustedPeople')) {
+# 1) 인증서가 머신 루트에 이미 신뢰되어 있는지 thumbprint 로 확인.
+$trusted = $false
+try {
+  $c = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $cer
+  $trusted = Test-Path ("Cert:\LocalMachine\Root\" + $c.Thumbprint)
+} catch {}
+
+# 2) 신뢰돼 있지 않으면 UAC 승격으로 머신 루트+TrustedPeople 에 1회 등록.
+#    (EncodedCommand 로 인용부호 문제 회피. LocalMachine\Root 는 관리자 컨텍스트라 보안창 없음.)
+if (-not $trusted) {
+  $inner = "Import-Certificate -FilePath '$cer' -CertStoreLocation Cert:\LocalMachine\Root | Out-Null; " +
+           "Import-Certificate -FilePath '$cer' -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null"
+  $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))
   try {
-    Import-Certificate -FilePath $cer -CertStoreLocation $store -ErrorAction Stop | Out-Null
-    Write-Host "cert imported to $store"
+    Start-Process -FilePath 'powershell' -Verb RunAs -Wait -WindowStyle Hidden `
+      -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $enc)
+    Write-Host "cert trusted in LocalMachine\Root via elevation"
   } catch {
-    Write-Host "cert import to $store failed: $($_.Exception.Message)"
+    Write-Host "elevation/cert trust failed or declined: $($_.Exception.Message)"
   }
 }
 
-# 같은 이름의 기존 등록을 먼저 제거(동일 버전 재설치/다운그레이드 충돌 방지)
+# 3) 같은 이름의 기존 등록 제거(동일 버전 재설치/다운그레이드 충돌 방지) 후 등록(per-user).
 try { Get-AppxPackage *PleadDdoktti* | Remove-AppxPackage -ErrorAction SilentlyContinue } catch {}
-
 try {
   Add-AppxPackage -Path $msix -ExternalLocation $InstallDir -ForceApplicationShutdown -ErrorAction Stop
   Write-Host "identity package registered"
