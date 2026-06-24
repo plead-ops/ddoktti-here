@@ -28,9 +28,16 @@ mod imp {
     /// 슬랙 알림 식별. 설치 형태별로 AUMID 가 다르다:
     ///  - 공식 .exe / 구 스토어 : com.tinyspeck.slackdesktop_8yrtsj140pw4g!Slack
     ///  - 신 Microsoft Store    : 91750D7E.Slack_8she8kybcnzg4!App
-    /// 둘 다 AUMID 에 "slack" 을 포함하고 표시이름이 "Slack" 이므로 둘 중 하나로 매칭.
+    /// 식별/사용 형태별로 신호가 다르다:
+    ///  - 공식 .exe / 구 스토어 : AUMID com.tinyspeck.slackdesktop_...!Slack
+    ///  - 신 Microsoft Store    : AUMID 91750D7E.Slack_...!App
+    ///  - 브라우저(Chrome PWA)  : AUMID 는 Chrome._crx_... 라 "slack" 이 없고, 표시이름이 "Slack"/"슬랙"
+    /// → AUMID 에 "slack" 포함 OR 표시이름이 Slack/슬랙(로캘) 이면 슬랙으로 본다.
     fn is_slack(aumid: &str, app_name: &str) -> bool {
-        aumid.to_ascii_lowercase().contains("slack") || app_name.eq_ignore_ascii_case("slack")
+        let name = app_name.trim();
+        aumid.to_ascii_lowercase().contains("slack")
+            || name.eq_ignore_ascii_case("slack")
+            || name == "슬랙"
     }
 
     pub fn start(app: AppHandle) {
