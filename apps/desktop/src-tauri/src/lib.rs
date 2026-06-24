@@ -354,6 +354,80 @@ async fn send_diagnostics(app: AppHandle) -> Result<(), String> {
     }
 }
 
+// ───────────────────── 자동 시작 (StartupTask) ─────────────────────
+// 패키지 ID 앱은 레지스트리 Run 대신 매니페스트 StartupTask 가 정공법.
+// COM 미초기화 스레드에서 불릴 수 있어 MTA 전용 스레드에서 수행 후 join.
+
+/// 로그인 자동시작이 켜져 있는지(StartupTask 상태).
+#[tauri::command]
+fn autostart_enabled() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        std::thread::spawn(|| {
+            use windows::core::HSTRING;
+            use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+            use windows::ApplicationModel::StartupTask;
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            }
+            (|| -> windows::core::Result<bool> {
+                let task = StartupTask::GetAsync(&HSTRING::from("DdoktiHereStartup"))?.get()?;
+                let s = task.State()?.0;
+                Ok(s == 2 || s == 4) // Enabled | EnabledByPolicy
+            })()
+            .unwrap_or(false)
+        })
+        .join()
+        .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+/// 로그인 자동시작 켜기/끄기.
+#[tauri::command]
+fn set_autostart(enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::thread::spawn(move || -> Result<(), String> {
+            use windows::core::HSTRING;
+            use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+            use windows::ApplicationModel::StartupTask;
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            }
+            let task = StartupTask::GetAsync(&HSTRING::from("DdoktiHereStartup"))
+                .and_then(|op| op.get())
+                .map_err(|e| format!("StartupTask 조회 실패: {e:?}"))?;
+            if enabled {
+                let s = task
+                    .RequestEnableAsync()
+                    .and_then(|op| op.get())
+                    .map_err(|e| format!("{e:?}"))?
+                    .0;
+                match s {
+                    2 | 4 => Ok(()),
+                    1 => Err("Windows 작업관리자/설정에서 꺼져 있어요. 거기서 켜주세요.".into()),
+                    3 => Err("정책으로 차단되어 있어요.".into()),
+                    _ => Err("자동시작을 켜지 못했어요.".into()),
+                }
+            } else {
+                task.Disable().map_err(|e| format!("{e:?}"))?;
+                Ok(())
+            }
+        })
+        .join()
+        .map_err(|_| "스레드 패닉".to_string())?
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = enabled;
+        Err("Windows 전용".into())
+    }
+}
+
 #[tauri::command]
 fn preview_overlay(app: AppHandle) -> Result<(), String> {
     let payload = serde_json::json!({
@@ -412,10 +486,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--autostart"]), // 로그인 자동시작 시 이 인자로 실행 → 설정창 숨김 판별
-        ))
         .invoke_handler(tauri::generate_handler![
             show_overlay,
             hide_overlay,
@@ -430,7 +500,9 @@ pub fn run() {
             request_notification_access,
             open_notification_settings,
             collect_diagnostics,
-            send_diagnostics
+            send_diagnostics,
+            autostart_enabled,
+            set_autostart
         ])
         .setup(|app| {
             let settings_i = MenuItem::with_id(app, "settings", "설정…", true, None::<&str>)?;
@@ -470,23 +542,24 @@ pub fn run() {
                 let _ = overlay.hide();
             }
 
-            // 첫 실행: 로그인 자동 시작 기본 ON (마커 파일로 1회만).
-            // 성공했을 때만 마커 기록 → 실패하면 다음 실행에 재시도. 사용자가 끄면 마커는 남아 재활성화 안 함.
+            // 자동 시작은 패키지 매니페스트의 StartupTask(Enabled=true)가 기본 켜짐으로 처리.
+            // 로그인 자동시작은 인자를 못 넘기므로 "첫 실행에만 설정창"으로 판별한다(이후/로그인 = 트레이만).
             let handle = app.handle().clone();
-            if let Ok(dir) = handle.path().app_config_dir() {
-                let _ = fs::create_dir_all(&dir);
-                let marker = dir.join(".autostart-default");
-                if !marker.exists() {
-                    use tauri_plugin_autostart::ManagerExt;
-                    if handle.autolaunch().enable().is_ok() {
+            let first_run = handle
+                .path()
+                .app_config_dir()
+                .ok()
+                .map(|dir| {
+                    let _ = fs::create_dir_all(&dir);
+                    let marker = dir.join(".first-run-done");
+                    let first = !marker.exists();
+                    if first {
                         let _ = fs::write(&marker, "1");
                     }
-                }
-            }
-
-            // 로그인 자동 시작으로 실행됐으면 설정창을 띄우지 않는다(트레이만).
-            let autostarted = std::env::args().any(|a| a == "--autostart");
-            if !autostarted {
+                    first
+                })
+                .unwrap_or(true);
+            if first_run {
                 show_settings(&handle);
             }
 

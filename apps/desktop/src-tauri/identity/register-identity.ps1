@@ -63,3 +63,17 @@ try {
 } catch {
   Log "identity registration failed: $($_.Exception.Message)"
 }
+
+# 4) 구버전(레지스트리 Run) 자동시작 잔재 제거 — 이제 StartupTask 를 쓰므로 이중 실행 방지.
+try {
+  $runKey = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+  $rp = Get-ItemProperty $runKey -ErrorAction SilentlyContinue
+  if ($rp) {
+    $rp.PSObject.Properties |
+      Where-Object { $_.Name -notmatch '^PS' -and ($_.Name -match 'ddoktti|똑띠' -or $_.Value -match 'ddoktti-here|똑띠왔어요') } |
+      ForEach-Object {
+        Remove-ItemProperty -Path $runKey -Name $_.Name -ErrorAction SilentlyContinue
+        Log ("removed legacy Run autostart: " + $_.Name)
+      }
+  }
+} catch {}

@@ -209,23 +209,25 @@ async function loadGeneral(): Promise<void> {
     /* noop */
   }
   try {
-    const { isEnabled } = await import("@tauri-apps/plugin-autostart");
-    autostartCb.checked = await isEnabled();
+    autostartCb.checked = await invoke<boolean>("autostart_enabled");
   } catch {
     /* noop */
   }
   autoUpdateCb.checked = autoUpdateOn();
 }
+// 자동시작은 패키지 StartupTask 로 제어(WinRT). 실패 시 실제 상태로 되돌림.
 async function setAutostart(enabled: boolean): Promise<void> {
   if (!isTauri()) return;
-  const { enable, disable } = await import("@tauri-apps/plugin-autostart");
   try {
-    if (enabled) await enable();
-    else await disable();
+    await invoke("set_autostart", { enabled });
+  } catch (e) {
+    alert("자동 시작 변경 실패: " + String(e));
+  }
+  try {
+    autostartCb.checked = await invoke<boolean>("autostart_enabled");
   } catch {
     /* noop */
   }
-  autostartCb.checked = enabled;
 }
 autostartCb.addEventListener("change", () => void setAutostart(autostartCb.checked));
 

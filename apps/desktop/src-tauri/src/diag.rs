@@ -164,6 +164,15 @@ $pn = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\PushNotifications'
 'policy_NoToast_HKLM: ' + (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications' -ErrorAction SilentlyContinue).NoToastApplicationNotification
 'policy_NoCloud_HKLM: ' + (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications' -ErrorAction SilentlyContinue).NoCloudApplicationNotification
 
+# 자동시작 — 레지스트리 Run(패키지 ID 앱에선 무시될 수 있음) + Task Manager 사용여부 + 첫실행 마커
+$run = Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue
+$found = $false
+if ($run) { $run.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' -and ($_.Value -match 'ddoktti' -or $_.Name -match 'ddoktti|똑띠') } | ForEach-Object { $script:found = $true; 'autostart_run: ' + $_.Name + ' = ' + $_.Value } }
+if (-not $found) { 'autostart_run: (없음 — Run 키 미등록)' }
+$sa = Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run' -ErrorAction SilentlyContinue
+if ($sa) { $sa.PSObject.Properties | Where-Object { $_.Name -match 'ddoktti|똑띠' } | ForEach-Object { 'autostart_approved_firstbyte(2/3=사용안함): ' + $_.Name + ' = ' + $_.Value[0] } }
+'firstrun_done_marker: ' + (Test-Path (Join-Path $env:APPDATA 'kr.co.plead.ddoktti-here\.first-run-done'))
+
 # 슬랙 앱별 알림 설정 — 값 전체 덤프(ShowInActionCenter=0 이면 리스너가 못 봄)
 $ns = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings'
 'toast_ToastEnabled: ' + (Get-ItemProperty $ns -ErrorAction SilentlyContinue).ToastEnabled
