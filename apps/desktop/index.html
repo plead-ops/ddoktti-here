@@ -32,7 +32,11 @@
           <h2>표시</h2>
           <p class="panel-desc">알림화면이 어떻게 보일지 설정해요.</p>
           <div class="row pos-row">
-            <div class="row-text"><b>위치</b><span id="pos-label">메인 디스플레이 기준</span></div>
+            <div class="row-text">
+              <b>위치</b>
+              <span id="pos-label">메인 디스플레이 기준</span>
+              <span class="row-tip">💡 알림화면을 마우스로 드래그하면 그 자리에 '사용자 지정'으로 고정돼요</span>
+            </div>
             <div class="pos-grid" id="pos-grid">
               <button data-pos="top-left" title="좌상"></button>
               <button data-pos="top" title="상단"></button>
@@ -45,9 +49,8 @@
               <button data-pos="bottom-right" title="우하"></button>
             </div>
           </div>
-          <p class="hint">💡 알림화면을 마우스로 드래그하면 그 자리에 '사용자 지정'으로 고정돼요.</p>
           <div class="row">
-            <div class="row-text"><b>출력 화면</b><span>알림을 띄울 모니터 (제거되면 주 디스플레이에 보임)</span></div>
+            <div class="row-text"><b>출력 화면</b><span>알림을 띄울 모니터<br />(제거되면 주 디스플레이에 보임)</span></div>
             <select id="ov-monitor" class="select"></select>
           </div>
           <div class="row">
