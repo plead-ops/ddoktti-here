@@ -23,7 +23,9 @@ mod imp {
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
         PROCESS_QUERY_LIMITED_INFORMATION,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
+    };
 
     /// 슬랙 알림 식별. 설치 형태별로 AUMID 가 다르다:
     ///  - 공식 .exe / 구 스토어 : com.tinyspeck.slackdesktop_8yrtsj140pw4g!Slack
@@ -224,7 +226,25 @@ mod imp {
     }
 
     fn foreground_is_slack() -> bool {
-        foreground_process_name().eq_ignore_ascii_case("slack")
+        // 데스크톱/스토어 슬랙: 프로세스명 slack.exe
+        if foreground_process_name().eq_ignore_ascii_case("slack") {
+            return true;
+        }
+        // 브라우저/PWA 슬랙: 프로세스는 chrome 등이라 포그라운드 창 제목으로 판별.
+        let title = foreground_window_title().to_lowercase();
+        title.contains("slack") || title.contains("슬랙")
+    }
+
+    fn foreground_window_title() -> String {
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            let mut buf = [0u16; 512];
+            let len = GetWindowTextW(hwnd, &mut buf);
+            if len <= 0 {
+                return String::new();
+            }
+            String::from_utf16_lossy(&buf[..len as usize])
+        }
     }
 
     fn foreground_process_name() -> String {
