@@ -171,7 +171,6 @@ if ($run) { $run.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' -a
 if (-not $found) { 'autostart_run: (없음 — Run 키 미등록)' }
 $sa = Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run' -ErrorAction SilentlyContinue
 if ($sa) { $sa.PSObject.Properties | Where-Object { $_.Name -match 'ddoktti|똑띠' } | ForEach-Object { 'autostart_approved_firstbyte(2/3=사용안함): ' + $_.Name + ' = ' + $_.Value[0] } }
-'autostart_startup_lnk: ' + (Test-Path (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\똑띠왔어요.lnk'))
 'autostart_disabled_pref: ' + (Test-Path (Join-Path $env:APPDATA 'kr.co.plead.ddoktti-here\.autostart-disabled'))
 
 # 슬랙 앱별 알림 설정 — 값 전체 덤프(ShowInActionCenter=0 이면 리스너가 못 봄)

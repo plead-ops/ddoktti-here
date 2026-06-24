@@ -354,26 +354,25 @@ async fn send_diagnostics(app: AppHandle) -> Result<(), String> {
     }
 }
 
-// ───────────────────── 자동 시작 (Startup 폴더 바로가기) ─────────────────────
-// 패키지(sparse) 앱은 StartupTask·레지스트리 Run 이 안 먹어, Startup 폴더 .lnk 를 쓴다(가장 확실).
-// 설치 프로그램(nsis-hooks)이 기본 생성하고, 토글은 여기서 생성/삭제한다.
-
+// ───────────────────── 자동 시작 (HKCU Run 키) ─────────────────────
+// 표준 방식. exe 가 외부 위치(일반 폴더)라 패키지 ID 가 있어도 Run 키로 로그인 실행됨.
+// 설치 프로그램(nsis-hooks)이 기본 등록, 토글은 여기서 등록/해제.
 #[cfg(target_os = "windows")]
-fn startup_lnk() -> Option<std::path::PathBuf> {
-    let appdata = std::env::var("APPDATA").ok()?;
-    Some(
-        std::path::PathBuf::from(appdata)
-            .join(r"Microsoft\Windows\Start Menu\Programs\Startup")
-            .join("똑띠왔어요.lnk"),
-    )
-}
+const RUN_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(target_os = "windows")]
+const RUN_VALUE: &str = "DdoktiHere";
 
-/// 로그인 자동시작이 켜져 있는지(Startup 바로가기 존재 여부).
+/// 로그인 자동시작이 켜져 있는지(Run 값 존재 여부).
 #[tauri::command]
 fn autostart_enabled() -> bool {
     #[cfg(target_os = "windows")]
     {
-        startup_lnk().map(|p| p.exists()).unwrap_or(false)
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+        RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey(RUN_PATH)
+            .and_then(|k| k.get_value::<String, _>(RUN_VALUE))
+            .is_ok()
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -395,28 +394,17 @@ fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-        let lnk = startup_lnk().ok_or("Startup 폴더를 찾을 수 없어요")?;
+        use winreg::enums::{HKEY_CURRENT_USER, KEY_WRITE};
+        use winreg::RegKey;
+        let run = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey_with_flags(RUN_PATH, KEY_WRITE)
+            .map_err(|e| e.to_string())?;
         if enabled {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            let lnk_s = lnk.display().to_string();
-            let exe_s = exe.display().to_string();
-            let dir_s = exe.parent().map(|p| p.display().to_string()).unwrap_or_default();
-            let ps = format!(
-                "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk_s}'); \
-                 $s.TargetPath='{exe_s}'; $s.Arguments='--autostart'; $s.WorkingDirectory='{dir_s}'; $s.Save()"
-            );
-            let ok = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps])
-                .creation_flags(0x0800_0000)
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if !ok {
-                return Err("자동시작 등록 실패".into());
-            }
+            let val = format!("\"{}\" --autostart", exe.display());
+            run.set_value(RUN_VALUE, &val).map_err(|e| e.to_string())?;
         } else {
-            let _ = fs::remove_file(&lnk);
+            let _ = run.delete_value(RUN_VALUE);
         }
     }
     Ok(())
