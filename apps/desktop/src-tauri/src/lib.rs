@@ -388,7 +388,17 @@ fn autostart_enabled() -> bool {
 
 /// 로그인 자동시작 켜기/끄기.
 #[tauri::command]
-fn set_autostart(enabled: bool) -> Result<(), String> {
+fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    // 사용자 선호 기록 — 시작 시 자동 재활성화 여부 판단용(기본 ON 유지, 끄면 존중).
+    if let Ok(dir) = app.path().app_config_dir() {
+        let _ = fs::create_dir_all(&dir);
+        let marker = dir.join(".autostart-disabled");
+        if enabled {
+            let _ = fs::remove_file(&marker);
+        } else {
+            let _ = fs::write(&marker, "1");
+        }
+    }
     #[cfg(target_os = "windows")]
     {
         std::thread::spawn(move || -> Result<(), String> {
@@ -424,8 +434,38 @@ fn set_autostart(enabled: bool) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = enabled;
-        Err("Windows 전용".into())
+        Ok(()) // 비-Windows: 선호만 기록
     }
+}
+
+/// 시작 시 자동시작 기본 ON 유지: 사용자가 끈 적 없고(.autostart-disabled 없음) StartupTask 가
+/// Disabled(0) 면 켜준다. 업데이트로 StartupTask 가 새로 Disabled 로 추가돼도 기존 설정 유지.
+/// DisabledByUser(1, 작업관리자에서 끔)·DisabledByPolicy(3) 는 존중하여 건드리지 않음.
+#[cfg(target_os = "windows")]
+fn ensure_autostart_default(app: &AppHandle) {
+    let pref_off = app
+        .path()
+        .app_config_dir()
+        .map(|d| d.join(".autostart-disabled").exists())
+        .unwrap_or(false);
+    if pref_off {
+        return;
+    }
+    std::thread::spawn(|| {
+        use windows::core::HSTRING;
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        use windows::ApplicationModel::StartupTask;
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        }
+        let _ = (|| -> windows::core::Result<()> {
+            let t = StartupTask::GetAsync(&HSTRING::from("DdoktiHereStartup"))?.get()?;
+            if t.State()?.0 == 0 {
+                let _ = t.RequestEnableAsync()?.get();
+            }
+            Ok(())
+        })();
+    });
 }
 
 #[tauri::command]
@@ -562,6 +602,10 @@ pub fn run() {
             if first_run {
                 show_settings(&handle);
             }
+
+            // 자동시작 기본 ON 유지(끈 적 없으면). 업데이트로 StartupTask 가 Disabled 로 추가돼도 켜줌.
+            #[cfg(target_os = "windows")]
+            ensure_autostart_default(&handle);
 
             // 진단 로깅 초기화(notifier 가 기록하므로 먼저). 그 외 플랫폼은 no-op.
             diag::init(&handle);
