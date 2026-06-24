@@ -354,31 +354,26 @@ async fn send_diagnostics(app: AppHandle) -> Result<(), String> {
     }
 }
 
-// ───────────────────── 자동 시작 (StartupTask) ─────────────────────
-// 패키지 ID 앱은 레지스트리 Run 대신 매니페스트 StartupTask 가 정공법.
-// COM 미초기화 스레드에서 불릴 수 있어 MTA 전용 스레드에서 수행 후 join.
+// ───────────────────── 자동 시작 (Startup 폴더 바로가기) ─────────────────────
+// 패키지(sparse) 앱은 StartupTask·레지스트리 Run 이 안 먹어, Startup 폴더 .lnk 를 쓴다(가장 확실).
+// 설치 프로그램(nsis-hooks)이 기본 생성하고, 토글은 여기서 생성/삭제한다.
 
-/// 로그인 자동시작이 켜져 있는지(StartupTask 상태).
+#[cfg(target_os = "windows")]
+fn startup_lnk() -> Option<std::path::PathBuf> {
+    let appdata = std::env::var("APPDATA").ok()?;
+    Some(
+        std::path::PathBuf::from(appdata)
+            .join(r"Microsoft\Windows\Start Menu\Programs\Startup")
+            .join("똑띠왔어요.lnk"),
+    )
+}
+
+/// 로그인 자동시작이 켜져 있는지(Startup 바로가기 존재 여부).
 #[tauri::command]
 fn autostart_enabled() -> bool {
     #[cfg(target_os = "windows")]
     {
-        std::thread::spawn(|| {
-            use windows::core::HSTRING;
-            use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
-            use windows::ApplicationModel::StartupTask;
-            unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            }
-            (|| -> windows::core::Result<bool> {
-                let task = StartupTask::GetAsync(&HSTRING::from("DdoktiHereStartup"))?.get()?;
-                let s = task.State()?.0;
-                Ok(s == 2 || s == 4) // Enabled | EnabledByPolicy
-            })()
-            .unwrap_or(false)
-        })
-        .join()
-        .unwrap_or(false)
+        startup_lnk().map(|p| p.exists()).unwrap_or(false)
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -386,10 +381,9 @@ fn autostart_enabled() -> bool {
     }
 }
 
-/// 로그인 자동시작 켜기/끄기.
+/// 로그인 자동시작 켜기/끄기 + 사용자 선호 기록(.autostart-disabled).
 #[tauri::command]
 fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
-    // 사용자 선호 기록 — 시작 시 자동 재활성화 여부 판단용(기본 ON 유지, 끄면 존중).
     if let Ok(dir) = app.path().app_config_dir() {
         let _ = fs::create_dir_all(&dir);
         let marker = dir.join(".autostart-disabled");
@@ -401,71 +395,31 @@ fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        std::thread::spawn(move || -> Result<(), String> {
-            use windows::core::HSTRING;
-            use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
-            use windows::ApplicationModel::StartupTask;
-            unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        use std::os::windows::process::CommandExt;
+        let lnk = startup_lnk().ok_or("Startup 폴더를 찾을 수 없어요")?;
+        if enabled {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let lnk_s = lnk.display().to_string();
+            let exe_s = exe.display().to_string();
+            let dir_s = exe.parent().map(|p| p.display().to_string()).unwrap_or_default();
+            let ps = format!(
+                "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk_s}'); \
+                 $s.TargetPath='{exe_s}'; $s.Arguments='--autostart'; $s.WorkingDirectory='{dir_s}'; $s.Save()"
+            );
+            let ok = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps])
+                .creation_flags(0x0800_0000)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if !ok {
+                return Err("자동시작 등록 실패".into());
             }
-            let task = StartupTask::GetAsync(&HSTRING::from("DdoktiHereStartup"))
-                .and_then(|op| op.get())
-                .map_err(|e| format!("StartupTask 조회 실패: {e:?}"))?;
-            if enabled {
-                let s = task
-                    .RequestEnableAsync()
-                    .and_then(|op| op.get())
-                    .map_err(|e| format!("{e:?}"))?
-                    .0;
-                match s {
-                    2 | 4 => Ok(()),
-                    1 => Err("Windows 작업관리자/설정에서 꺼져 있어요. 거기서 켜주세요.".into()),
-                    3 => Err("정책으로 차단되어 있어요.".into()),
-                    _ => Err("자동시작을 켜지 못했어요.".into()),
-                }
-            } else {
-                task.Disable().map_err(|e| format!("{e:?}"))?;
-                Ok(())
-            }
-        })
-        .join()
-        .map_err(|_| "스레드 패닉".to_string())?
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = enabled;
-        Ok(()) // 비-Windows: 선호만 기록
-    }
-}
-
-/// 시작 시 자동시작 기본 ON 유지: 사용자가 끈 적 없고(.autostart-disabled 없음) StartupTask 가
-/// Disabled(0) 면 켜준다. 업데이트로 StartupTask 가 새로 Disabled 로 추가돼도 기존 설정 유지.
-/// DisabledByUser(1, 작업관리자에서 끔)·DisabledByPolicy(3) 는 존중하여 건드리지 않음.
-#[cfg(target_os = "windows")]
-fn ensure_autostart_default(app: &AppHandle) {
-    let pref_off = app
-        .path()
-        .app_config_dir()
-        .map(|d| d.join(".autostart-disabled").exists())
-        .unwrap_or(false);
-    if pref_off {
-        return;
-    }
-    std::thread::spawn(|| {
-        use windows::core::HSTRING;
-        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
-        use windows::ApplicationModel::StartupTask;
-        unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        } else {
+            let _ = fs::remove_file(&lnk);
         }
-        let _ = (|| -> windows::core::Result<()> {
-            let t = StartupTask::GetAsync(&HSTRING::from("DdoktiHereStartup"))?.get()?;
-            if t.State()?.0 == 0 {
-                let _ = t.RequestEnableAsync()?.get();
-            }
-            Ok(())
-        })();
-    });
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -582,30 +536,13 @@ pub fn run() {
                 let _ = overlay.hide();
             }
 
-            // 자동 시작은 패키지 매니페스트의 StartupTask(Enabled=true)가 기본 켜짐으로 처리.
-            // 로그인 자동시작은 인자를 못 넘기므로 "첫 실행에만 설정창"으로 판별한다(이후/로그인 = 트레이만).
+            // 로그인 자동시작(Startup 바로가기)은 --autostart 인자로 실행 → 설정창 숨김(트레이만).
+            // 그 외(수동 실행)는 설정창을 띄운다.
             let handle = app.handle().clone();
-            let first_run = handle
-                .path()
-                .app_config_dir()
-                .ok()
-                .map(|dir| {
-                    let _ = fs::create_dir_all(&dir);
-                    let marker = dir.join(".first-run-done");
-                    let first = !marker.exists();
-                    if first {
-                        let _ = fs::write(&marker, "1");
-                    }
-                    first
-                })
-                .unwrap_or(true);
-            if first_run {
+            let autostarted = std::env::args().any(|a| a == "--autostart");
+            if !autostarted {
                 show_settings(&handle);
             }
-
-            // 자동시작 기본 ON 유지(끈 적 없으면). 업데이트로 StartupTask 가 Disabled 로 추가돼도 켜줌.
-            #[cfg(target_os = "windows")]
-            ensure_autostart_default(&handle);
 
             // 진단 로깅 초기화(notifier 가 기록하므로 먼저). 그 외 플랫폼은 no-op.
             diag::init(&handle);
