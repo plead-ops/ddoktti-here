@@ -64,13 +64,15 @@ try {
   Log "identity registration failed: $($_.Exception.Message)"
 }
 
-# 4) 구버전(레지스트리 Run) 자동시작 잔재 제거 — 이제 StartupTask 를 쓰므로 이중 실행 방지.
+# 4) 구버전(플러그인) Run 자동시작 잔재 제거 후, nsis 가 표준 키를 다시 등록(이중 실행 방지).
+#    주의: 이 .ps1 은 PowerShell -File 로 ANSI(CP949)로 읽혀 한글 문자열 리터럴이 깨진다 → ASCII 만 사용.
+#    옛 항목도 값(경로)에 'ddoktti-here' 가 들어가므로 ASCII 로 잡힌다.
 try {
   $runKey = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
   $rp = Get-ItemProperty $runKey -ErrorAction SilentlyContinue
   if ($rp) {
     $rp.PSObject.Properties |
-      Where-Object { $_.Name -notmatch '^PS' -and ($_.Name -match 'ddoktti|똑띠' -or $_.Value -match 'ddoktti-here|똑띠왔어요') } |
+      Where-Object { $_.Name -notmatch '^PS' -and ($_.Name -match 'ddoktti' -or $_.Value -match 'ddoktti-here') } |
       ForEach-Object {
         Remove-ItemProperty -Path $runKey -Name $_.Name -ErrorAction SilentlyContinue
         Log ("removed legacy Run autostart: " + $_.Name)
