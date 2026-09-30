@@ -23,7 +23,7 @@
 
 Actions variable `SLACK_RELAY_URL`: 배포한 HTTPS Slack 인증·이벤트 중계 서버 주소.
 
-Apple Silicon과 Intel을 포함하는 universal app/DMG를 만든다. 2026-09-30에 Developer ID Application 인증서와 개인키 일치를 확인하고 암호화된 `.p12`를 생성해 서명·공증용 GitHub Secrets 6개를 등록했다. `notarytool history`로 Apple 공증 인증을 확인했으며, 첫 서명 빌드 실행은 https://github.com/plead-ops/ddoktti-here/actions/runs/36684643026 에서 진행한다. 인증 성공과 실제 앱 공증 완료는 구분한다. 로컬 개인키는 저장소 밖에 보관하며, CI runner의 Keychain에는 빌드 시 인증서를 가져온다.
+Apple Silicon과 Intel을 포함하는 universal app/DMG를 만든다. 2026-09-30에 Developer ID Application 인증서와 개인키 일치를 확인하고 암호화된 `.p12`를 생성해 서명·공증용 GitHub Secrets 6개를 등록했다. `notarytool history`로 Apple 공증 인증을 확인했으며, 첫 서명 빌드는 https://github.com/plead-ops/ddoktti-here/actions/runs/36684643026 에서 수행했다. v0.1.12 정식 빌드의 공증 ID `25e88534-7c31-4f60-956c-8f7543dc9fb5`는 Accepted이며, DMG 복사 및 업데이트 아카이브 압축 해제 후 codesign·stapler·Gatekeeper·Universal 아키텍처 검사도 통과했다. 로컬 개인키는 저장소 밖에 보관하며, CI runner의 Keychain에는 빌드 시 인증서를 가져온다.
 
 ## 배포 전 검증
 
@@ -33,7 +33,7 @@ Apple Silicon과 Intel을 포함하는 universal app/DMG를 만든다. 2026-09-3
 
 공식 문서: https://v2.tauri.app/distribute/sign/macos/ 및 https://v2.tauri.app/reference/config/#macosprivateapi
 
-## 통합 릴리즈 (0.1.11부터)
+## 통합 릴리즈 (0.1.12부터)
 
 `desktop-release`는 `v*` 태그를 푸시하면 Windows NSIS와 macOS Universal 앱/DMG를 함께 빌드한다. 두 플랫폼 테스트·빌드가 모두 성공해야 게시 작업이 실행된다. macOS는 Developer ID 서명, Apple 공증, codesign·stapler·Gatekeeper 및 두 아키텍처 포함 여부를 검사한다. Windows는 이전 0.1.9 설치본에서 새 설치본으로 교체되는지 검사한다.
 
@@ -43,4 +43,13 @@ Mac `.app.tar.gz`와 Windows 설치 파일의 업데이터 서명을 앱에 포�
 
 2026-09-30 첫 인증서 검증: OpenSSL 기본 PKCS#12 형식이 Keychain 가져오기에서 실패하여 3DES PBE와 SHA-1 MAC의 호환 형식으로 변환했다. 임시 Keychain 가져오기 검증 후 CI Secret을 교체했다. 시험 빌드의 공증 ID `fd777a41-67b8-458e-a878-4ba354942fa2`는 Accepted이며 codesign·stapler·Gatekeeper 검증도 통과했다. 기존 0.1.9 시험 작업은 정리 단계에서 취소되었으며 정식 배포본은 아니다.
 
-배포 전 DMG 설치 검사에서 자동 생성된 한글 `.icns` 파일명의 NFC/NFD 변환으로 서명이 깨지는 것을 발견했다. `icons/icon.icns`를 명시하고 DMG 복사 및 업데이터 압축 해제 후 서명·공증·버전을 검사한다. v0.1.10 태그의 빌드는 공개 전에 중단했으며 수정판은 v0.1.11이다.
+배포 전 DMG 설치 검사에서 자동 생성된 한글 `.icns` 파일명의 NFC/NFD 변환으로 서명이 깨지는 것을 발견했다. `icons/icon.icns`를 명시하고 DMG 복사 및 업데이터 압축 해제 후 서명·공증·버전을 검사한다. v0.1.10 태그의 빌드는 공개 전에 중단했다. v0.1.11은 공증까지 완료했으나 아키텍처 검사 명령의 인자 순서 오류로 게시되지 않았다. `lipo <binary> -verify_arch arm64 x86_64`로 수정한 릴리즈는 v0.1.12다.
+
+## v0.1.12 공개 및 자동 업데이트 실측 (2026-09-30)
+
+- 통합 CI https://github.com/plead-ops/ddoktti-here/actions/runs/36690378082 의 Windows·Mac·게시 작업이 모두 성공했다.
+- 공개 릴리즈 https://github.com/plead-ops/ddoktti-here/releases/tag/v0.1.12 에 설치 파일, 업데이트 패키지·서명, 세 플랫폼을 포함한 `latest.json`이 게시되었다.
+- Windows 11 ARM VM에서 공개 0.1.9 x64 설치본을 실행하자 앱 자체 업데이터가 0.1.12로 설치하고 재시작했다. 실행 파일 ProductVersion 0.1.12, 새 프로세스 응답, 설치 프로세스 종료를 확인했다. 별도로 Windows x64 CI에서도 0.1.9 → 0.1.12 설치 교체가 통과했다. Windows Authenticode 서명 검증을 의미하지 않는다.
+- Apple Silicon Mac에서 서명·공증된 0.1.9 시험 설치본을 실행하자 앱 자체 업데이터가 0.1.12로 설치하고 재시작했다. 업데이트 후 버전, 설정 창 응답, codesign·stapler·Gatekeeper를 확인했다. Intel 실행은 실기기에서 시험하지 않았고 Universal 바이너리의 두 아키텍처 포함을 검사했다.
+- 0.1.9 Mac 시험본은 한글 아이콘 이름의 NFC/NFD 차이를 바로잡아 유효한 기존 서명을 복구한 뒤 사용했다. 새 0.1.12 패키지는 ASCII `icon.icns`를 사용하며 이런 수동 조정이 필요 없다.
+- 이 검증은 설치·업데이트 경로 검증이며 Slack 실제 메시지 수신이나 Google OAuth 공개 심사 완료를 의미하지 않는다.

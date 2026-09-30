@@ -94,7 +94,7 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 - macOS 정식 빌드는 Developer ID 서명과 Apple 공증을 수행합니다. DMG에서 복사한 앱과 업데이트 아카이브에서 꺼낸 앱의 서명도 검사합니다. `macos-build`는 별도 수동 시험용입니다.
 - Slack 서버: 배포·HTTPS·자동 배포·서명 요청 검증 완료. 실제 사용자 승인 후 DM·멘션 수신 검증은 남아 있습니다.
 - Google Calendar: Desktop OAuth 빌드 설정 등록 완료. 공개 검증 및 실제 계정 로그인·일정 조회 검증은 남아 있습니다.
-- OS별 세부 동작과 검증 범위는 아래 문서를 참고하세요. 이 README의 최신 기능이 기존 릴리즈에 모두 포함되어 있는 것은 아닙니다.
+- OS별 세부 동작과 검증 범위는 아래 문서를 참고하세요. Windows·macOS 통합 배포는 [v0.1.12](https://github.com/plead-ops/ddoktti-here/releases/tag/v0.1.12)부터 제공하며, 양쪽 OS에서 0.1.9 시험 설치본의 자동 업데이트·재시작을 확인했습니다.
 
 [네이티브 렌더링](docs/native-rendering.md) · [Windows 검증](docs/windows-validation.md) · [macOS 배포](docs/macos-distribution.md) · [캐릭터 제작 규칙](docs/vector-artwork.md) · [개편 설계](docs/plans/desktop-companion-v2.md)
 
