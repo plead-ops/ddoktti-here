@@ -33,7 +33,7 @@ Apple Silicon과 Intel을 포함하는 universal app/DMG를 만든다. 2026-09-3
 
 공식 문서: https://v2.tauri.app/distribute/sign/macos/ 및 https://v2.tauri.app/reference/config/#macosprivateapi
 
-## 통합 릴리즈 (0.1.10부터)
+## 통합 릴리즈 (0.1.11부터)
 
 `desktop-release`는 `v*` 태그를 푸시하면 Windows NSIS와 macOS Universal 앱/DMG를 함께 빌드한다. 두 플랫폼 테스트·빌드가 모두 성공해야 게시 작업이 실행된다. macOS는 Developer ID 서명, Apple 공증, codesign·stapler·Gatekeeper 및 두 아키텍처 포함 여부를 검사한다. Windows는 이전 0.1.9 설치본에서 새 설치본으로 교체되는지 검사한다.
 
@@ -42,3 +42,5 @@ Mac `.app.tar.gz`와 Windows 설치 파일의 업데이터 서명을 앱에 포�
 릴리즈 시 package.json들, Cargo.toml/Cargo.lock, tauri.conf.json 버전을 함께 올리고 `docs/releases/v버전.md`를 작성한다. 버전 태그와 앱 버전이 다르면 패키징이 실패한다. 앱은 자동 업데이트 설정이 켜져 있으면 시작 시 확인하고 다운로드·설치·재시작한다. 실행 중 주기적인 확인은 아직 없다.
 
 2026-09-30 첫 인증서 검증: OpenSSL 기본 PKCS#12 형식이 Keychain 가져오기에서 실패하여 3DES PBE와 SHA-1 MAC의 호환 형식으로 변환했다. 임시 Keychain 가져오기 검증 후 CI Secret을 교체했다. 시험 빌드의 공증 ID `fd777a41-67b8-458e-a878-4ba354942fa2`는 Accepted이며 codesign·stapler·Gatekeeper 검증도 통과했다. 기존 0.1.9 시험 작업은 정리 단계에서 취소되었으며 정식 배포본은 아니다.
+
+배포 전 DMG 설치 검사에서 자동 생성된 한글 `.icns` 파일명의 NFC/NFD 변환으로 서명이 깨지는 것을 발견했다. `icons/icon.icns`를 명시하고 DMG 복사 및 업데이터 압축 해제 후 서명·공증·버전을 검사한다. v0.1.10 태그의 빌드는 공개 전에 중단했으며 수정판은 v0.1.11이다.

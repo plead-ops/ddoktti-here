@@ -70,6 +70,9 @@ jobs:
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=2 "$app"
           lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/ddoktti-here"
+      - name: Verify installed DMG and extracted updater app
+        if: runner.os == 'macOS'
+        run: python3 scripts/check-macos-packages.py
       - name: Verify Windows installer upgrade from 0.1.9
         if: runner.os == 'Windows'
         shell: pwsh

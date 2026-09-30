@@ -90,8 +90,8 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 
 ## 빌드와 검증 상태
 
-- Windows: NSIS 설치본과 업데이트 서명 산출물을 생성합니다. `desktop-release` 수동 실행은 테스트 아티팩트를 만들고, `v*` 태그는 릴리즈를 생성합니다.
-- macOS: `macos-build` 수동 실행으로 Universal app/DMG를 생성합니다. Developer ID 서명·공증은 별도 자격 증명이 필요합니다.
+- `desktop-release`: Windows NSIS와 macOS Universal DMG·업데이트 패키지를 함께 생성합니다. `v*` 태그를 푸시하면 양쪽 테스트·설치·서명 검증 후 하나의 릴리즈로 공개합니다. 수동 실행은 검증된 아티팩트만 생성합니다.
+- macOS 정식 빌드는 Developer ID 서명과 Apple 공증을 수행합니다. DMG에서 복사한 앱과 업데이트 아카이브에서 꺼낸 앱의 서명도 검사합니다. `macos-build`는 별도 수동 시험용입니다.
 - Slack 서버: 배포·HTTPS·자동 배포·서명 요청 검증 완료. 실제 사용자 승인 후 DM·멘션 수신 검증은 남아 있습니다.
 - Google Calendar: Desktop OAuth 빌드 설정 등록 완료. 공개 검증 및 실제 계정 로그인·일정 조회 검증은 남아 있습니다.
 - OS별 세부 동작과 검증 범위는 아래 문서를 참고하세요. 이 README의 최신 기능이 기존 릴리즈에 모두 포함되어 있는 것은 아닙니다.
