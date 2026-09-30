@@ -1,114 +1,120 @@
 name: desktop-release
 
-# v* 태그 push → Windows nsis 인스톨러 빌드(서명) → GitHub Release 생성.
-# 설치본 + .sig + latest.json 을 첨부 → 앱이 latest.json 으로 자동 업데이트.
-#
-# workflow_dispatch(수동 실행) → 릴리즈 없이 설치본만 아티팩트로 업로드(테스트용).
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
 
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
-  contents: write # Release 생성
+  contents: read
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            args: --bundles nsis
+          - os: macos-latest
+            platform: macos
+            args: --target universal-apple-darwin --bundles app,dmg
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-        with: { fetch-depth: 0 } # 변경 로그 생성을 위해 전체 히스토리+태그
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with: { node-version: 22, cache: pnpm }
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Mac targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "apps/desktop/src-tauri -> target"
-      - run: pnpm install
-
-      - name: Build (Tauri, nsis + 업데이터 서명 아티팩트)
+          workspaces: apps/desktop/src-tauri -> target
+          cache-on-failure: true
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: node --test tests/*.test.mjs services/slack-relay/*.test.mjs
+      - run: pnpm build
+      - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - name: Build signed release packages
         uses: tauri-apps/tauri-action@v0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           SLACK_RELAY_URL: ${{ vars.SLACK_RELAY_URL }}
-          DIAG_SLACK_WEBHOOK: ${{ secrets.DIAG_SLACK_WEBHOOK }} # 진단 전송 웹훅(option_env! 로 컴파일 주입)
+          DIAG_SLACK_WEBHOOK: ${{ secrets.DIAG_SLACK_WEBHOOK }}
         with:
           projectPath: apps/desktop
-          args: "--bundles nsis"
-
-      # ── 태그가 아닐 때(브랜치 push / 수동 실행): 릴리즈 없이 설치본만 아티팩트로 ──
-      - name: Upload installer artifact (build-only)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v4
+          args: ${{ matrix.args }} --verbose
+      - name: Verify Mac signature, notarization and universal binary
+        if: runner.os == 'macOS'
+        run: |
+          app=$(find apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' -print -quit)
+          test -n "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/ddoktti-here"
+      - name: Verify Windows installer upgrade from 0.1.9
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/check-windows-upgrade.ps1
+      - name: Prepare platform assets
+        run: node scripts/release-assets.mjs prepare ${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
         with:
-          name: ddoktti-here-installer
-          path: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          name: release-${{ matrix.platform }}
+          path: release-assets/*
           if-no-files-found: error
 
-      # ── 이하 태그 push 일 때만: 릴리즈 생성 ──
-      # productName 이 한글이라 파일명이 GitHub 에서 깨짐 → 설치본/.sig ASCII 리네임 + latest.json 생성
-      - name: Prepare release assets (rename + latest.json)
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        run: |
-          $dir = "apps/desktop/src-tauri/target/release/bundle/nsis"
-          $ver = "${{ github.ref_name }}".TrimStart('v')
-          $exe = Get-ChildItem "$dir/*-setup.exe" | Where-Object { $_.Name -notlike '*.sig' } | Select-Object -First 1
-          $sig = Get-ChildItem "$dir/*-setup.exe.sig" | Select-Object -First 1
-          $name = "ddoktti-here_${ver}_x64-setup.exe"
-          Move-Item $exe.FullName (Join-Path $dir $name) -Force
-          Move-Item $sig.FullName (Join-Path $dir "$name.sig") -Force
-          $signature = (Get-Content (Join-Path $dir "$name.sig") -Raw).Trim()
-          $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$name"
-          $latest = [ordered]@{
-            version   = $ver
-            pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-            platforms = [ordered]@{ "windows-x86_64" = [ordered]@{ signature = $signature; url = $url } }
-          } | ConvertTo-Json -Depth 6
-          Set-Content -Path (Join-Path $dir "latest.json") -Value $latest -Encoding utf8
-          Write-Host $latest
-
-      # 직전 태그 이후 커밋을 conventional 타입별로 정리해 릴리즈 노트 생성
-      - name: Generate changelog
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}"
-          $prev = git describe --tags --abbrev=0 "$tag^" 2>$null
-          $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..$tag" } else { $tag }
-          $commits = git log $range --no-merges --pretty=format:"%s"
-          $order = @("feat","fix","perf","refactor","docs","ci","build","chore")
-          $titles = @{ feat="✨ 새 기능"; fix="🐛 버그 수정"; perf="⚡ 성능"; refactor="♻️ 리팩터"; docs="📝 문서"; ci="🔧 빌드/CI"; build="🔧 빌드/CI"; chore="🧹 정리"; etc="기타" }
-          $groups = @{}
-          foreach ($c in $commits) {
-            $type = "etc"; $desc = $c
-            if ($c -match '^(\w+)(\([^)]*\))?!?:\s*(.*)$') { $type = $matches[1].ToLower(); $desc = $matches[3] }
-            if ($type -eq "release") { continue }   # 버전 범프 커밋 제외
-            if (-not $titles.ContainsKey($type)) { $type = "etc" }
-            if (-not $groups.ContainsKey($type)) { $groups[$type] = New-Object System.Collections.ArrayList }
-            [void]$groups[$type].Add($desc)
-          }
-          $md = "## 변경 사항`n"
-          foreach ($t in ($order + "etc")) {
-            if ($groups.ContainsKey($t)) {
-              $md += "`n### $($titles[$t])`n"
-              foreach ($d in $groups[$t]) { $md += "- $d`n" }
-            }
-          }
-          if ($prev) { $md += "`n**전체 비교:** https://github.com/${{ github.repository }}/compare/$prev...$tag`n" }
-          Set-Content -Path RELEASE_NOTES.md -Value $md -Encoding utf8
-          Write-Host $md
-
-      - name: Create GitHub Release
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: Verify updater signatures and merge all platforms
+        run: node scripts/release-assets.mjs merge all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-verified
+          path: release-assets/*
+          if-no-files-found: error
+      - name: Upload complete draft release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
-          files: |
-            apps/desktop/src-tauri/target/release/bundle/nsis/ddoktti-here_*-setup.exe
-            apps/desktop/src-tauri/target/release/bundle/nsis/ddoktti-here_*-setup.exe.sig
-            apps/desktop/src-tauri/target/release/bundle/nsis/latest.json
-          body_path: RELEASE_NOTES.md
+          files: release-assets/*
+          body_path: docs/releases/${{ github.ref_name }}.md
+          fail_on_unmatched_files: true
+          draft: true
+      - name: Publish only after every asset was uploaded
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest

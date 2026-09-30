@@ -11,6 +11,7 @@ use tauri::{
 mod calendar;
 mod companion;
 mod diag;
+mod foreground;
 mod fullscreen;
 mod native_pet;
 mod slack;
@@ -227,7 +228,11 @@ fn resolve_monitor(win: &WebviewWindow, s: &DisplaySettings) -> Option<Monitor> 
         // 커서가 있는 모니터(없으면 주 디스플레이)
         "" | "active" => {
             if let Ok(p) = win.cursor_position() {
-                if let Ok(Some(m)) = win.monitor_from_point(p.x, p.y) {
+                #[cfg(target_os = "macos")]
+                let unit = win.primary_monitor().ok().flatten()?.scale_factor();
+                #[cfg(not(target_os = "macos"))]
+                let unit = 1.;
+                if let Ok(Some(m)) = win.monitor_from_point(p.x / unit, p.y / unit) {
                     return Some(m);
                 }
             }
@@ -330,11 +335,25 @@ fn place_pet(
         .pet_anchor
         != anchor;
     if resized {
+        #[cfg(target_os = "macos")]
+        win.set_size(tauri::LogicalSize::new(ww / sf, wh / sf))?;
+        #[cfg(not(target_os = "macos"))]
         win.set_size(size)?;
     }
     if moved {
+        #[cfg(target_os = "macos")]
+        win.set_position(tauri::LogicalPosition::new(
+            wx.round() / sf,
+            wy.round() / sf,
+        ))?;
+        #[cfg(not(target_os = "macos"))]
         win.set_position(position)?;
     }
+    app.state::<companion::Companion>()
+        .0
+        .lock()
+        .unwrap()
+        .pet_location = Some((surfaces::key(m), x, y));
     if !changed && !resized && !moved {
         return Ok(());
     }
@@ -484,25 +503,18 @@ fn preview_overlay(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn persist_overlay_position(app: AppHandle) -> Result<(), String> {
     let win = app.get_webview_window("overlay").ok_or("no overlay")?;
-    let pos = win.outer_position().map_err(|e| e.to_string())?;
     if companion::resident(&app) {
         return Ok(());
     }
-    let anchor = app
-        .state::<companion::Companion>()
-        .0
-        .lock()
-        .unwrap()
-        .pet_anchor
-        .unwrap_or((200.0, 450.0));
-    let x = pos.x as f64 + anchor.0;
-    let y = pos.y as f64 + anchor.1;
+    let world = surfaces::pet_world(app.clone())?;
     let monitor = win
-        .monitor_from_point(x, y - 1.0)
-        .ok()
-        .flatten()
-        .or_else(|| win.primary_monitor().ok().flatten())
+        .available_monitors()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|m| surfaces::key(m) == world.monitor)
         .ok_or("no monitor")?;
+    let x = monitor.work_area().position.x as f64 + world.x * monitor.scale_factor();
+    let y = monitor.work_area().position.y as f64 + world.y * monitor.scale_factor();
     let wa = monitor.work_area();
     let sf = monitor.scale_factor();
     let mut s = load_display(&app);

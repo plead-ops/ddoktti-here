@@ -20,6 +20,7 @@
 - 실제 앱 재생: `apps/desktop/src-tauri/src/native_pet/`
 - 브라우저 미리보기 재생: `apps/desktop/src/pet-vector.ts`
 - 줄을 잡는 손 좌표: `assets/concepts/pet-climb-hand-guides.json` → `apps/desktop/src/pet-climb-hands.json`
+- 기본 서 있는 자세: `emotions-v2`의 18번 프레임을 재사용한다. 이전 `edge` 3번의 긴 몸통·다리 대신 기존 휴식 자세를 선택하며, 세로 압축이나 부위별 변형은 하지 않는다. 네이티브와 웹 미리보기의 선택을 함께 유지한다.
 - 첫 시작 화면: 보정된 손 흔들기 프레임의 `welcome.svg`
 - 아이콘: `assets/icons/app-icon.svg`; OS에 필요한 PNG/ICO/ICNS를 여기서 생성
 

@@ -19,6 +19,7 @@ export function vectorFrame(pose:string,elapsed=0,reduced=false){
  if(pose==='run'){sheet='run-v3';index=gaitFrame('run',t,reduced);}
  else if(b&&registered){const p=behaviorPose(b,t,reduced);sheet=registered[0];index=registered[1]*4+p.frame;lift=p.lift;}
  else switch(pose){
+  case 'idle':sheet='emotions-v2';index=18;break;
   case 'walk':sheet='walk';index=gaitFrame('walk',t,reduced);break;
   case 'tickle':sheet='interactions-v2';index=Math.floor(t/160)%4;break;
   case 'drag':sheet='interactions-v2';index=4+Math.floor(t/230)%4;lift=12;break;

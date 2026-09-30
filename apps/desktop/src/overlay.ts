@@ -9,7 +9,7 @@ const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(
 interface PetState {busy:boolean;dragging:boolean;menu:boolean;reaction:string|null;mode:string}
 let pet:PetState={busy:false,dragging:false,menu:false,reaction:null,mode:'idle'};
 let state:Snapshot|undefined,current:NotificationPayload|undefined,choice:string|undefined;
-let cfg={sound:true,scale:1.7},anchor={x:200,y:450},changedAt=0,signature='';
+let cfg={sound:true,scale:1.7,reduce_motion:false},anchor={x:200,y:450},changedAt=0,signature='';
 let reportedChoice:string|undefined;const seen=new Set<string>();
 document.documentElement.classList.add('native-renderer');
 function fail(error:unknown){$('pet-error').hidden=!error;$('pet-error').textContent=String(error);layout();}
@@ -19,7 +19,7 @@ function layout(){layoutPet(document,anchor,Math.min(245,Math.max(110,180*cfg.sc
 function beep(){if(!cfg.sound)return;try{const audio=new AudioContext(),o=audio.createOscillator(),g=audio.createGain();o.frequency.value=720;g.gain.setValueAtTime(.05,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.2);o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+.21);o.onended=()=>void audio.close();}catch{}}
 const priority=(a:NotificationPayload)=>a.source==='preview'?0:a.source==='calendar'&&(a.startsAt??Infinity)<Date.now()/1000+300?1:a.source==='timer'?2:a.source==='calendar'?3:a.source==='stretch'?5:4;
 function safe(value:string|undefined){if(!value)return false;try{return ['https:','slack:'].includes(new URL(value).protocol);}catch{return false;}}
-function render(rotate=false){if(!state)return;const alerts=state.alerts.map(a=>NotificationPayload.safeParse(a)).filter(p=>p.success).map(p=>p.data!);alerts.sort((a,b)=>priority(a)-priority(b)||a.createdAt-b.createdAt);
+function render(rotate=false){document.documentElement.classList.toggle('reduce-motion',cfg.reduce_motion);if(!state)return;const alerts=state.alerts.map(a=>NotificationPayload.safeParse(a)).filter(p=>p.success).map(p=>p.data!);alerts.sort((a,b)=>priority(a)-priority(b)||a.createdAt-b.createdAt);
  const urgent=alerts[0],chosen=alerts.find(a=>a.id===choice),next=!rotate&&urgent&&chosen&&priority(urgent)<priority(chosen)?urgent:chosen??urgent;choice=next?.id;
  if(next?.id!==current?.id){changedAt=performance.now();if(next&&!seen.has(next.id)){if(!(state.fullscreen&&state.preferences.hide_fullscreen))beep();seen.add(next.id);if(seen.size>200){const alive=new Set(alerts.map(a=>a.id));for(const id of seen)if(!alive.has(id))seen.delete(id);}}}current=next;
  $('pet-root').hidden=false;$('pet-menu').hidden=!pet.menu;$('bubble').hidden=!next||pet.busy||pet.dragging||pet.menu||!!pet.reaction;

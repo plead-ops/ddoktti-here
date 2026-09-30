@@ -110,6 +110,7 @@ pub struct Physics {
     vy: f64,
     cooldown: f64,
     plan: Option<Plan>,
+    approach: Option<(String, f64)>,
     pull_start: (f64, f64),
     seed: u64,
 }
@@ -130,6 +131,7 @@ impl Physics {
             vy: 0.,
             cooldown: 4.,
             plan: None,
+            approach: None,
             pull_start: (0., 0.),
             seed: 0x927fd,
         };
@@ -179,6 +181,7 @@ impl Physics {
         self.vx = 0.;
         self.vy = 0.;
         self.plan = None;
+        self.approach = None;
         self.attach(self.at(self.x, self.y, None));
         self.entering(
             if self.support.is_some() || self.y >= self.world.height - 1. {
@@ -189,6 +192,7 @@ impl Physics {
         );
     }
     fn falling(&mut self) {
+        self.approach = None;
         self.attach(None);
         self.plan = None;
         self.vx = 0.;
@@ -276,6 +280,67 @@ impl Physics {
         self.x = clamp(self.x, self.half(), self.world.width - self.half());
         self.y = clamp(self.y, self.height(), self.world.height);
     }
+    pub fn approaching(&self) -> bool {
+        self.approach.is_some() && self.motion == Motion::Grounded
+    }
+    // Approach a visible edge on the current support, then climb the rope even
+    // when the window's bottom is above our head. Never teleport across a gap.
+    fn rope_target(&mut self, id: &str, side: f64) -> Option<(WindowRect, f64)> {
+        let w = self.world.windows.iter().find(|w| w.id == id)?.clone();
+        if self.support.as_deref() == Some(id) || w.y >= self.y - self.height() {
+            return None;
+        }
+        self.side = side;
+        let edge = if side > 0. { w.x } else { w.x + w.width };
+        let x = edge - side * self.half();
+        let landing = edge + side * (self.half() + 3.);
+        if self.at(landing, w.y, Some(id)).is_none() || !self.climb_visible(&w) {
+            return None;
+        }
+        if self.support.is_some() && self.at(x, self.y, self.support.as_deref()).is_none() {
+            return None;
+        }
+        Some((w, x))
+    }
+    fn seek_rope(&mut self) {
+        let ids: Vec<_> = self.world.windows.iter().map(|w| w.id.clone()).collect();
+        let mut best: Option<(String, f64, f64)> = None;
+        for id in ids {
+            for side in [1., -1.] {
+                if let Some((w, x)) = self.rope_target(&id, side) {
+                    let cost = (x - self.x).abs() + (self.y - w.y) * 0.2;
+                    if best.as_ref().is_none_or(|b| cost < b.2) {
+                        best = Some((id.clone(), side, cost));
+                    }
+                }
+            }
+        }
+        self.approach = best.map(|(id, side, _)| (id, side));
+    }
+    fn approach_rope(&mut self, distance: f64) -> bool {
+        let Some((id, side)) = self.approach.clone() else {
+            return false;
+        };
+        let Some((w, x)) = self.rope_target(&id, side) else {
+            self.approach = None;
+            self.cooldown = 2.;
+            return false;
+        };
+        let dx = x - self.x;
+        if dx.abs() > 0.01 {
+            self.direction = dx.signum();
+        }
+        self.x += dx.clamp(-distance, distance);
+        if (x - self.x).abs() < 0.01 {
+            self.side = side;
+            self.direction = side;
+            self.support = Some(w.id.clone());
+            self.attached = Some(w);
+            self.approach = None;
+            self.entering(Motion::Grab);
+        }
+        true
+    }
     fn start_climb(&mut self, dx: f64) -> bool {
         let side = dx.signum();
         if side == 0. {
@@ -358,6 +423,7 @@ impl Physics {
         self.age += dt;
         self.cooldown = (self.cooldown - dt).max(0.);
         if reduced {
+            self.approach = None;
             if self.busy() {
                 let p = self
                     .ledges
@@ -519,10 +585,18 @@ impl Physics {
             return;
         }
         if !autonomous {
+            self.approach = None;
             return;
         }
-        if self.cooldown == 0. {
+        if self.approaching() && self.approach_rope(walk.abs() * dt) {
+            return;
+        }
+        if self.cooldown == 0. && walk > 0. {
             self.cooldown = 8. + self.random() * 8.;
+            self.seek_rope();
+            if self.approach_rope(walk.abs() * dt) {
+                return;
+            }
             if let Some(p) = self.jump_plan() {
                 if self.random() < 0.55 {
                     self.plan = Some(p);
@@ -576,6 +650,102 @@ mod tests {
     fn advance(p: &mut Physics, seconds: f64, walk: f64, auto: bool) {
         for _ in 0..(seconds * 60.).ceil() as usize {
             p.step(1. / 60., walk, auto, false);
+        }
+    }
+    #[test]
+    fn floating_window_is_approached_from_either_side_then_climbed() {
+        for x in [70., 920.] {
+            let mut p = Physics::new(world(
+                vec![rect("floating", 300., 180., 350., 160.)],
+                x,
+                700.,
+            ));
+            p.cooldown = 0.;
+            let mut climbed = false;
+            for _ in 0..2400 {
+                let old_x = p.x;
+                let grounded = p.motion == Motion::Grounded;
+                p.step(1. / 60., 80., true, false);
+                if grounded {
+                    assert!((p.x - old_x).abs() <= 80. / 60. + 0.01);
+                }
+                if p.motion == Motion::Climb {
+                    climbed = true;
+                    assert!(p.rope_anchor().is_some());
+                }
+                if p.motion == Motion::Land && p.support.as_deref() == Some("floating") {
+                    break;
+                }
+            }
+            assert!(climbed);
+            assert_eq!(p.y, 180.);
+            assert_eq!(p.motion, Motion::Land);
+            assert!(p.rope_anchor().is_none());
+        }
+    }
+    #[test]
+    fn rope_approach_revalidates_moved_closed_and_occluded_windows() {
+        let mut p = Physics::new(world(
+            vec![rect("floating", 300., 180., 350., 160.)],
+            80.,
+            700.,
+        ));
+        p.cooldown = 0.;
+        p.step(0.1, 80., true, false);
+        assert!(p.approaching());
+        p.update(world(
+            vec![rect("floating", 500., 160., 350., 160.)],
+            p.x,
+            p.y,
+        ));
+        let before = p.x;
+        p.step(0.1, 80., true, false);
+        assert!((p.x - before - 8.).abs() < 0.01);
+        assert!(p.approaching());
+        p.update(world(vec![], p.x, p.y));
+        p.step(0.1, 80., true, false);
+        assert!(!p.approaching());
+        assert_eq!(p.motion, Motion::Grounded);
+        p.update(world(
+            vec![
+                rect("front", 180., 100., 700., 550.),
+                rect("floating", 500., 160., 350., 160.),
+            ],
+            p.x,
+            p.y,
+        ));
+        assert!(p.rope_target("floating", 1.).is_none());
+        assert!(p.rope_target("floating", -1.).is_none());
+    }
+    #[test]
+    fn rope_approach_respects_support_alerts_reduced_motion_and_drag() {
+        let mut p = Physics::new(world(
+            vec![
+                rect("floating", 600., 180., 300., 150.),
+                rect("support", 100., 500., 300., 200.),
+            ],
+            200.,
+            500.,
+        ));
+        // Cannot walk off our current window to reach a distant rope.
+        assert!(p.rope_target("floating", 1.).is_none());
+        assert!(p.rope_target("floating", -1.).is_none());
+        for action in 0..3 {
+            let mut p = Physics::new(world(
+                vec![rect("floating", 400., 180., 300., 150.)],
+                80.,
+                700.,
+            ));
+            p.cooldown = 0.;
+            p.step(0.1, 80., true, false);
+            assert!(p.approaching());
+            match action {
+                0 => p.step(0.1, 80., false, false),
+                1 => p.step(0.1, 80., true, true),
+                _ => p.reset(200., 700.),
+            }
+            assert!(!p.approaching());
+            assert!(p.rope_anchor().is_none());
         }
     }
     #[test]

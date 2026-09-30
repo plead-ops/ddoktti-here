@@ -41,14 +41,32 @@ pub fn pet_world(app: AppHandle) -> Result<World, String> {
         .unwrap()
         .pet_anchor
         .unwrap_or((200., 450.));
-    let x = pos.x as f64 + anchor.0;
-    let y = pos.y as f64 + anchor.1;
-    let m = win
-        .monitor_from_point(x, y - 1.)
-        .ok()
-        .flatten()
-        .or_else(|| win.primary_monitor().ok().flatten())
-        .ok_or("no monitor")?;
+    // Use the requested foot position, not an asynchronous OS window move readback.
+    let location = app
+        .state::<crate::companion::Companion>()
+        .0
+        .lock()
+        .unwrap()
+        .pet_location
+        .clone();
+    let monitors = win.available_monitors().map_err(|e| e.to_string())?;
+    let selected = location.as_ref().and_then(|(id, x, y)| {
+        monitors
+            .iter()
+            .find(|m| key(m) == *id)
+            .map(|m| (m.clone(), *x, *y))
+    });
+    let (m, x, y) = if let Some(selected) = selected {
+        selected
+    } else {
+        let m = win
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| win.primary_monitor().ok().flatten())
+            .ok_or("no monitor")?;
+        (m, pos.x as f64 + anchor.0, pos.y as f64 + anchor.1)
+    };
     let wa = m.work_area();
     let sf = m.scale_factor();
     let ox = wa.position.x as f64 / sf;

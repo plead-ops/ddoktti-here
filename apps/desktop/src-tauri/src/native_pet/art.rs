@@ -105,6 +105,11 @@ impl Art {
             return p;
         }
         match mode {
+            "idle" => {
+                // Use the existing relaxed standing drawing, without stretching limbs.
+                p.sheet = "emotions-v2";
+                p.index = 18;
+            }
             "walk" => {
                 p.sheet = "walk";
                 p.index = super::gait::frame(mode, t, reduced);

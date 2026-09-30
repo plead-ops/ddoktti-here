@@ -3,3 +3,9 @@
 #pet-root{--pet-x:200px;--pet-y:450px;--pet-size:180px}#pet{left:var(--pet-x);top:var(--pet-y);bottom:auto;transform:translate(-50%,-100%);width:calc(var(--pet-size)*400/260);height:var(--pet-size)}#sprite{object-fit:fill}#bubble,#pet-menu{right:auto;bottom:auto;max-width:calc(100vw - 16px)}#bubble{overflow:visible}#bubble:after{position:absolute;left:var(--tail-x,50%);top:auto;bottom:-9px;width:14px;height:14px}#bubble.below:after{top:-9px;bottom:auto;transform:rotate(225deg)}#pet-reaction{top:calc(var(--pet-y) - var(--pet-size) - 18px);bottom:auto}#pet-menu svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}#pet-menu button,#pet-timer label{display:flex;align-items:center;gap:9px}#pet-timer label{gap:5px}.bubble-actions{flex-wrap:wrap}
 /* Runtime pet pixels are presented by a separate native window. Preview srcdoc keeps its SVG. */
 .native-renderer #pet{display:none}
+
+/* Color-only pulse: stable text opacity, geometry and pointer targets. */
+#bubble:not([hidden]),#bubble:not([hidden]):after{animation:notification-pulse .65s ease-in-out infinite}
+#bubble:hover,#bubble:hover:after,#bubble:focus-within,#bubble:focus-within:after,.reduce-motion #bubble:not([hidden]),.reduce-motion #bubble:not([hidden]):after{animation:none}
+@keyframes notification-pulse{0%,100%{background-color:#fffdf3;border-color:#344c3a}50%{background-color:#ffe6a6;border-color:#956222}}
+@media(prefers-reduced-motion:reduce){#bubble:not([hidden]),#bubble:not([hidden]):after{animation:none}}

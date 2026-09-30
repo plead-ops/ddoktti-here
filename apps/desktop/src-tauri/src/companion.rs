@@ -69,6 +69,7 @@ pub struct State {
     pub hit_regions: Vec<[f64; 4]>,
     pub interacting: bool,
     pub pet_anchor: Option<(f64, f64)>,
+    pub pet_location: Option<(String, f64, f64)>,
     pub fullscreen: bool,
 }
 pub struct Companion(pub Mutex<State>);
@@ -162,6 +163,10 @@ pub fn set_preferences(app: AppHandle, patch: Value) -> Result<(), String> {
     Ok(())
 }
 pub fn push(app: &AppHandle, mut payload: Value) -> Result<(), String> {
+    // Returning success still acknowledges relay delivery; do not replay after focus leaves.
+    if payload["source"] == "slack" && crate::foreground::slack_active() {
+        return Ok(());
+    }
     {
         let state = app.state::<Companion>();
         let mut s = state.0.lock().unwrap();
@@ -331,10 +336,20 @@ pub fn start(app: AppHandle) {
                     win.outer_position(),
                     win.scale_factor(),
                 ) {
+                    // Window queries may synchronously dispatch to the UI thread.
+                    // Never hold Companion while making one: native tick needs this lock.
+                    #[cfg(target_os = "macos")]
+                    let cursor_sf = win
+                        .primary_monitor()
+                        .ok()
+                        .flatten()
+                        .map_or(sf, |m| m.scale_factor());
+                    #[cfg(not(target_os = "macos"))]
+                    let cursor_sf = sf;
+                    let x = cursor.x / cursor_sf - pos.x as f64 / sf;
+                    let y = cursor.y / cursor_sf - pos.y as f64 / sf;
                     let state = app.state::<Companion>();
                     let s = state.0.lock().unwrap();
-                    let x = (cursor.x - pos.x as f64) / sf;
-                    let y = (cursor.y - pos.y as f64) / sf;
                     let ignore = !s.interacting
                         && !s.hit_regions.iter().any(|r| {
                             x >= r[0] && y >= r[1] && x <= r[0] + r[2] && y <= r[1] + r[3]
@@ -350,11 +365,16 @@ pub fn start(app: AppHandle) {
             if ticks % 20 != 0 {
                 continue;
             }
+            let slack_active = crate::foreground::slack_active();
             let fullscreen = crate::fullscreen::active();
             let full_changed = {
                 let state = app.state::<Companion>();
                 let mut s = state.0.lock().unwrap();
-                let changed = s.fullscreen != fullscreen;
+                let before = s.alerts.len();
+                if slack_active {
+                    s.alerts.retain(|a| a["source"] != "slack");
+                }
+                let changed = s.fullscreen != fullscreen || before != s.alerts.len();
                 s.fullscreen = fullscreen;
                 changed
             };

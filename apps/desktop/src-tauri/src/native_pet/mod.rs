@@ -15,7 +15,9 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{AppHandle, Emitter, Manager};
+#[cfg(not(target_os = "macos"))]
+use tauri::{PhysicalPosition, PhysicalSize};
 struct Press {
     cursor: (f64, f64),
     foot: (f64, f64),
@@ -308,7 +310,18 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     } else {
         r.alert_age += dt * cfg.speed;
     }
-    let cursor = pet.cursor_position().map_err(|e| e.to_string())?;
+    #[allow(unused_mut)]
+    let mut cursor = pet.cursor_position().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        // Tao returns cursor pixels using the PRIMARY scale, even on another display.
+        let primary = pet
+            .primary_monitor()
+            .map_err(|e| e.to_string())?
+            .ok_or("No primary monitor")?;
+        cursor.x /= primary.scale_factor();
+        cursor.y /= primary.scale_factor();
+    }
     let (left, right) = platform::buttons();
     let hit = r.hits.iter().any(|p| {
         cursor.x >= p[0] && cursor.x <= p[0] + p[2] && cursor.y >= p[1] && cursor.y <= p[1] + p[3]
@@ -323,8 +336,8 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     let sf = monitor.scale_factor();
     let wa = monitor.work_area();
     let foot = (
-        wa.position.x as f64 + p.x * sf,
-        wa.position.y as f64 + p.y * sf,
+        (wa.position.x as f64 + p.x * sf) / screen_unit(sf),
+        (wa.position.y as f64 + p.y * sf) / screen_unit(sf),
     );
     if left && !r.left && hit && !r.hover {
         r.drag_age = 0.;
@@ -357,7 +370,15 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
                     .ok()
                     .flatten()
                     .unwrap_or_else(|| monitor.clone());
-                crate::place_pet(app, &popup, &m, x, y, &cfg).map_err(|e| e.to_string())?;
+                crate::place_pet(
+                    app,
+                    &popup,
+                    &m,
+                    x * screen_unit(m.scale_factor()),
+                    y * screen_unit(m.scale_factor()),
+                    &cfg,
+                )
+                .map_err(|e| e.to_string())?;
                 let w = crate::surfaces::pet_world(app.clone())?;
                 r.physics = Some(Physics::new(w));
                 monitor = m;
@@ -448,7 +469,11 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             }
         } else if selected.is_none() && !cfg.reduce_motion {
             r.age += dt * cfg.speed;
-            if r.age >= art::duration(&r.mode) {
+            if r.physics.as_ref().unwrap().approaching() {
+                if !matches!(r.mode.as_str(), "walk" | "run") {
+                    r.set_mode("walk");
+                }
+            } else if r.age >= art::duration(&r.mode) {
                 r.choose();
             }
             if hit && matches!(r.mode.as_str(), "walk" | "run") {
@@ -555,13 +580,27 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         rope.map(|a| (a.0 - left, a.1 - top)),
         if rope.is_some() { age } else { 0. }
     );
-    let position = (left as i32, top as i32);
+    let position = (
+        (left / screen_unit(sf)).round() as i32,
+        (top / screen_unit(sf)).round() as i32,
+    );
     if r.position != Some(position) {
+        #[cfg(target_os = "macos")]
+        pet.set_position(tauri::LogicalPosition::new(left / sf, top / sf))
+            .map_err(|e| e.to_string())?;
+        #[cfg(not(target_os = "macos"))]
         pet.set_position(PhysicalPosition::new(position.0, position.1))
             .map_err(|e| e.to_string())?;
         r.position = Some(position);
     }
     if stamp != r.last_picture || !r.visible {
+        #[cfg(target_os = "macos")]
+        pet.set_size(tauri::LogicalSize::new(
+            width as f64 / sf,
+            height as f64 / sf,
+        ))
+        .map_err(|e| e.to_string())?;
+        #[cfg(not(target_os = "macos"))]
         pet.set_size(PhysicalSize::new(width, height))
             .map_err(|e| e.to_string())?;
         let frame = r.art.bitmap(&key, (260. * k).ceil() as u32)?;
@@ -605,10 +644,10 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             let a = fx + facing * (h[0] - 200. + pose.offset) * k;
             let b = a + facing * h[2] * k;
             [
-                a.min(b),
-                fy + (h[1] - 250. - pose.lift) * k,
-                h[2] * k,
-                h[3] * k,
+                a.min(b) / screen_unit(sf),
+                (fy + (h[1] - 250. - pose.lift) * k) / screen_unit(sf),
+                h[2] * k / screen_unit(sf),
+                h[3] * k / screen_unit(sf),
             ]
         })
         .collect();
@@ -629,4 +668,13 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         let _ = app.emit("native-pet-error", "");
     }
     Ok(())
+}
+
+// Global screen positions use points on macOS and physical pixels on Windows.
+fn screen_unit(scale: f64) -> f64 {
+    if cfg!(target_os = "macos") {
+        scale
+    } else {
+        1.
+    }
 }

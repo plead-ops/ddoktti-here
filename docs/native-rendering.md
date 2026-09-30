@@ -79,3 +79,17 @@ Windows의 독립된 테스트 데스크톱/VM에서는 다음 명령으로 반�
 - [Apple CALayer contents](https://developer.apple.com/documentation/quartzcore/calayer/contents): CGImage 표시와 view/layer 상호작용. 직접 관리하는 layer-hosting view로 표시한다.
 - [Apple contentsScale](https://developer.apple.com/documentation/quartzcore/calayer/contentsscale): 화면 배율에 맞는 픽셀 크기.
 - [Microsoft UpdateLayeredWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-updatelayeredwindow): 픽셀별 알파를 사용하는 네이티브 창 갱신.
+
+## 다중 모니터 좌표와 Slack 포커스
+
+macOS에서는 화면 전역 좌표는 논리 포인트이고, Tao 커서 API는 주 모니터 배율로 환산한 픽셀을 반환한다. 커서·드래그 시작점·히트 영역은 논리 포인트로 맞추고, 모니터별 물리 픽셀은 해당 모니터 배율로 변환한다. 창 위치·크기는 macOS에 LogicalPosition/LogicalSize로 전달하여 이전 화면 배율의 영향을 피한다. 렌더링은 목적지 배율의 픽셀 해상도를 유지한다. Windows는 전역 물리 픽셀 좌표를 유지한다.
+
+배치 직후 창 위치를 읽으면 비동기 이동 이전 값이 돌아올 수 있으므로 마지막 요청한 모니터와 발 위치를 물리 엔진의 기준으로 사용한다. smoke 검사는 연결된 각 화면에서 이동 후 위치 유지와 걷기를 확인한다.
+
+Slack 포커스 시 새 Slack 알림은 성공 처리하여 중계 서버에 ACK하며, 이미 표시 중인 Slack 알림도 닫는다. 다른 종류의 알림은 유지한다. macOS 공식 Slack은 `com.tinyspeck.slackmacgap`으로 확인한다. Windows는 `slack.exe` 또는 지원 브라우저의 활성 창 제목 중 독립적인 `Slack`/`슬랙` 구간으로 식별한다. PWA와 활성 Slack 탭을 지원하며, 제목만으로 판별하는 브라우저 방식은 URL 검증이 아니므로 제목이 같은 다른 페이지와 완벽히 구분할 수 없다. 창 제목은 저장·전송하지 않는다.
+
+### 입력 감시와 UI 잠금 순서
+
+백그라운드 입력 감시에서 Tauri 모니터/창 API를 호출하면 UI 스레드 응답을 동기적으로 기다릴 수 있다. 따라서 `Companion` 상태 잠금을 잡은 상태에서는 이 API를 호출하지 않는다. 2026-09-30 멈춤 사례는 입력 감시가 상태 잠금을 잡고 `primary_monitor`를 기다리는 동안 UI의 native tick이 같은 잠금을 기다린 교착 상태였다. 프로세스 스택 샘플로 확인했으며, 창 조회를 모두 잠금 밖에서 끝낸 뒤 히트 영역 판정에만 잠금을 사용하도록 수정했다.
+
+네이티브 smoke는 실제 `companion::start` 입력/포커스 감시를 함께 실행한다. UI가 멈춰 검사가 무한 대기하지 않도록 60초 watchdog이 실패 종료한다. 계정 연결 서비스는 시작하지 않는다.

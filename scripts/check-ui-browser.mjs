@@ -44,6 +44,18 @@ await evaluate(`emitDemo('native-pet',{busy:false,dragging:false,menu:false,reac
 const reaction=await evaluate(`({hiddenBubble:document.getElementById('bubble').hidden,reaction:document.getElementById('pet-reaction').textContent,petHidden:getComputedStyle(document.getElementById('pet')).display==='none'})`);console.log('native reaction',reaction);if(!reaction.hiddenBubble||!reaction.petHidden)throw Error('Native-only character/HTML reaction failed');
 await evaluate(`emitDemo('native-pet',{busy:false,dragging:false,menu:false,reaction:null,mode:'idle'})`);
 if(!await evaluate(`!document.getElementById('bubble').hidden`))throw Error('Notification did not resume');
+await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:399,y:449});
+const pulse=await evaluate(`(()=>{
+ const b=document.getElementById('bubble'), animations=b.getAnimations({subtree:true});
+ if(!animations.length)throw Error('Missing color pulse');
+ const sample=t=>{animations.forEach(a=>{a.pause();a.currentTime=t;});const c=getComputedStyle(b),tail=getComputedStyle(b,'::after');return {color:c.backgroundColor,tail:tail.backgroundColor,opacity:c.opacity};};
+ const first=sample(0),next=sample(325);
+ if(first.color===next.color||first.opacity!=='1'||next.opacity!=='1'||first.color!==first.tail||next.color!==next.tail)throw Error('Pulse must change color with an opaque matching tail');
+ document.documentElement.classList.add('reduce-motion');
+ if(getComputedStyle(b).animationName!=='none')throw Error('Reduced motion pulse remains');
+ document.documentElement.classList.remove('reduce-motion');
+ return {first,next};
+})()`);console.log('notification color pulse',pulse);
 await evaluate(`emitDemo('pet-layout',{x:65,y:155})`);console.log('overlay popup',await evaluate(`({below:document.getElementById('bubble').classList.contains('below'),bounds:document.getElementById('bubble').getBoundingClientRect().toJSON()})`));
 for(const field of ['busy','dragging']){await evaluate(`emitDemo('native-pet',{busy:false,dragging:false,menu:false,reaction:null,mode:'climb',${field}:true})`);if(!await evaluate(`document.getElementById('bubble').hidden`))throw Error('Popup visible during '+field);}
 await evaluate(`emitDemo('native-pet',{busy:false,dragging:false,menu:true,reaction:null,mode:'idle'})`);
