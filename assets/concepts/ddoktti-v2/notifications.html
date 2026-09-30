@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>똑띠 · 알림과 말풍선</title>
+<link rel="stylesheet" href="notifications.css">
+</head>
+<body>
+<main class="studio">
+  <header class="page-header"><a class="brand" href="preview.html"><span class="brand-dot"></span> 똑띠<span class="brand-en">DDOKTTI</span></a><span class="edition">INTERACTION STUDY / 04</span></header>
+  <section class="intro"><div><p class="eyebrow">작은 동료의, 반가운 참견</p><h1>전할 말이 있어요.</h1><p class="lead">폴짝, 눈을 맞추고 한마디.<br>중요한 순간에만 찾아오는 똑띠의 알림을 만나보세요.</p></div><span class="prototype-label">HTML 말풍선 · 동작 시안</span></section>
+  <div class="workspace">
+    <aside class="controls" aria-label="알림 미리보기 설정">
+      <p class="section-label">어떤 소식인가요?</p>
+      <div class="alert-options" role="group" aria-label="알림 종류">
+        <button class="alert-option" data-kind="slack" aria-pressed="true"><span class="type-icon slack">#</span><span><strong>슬랙 메시지</strong><small>새 소식이 왔어요</small></span><span class="option-arrow">↗</span></button>
+        <button class="alert-option" data-kind="calendar" aria-pressed="false"><span class="type-icon calendar">▦</span><span><strong>다가오는 일정</strong><small>회의까지 5분</small></span><span class="option-arrow">↗</span></button>
+        <button class="alert-option" data-kind="timer" aria-pressed="false"><span class="type-icon timer">◷</span><span><strong>타이머 완료</strong><small>집중한 당신에게</small></span><span class="option-arrow">↗</span></button>
+        <button class="alert-option" data-kind="stretch" aria-pressed="false"><span class="type-icon stretch">✳</span><span><strong>스트레칭</strong><small>몸도 잠깐 쉬어요</small></span><span class="option-arrow">↗</span></button>
+      </div>
+      <div class="preferences"><label><input id="privacy" type="checkbox"> 알림 내용 숨기기</label><label><input id="motion" type="checkbox"> 모션 줄이기</label><label><input id="left" type="checkbox"> 화면 왼쪽에서 보기</label></div>
+      <button id="replay" class="replay" type="button">↻ &nbsp; 다시 재생</button>
+      <a class="previous" href="preview.html">걷기·낙하 시안 보기 ↗</a>
+    </aside>
+    <section class="desktop-shell" aria-label="가상 데스크톱에서 알림 미리보기">
+      <div class="desktop-bar"><span class="window-dots"><i></i><i></i><i></i></span><span>나의 작업 공간</span><span class="desktop-clock">오후 1:55</span></div>
+      <div id="desktop" class="desktop">
+        <div class="wallpaper-title" aria-hidden="true">A little company.<br><em>A little more joy.</em></div>
+        <div class="mock-window" aria-hidden="true"><div class="mock-window-top"><span>오늘의 작은 계획</span><span>•••</span></div><p><span class="check">✓</span> 차 한 잔으로 시작하기</p><p><span class="check">✓</span> 중요한 일 하나 끝내기</p><p><span class="empty-check"></span> 잠깐의 여유 챙기기</p><div class="mock-line"></div><span class="mock-note">천천히, 하나씩 해도 괜찮아요.</span></div>
+        <div class="desktop-date" aria-hidden="true">MAKE ROOM<br>FOR A LITTLE JOY.</div>
+        <div id="companion" class="companion"><div id="bubble-host"></div><div class="pet-shadow"></div><canvas id="pet" width="480" height="480" role="img" aria-label="알림을 전하는 똑띠"></canvas></div>
+        <div class="taskbar" aria-hidden="true"><span class="taskbar-start">▦</span><span>⌕ 검색</span><span class="taskbar-app"></span><span class="taskbar-app second"></span><span class="taskbar-spacer"></span><span>◔ &nbsp; ▴ &nbsp; ▰</span></div>
+      </div>
+      <div class="scene-footer"><span><i id="state-dot"></i><span id="phase">이미지를 불러오는 중</span></span><span>실제 메시지를 보내거나 앱을 열지 않는 데모입니다.</span></div>
+    </section>
+  </div>
+  <div id="feedback" class="feedback" role="status" aria-live="polite"></div>
+  <section class="design-notes"><div><span>01</span><h2>먼저, 눈을 맞추고</h2><p>종류마다 다른 몸짓으로 관심을 끌어요. 큰 동작은 처음 한 번만.</p></div><div><span>02</span><h2>필요한 말만 짧게</h2><p>선명한 HTML 텍스트와 바로 누를 수 있는 버튼. 그림 속 글자가 아니에요.</p></div><div><span>03</span><h2>그다음엔, 조용히</h2><p>확인하거나 미루면 말풍선을 닫고 쉬어요. 계속 뛰며 재촉하지 않아요.</p></div></section>
+  <footer class="page-footer">똑띠 · 알림 디자인 연구 <span>예시 이름과 일정으로 구성한 로컬 미리보기</span></footer>
+</main>
+<script src="speech-bubble.js"></script><script src="notifications.js"></script>
+</body>
+</html>

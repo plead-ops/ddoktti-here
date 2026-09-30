@@ -1,0 +1,12 @@
+Built-in image_gen, transparent_background=true
+Reference: slack-sheet-v2.png
+Output: alert-poses-v1.png (4 action key poses per alert, not 8-12 separately drawn frames)
+HTML canvas playback adds timed translation, rotation and squash/stretch. Speech bubbles are entirely HTML/CSS.
+
+Create a 4-column 4-row animation KEY POSE sheet for Ddoktti desktop robot using reference as exact character identity and art style: huge green rounded square robot head, blue antenna, navy round glasses white eyes, short navy suit blue tie gold pin, green hands, VERY SHORT chibi legs and tiny shoes (below-jacket legs only 15% of total height). Transparent alpha. Exactly 16 figures in equal cells, constant head scale, safe 15% clear padding. No speech bubbles, no text, no background, no detached decorative marks; HTML will provide all labels and dialogue.
+Each row is a DIFFERENT ALERT, four exaggerated full-body KEY POSES left to right (not four nearly identical standing waves).
+ROW1 SLACK: (1) surprised squat, hands on cheeks, (2) proudly raises a small Slack logo white card overhead, (3) joyful jumping pose knees tucked holding Slack card, (4) lands short-legged upright, holds card and points toward upper left where HTML bubble will appear.
+ROW2 CALENDAR: (1) bent forward peering at own wrist watch, (2) startled leaning back holding small calendar card, (3) urgently tiptoeing with one tiny foot lifted and free arm pointing up, (4) gently presents calendar toward upper left.
+ROW3 TIMER: (1) leans sideways watching orange alarm clock held near chest, (2) crouches deeply preparing a jump with clock, (3) jumps with both hands and clock overhead knees tucked, (4) lands squashed happy stance clock at side.
+ROW4 STRETCH: (1) sleepy drooping posture closed eyes hands down, (2) BOTH arms stretched fully overhead face yawning, (3) torso bends to left with one arm over head, (4) torso bends to right other arm over head smiling.
+All props attached to hands, no separate dots, no motion streaks. Distinct silhouettes and expressive body acting. Same compact chunky body and short legs in ALL poses. No tall legs. Keep each full figure unclipped within its own cell.

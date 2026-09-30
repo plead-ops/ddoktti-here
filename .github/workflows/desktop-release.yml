@@ -27,59 +27,14 @@ jobs:
           workspaces: "apps/desktop/src-tauri -> target"
       - run: pnpm install
 
-      # Sparse Package(신원 패키지) 빌드+서명 → identity/ddoktti-identity.msix (번들 리소스 자리).
-      # tauri 빌드보다 먼저 만들어야 NSIS 설치본에 동봉된다.
-      - name: Build & sign identity MSIX (Sparse Package)
-        shell: pwsh
-        env:
-          MSIX_CERT_PFX_BASE64: ${{ secrets.MSIX_CERT_PFX_BASE64 }}
-          MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
-        run: |
-          $root = "apps/desktop/src-tauri"
-          $idDir = "$root/identity"
-          # 버전: 태그면 태그(v 제거), 아니면 tauri.conf.json 의 version
-          if ("${{ github.ref_name }}" -like "v*") {
-            $ver = "${{ github.ref_name }}".TrimStart('v')
-          } else {
-            $ver = (Get-Content "$root/tauri.conf.json" -Raw | ConvertFrom-Json).version
-          }
-          $appxVer = "$ver.0"
-          Write-Host "MSIX version: $appxVer"
-
-          # 스테이징(매니페스트 + Assets) — Assets 는 MSIX 안에 동봉
-          $stage = "$env:RUNNER_TEMP/msix-stage"
-          New-Item -ItemType Directory -Force -Path "$stage/Assets" | Out-Null
-          (Get-Content "$idDir/AppxManifest.xml" -Raw) -replace '__VERSION__', $appxVer |
-            Set-Content "$stage/AppxManifest.xml" -Encoding utf8
-          Copy-Item "$root/icons/StoreLogo.png"         "$stage/Assets/StoreLogo.png"
-          Copy-Item "$root/icons/Square150x150Logo.png" "$stage/Assets/Square150x150Logo.png"
-          Copy-Item "$root/icons/Square44x44Logo.png"   "$stage/Assets/Square44x44Logo.png"
-
-          # Windows SDK 의 makeappx/signtool 경로 탐색(최신 버전)
-          $bin = Get-ChildItem "C:/Program Files (x86)/Windows Kits/10/bin" -Directory |
-                 Where-Object { Test-Path "$($_.FullName)/x64/makeappx.exe" } |
-                 Sort-Object Name -Descending | Select-Object -First 1
-          $makeappx = "$($bin.FullName)/x64/makeappx.exe"
-          $signtool = "$($bin.FullName)/x64/signtool.exe"
-          Write-Host "makeappx: $makeappx"
-
-          # 패키징(/nv: 외부 콘텐츠 경로 검증 생략)
-          & $makeappx pack /o /d $stage /nv /p "$idDir/ddoktti-identity.msix"
-          if ($LASTEXITCODE -ne 0) { throw "makeappx failed ($LASTEXITCODE)" }
-
-          # 서명(자체 서명 pfx)
-          $pfx = "$env:RUNNER_TEMP/codesign.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:MSIX_CERT_PFX_BASE64))
-          & $signtool sign /fd SHA256 /f $pfx /p $env:MSIX_CERT_PASSWORD "$idDir/ddoktti-identity.msix"
-          if ($LASTEXITCODE -ne 0) { throw "signtool failed ($LASTEXITCODE)" }
-          Remove-Item $pfx -Force
-          Write-Host "MSIX built & signed."
-
       - name: Build (Tauri, nsis + 업데이터 서명 아티팩트)
         uses: tauri-apps/tauri-action@v0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SLACK_RELAY_URL: ${{ vars.SLACK_RELAY_URL }}
           DIAG_SLACK_WEBHOOK: ${{ secrets.DIAG_SLACK_WEBHOOK }} # 진단 전송 웹훅(option_env! 로 컴파일 주입)
         with:
           projectPath: apps/desktop

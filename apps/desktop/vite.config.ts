@@ -15,6 +15,9 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         overlay: resolve(__dirname, "overlay.html"),
+        surfaces: resolve(__dirname, "surfaces.html"),
+        motions: resolve(__dirname, "motions.html"),
+        uiPreview: resolve(__dirname, "ui-preview.html"),
       },
     },
   },

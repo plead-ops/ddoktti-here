@@ -1,0 +1,31 @@
+name: desktop-check
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+      - run: pnpm install --frozen-lockfile
+      - run: node --test services/slack-relay/core.test.mjs services/slack-relay/http.test.mjs
+      - run: node --test tests/pet-gait.test.mjs tests/pet-vector.test.mjs tests/pet-behaviors.test.mjs tests/pet-layout.test.mjs tests/pet-surfaces.test.mjs
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml

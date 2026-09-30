@@ -1,0 +1,29 @@
+Tool: built-in image_gen; transparent_background=true
+Identity reference for all three calls: behavior-sheet-v1.png
+Generated outputs are animation studies, not certified production frames.
+
+WALK (walk-sheet-v2.png)
+Create an animation sprite sheet of Ddoktti, using the attached sheet ONLY for identity: green square robot head, short blue antenna, round navy spectacles, navy business suit blue tie green mitten hands dark shoes. Flat clean cartoon black outlines. Transparent alpha background.
+THIS IS A WALK CYCLE, not poses with the same legs. Exactly EIGHT sequential frames in a 4 column by 2 row grid. Equal square cells, each sprite centered with identical scale and baseline, huge safe padding 18% around each cell, no marks outside the character. Head height and body width identical in every frame. Right-facing SIDE VIEW to make the two legs very visible, head may slightly turn toward viewer but gaze constant. Closed small smile constant, no talking or blinking.
+Read row1 then row2:
+1 CONTACT: near leg straight forward to right heel on ground, far leg extended behind left toe on ground.
+2 DOWN: forward near leg supports bent knee, rear far leg lifts.
+3 PASS: near leg straight beneath hip planted, far knee bent passing forward visibly lifted.
+4 UP: near heel lifts behind, far leg stretches forward airborne.
+5 OPPOSITE CONTACT: far leg straight forward right heel grounded, near leg extended behind left toe grounded. Clearly reverse arm and leg roles.
+6 DOWN: far front knee bears weight, near rear leg lifts.
+7 PASS: far leg planted beneath hip, near knee passes forward visibly lifted.
+8 UP: far heel lifts, near leg reaches forward into frame1.
+Near leg lighter navy, far leg darker navy CONSISTENTLY so alternating contact reads. Opposite arm swing. Feet remain grounded on consistent baseline except lifted swing foot. Tiny vertical body bob only. Not running, not jumping, no motion symbols, no ground/shadows, no text, no lines, no logos. All eight drawings must have distinctly different leg geometry. Clean professional 2D game animation sheet.
+
+CALENDAR (calendar-sheet-v2.png)
+Create one transparent animation sprite sheet, exactly FOUR frames in a single horizontal row of four equal square cells. Reference sheet is ONLY identity of Ddoktti: green square robot head, blue antenna, thick round navy glasses, navy business suit and blue tie, green mitten hands, dark shoes, flat clean cartoon with bold black outlines. Use same head size and planted foot baseline in all frames.
+Action: upcoming calendar appointment. Holds a small cream calendar card with blue binding and a clock pictogram in the left hand at constant position; right hand waves slowly. Frame1 right hand at shoulder height, frame2 halfway raised, frame3 raised to temple, frame4 halfway lowered. Closed smile, eyes gently blink only frame3. Full body, consistent stationary legs.
+Genuine transparent background. 18 percent empty safe padding on all four edges of EVERY cell. Entire bottom 12 percent of the entire image must be COMPLETELY TRANSPARENT. No detached pixels, no stray dots, no floor marks, no decorations, no motion lines, no sparkles, no shadows, no numbers, no text, no Slack logo, no extra sprites or heads in the margins. Keep feet fully visible. It must be a clean standalone calendar sequence with no neighboring animations.
+
+EDGE AND FALL (edge-sheet-v1.png)
+Use reference only for identity of Ddoktti: green square robot head, blue short antenna, huge navy round glasses, navy business suit blue tie tiny gold pin, green mitten hands, short dark shoes. Same clean bold flat cartoon. Transparent background.
+Create EIGHT animation poses in exact regular FOUR columns TWO rows. Each cell equal square, identical character scale, character fits entirely inside cell with 18% empty margin. No cell borders or labels.
+TOP ROW = almost falling, four successive poses: (1) startled, body tips right 12 degrees with right foot lifted and left foot supporting; (2) tips right 25 degrees one foot extended over invisible ledge, both arms windmill to balance; (3) leans back left 15 degrees arms out recovering balance; (4) upright safe stance with relieved smile and hand on chest.
+BOTTOM ROW = falling and landing, four successive poses: (1) suspended falling upright with hands above head and both knees bent, shocked mouth; (2) falling with arms spread and feet reaching down, worried face; (3) landing crouch BOTH knees bent, body visibly compressed vertically, palms near floor; (4) standing back up relieved and straightening tie.
+Do NOT draw any ledge, floor, platform or ground: those are drawn in the preview code. No detached symbols, no sparkles, no motion lines, no text, no extra props, no shadows. Distinct dramatic silhouette poses that read clearly at 100px tall. Preserve same face and costume and avoid duplicates. All full-body poses unclipped.

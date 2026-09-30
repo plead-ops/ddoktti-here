@@ -1,13 +1,22 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "overlay",
-  "description": "오버레이 창 최소 권한 (창/드래그/이벤트/열기 — 업데이터·프로세스 없음)",
-  "windows": ["overlay"],
+  "description": "HTML 알림·메뉴 팝업 권한 (이벤트·링크 열기)",
+  "windows": [
+    "overlay"
+  ],
   "permissions": [
     "core:default",
     "core:window:default",
-    "core:window:allow-start-dragging",
     "core:event:default",
-    "opener:default"
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "slack://*"
+        }
+      ]
+    }
   ]
 }

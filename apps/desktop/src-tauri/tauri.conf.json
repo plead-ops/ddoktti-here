@@ -18,6 +18,7 @@
     "windows": [
       {
         "label": "settings",
+        "create": false,
         "title": "똑띠왔어요 설정",
         "url": "index.html",
         "width": 740,
@@ -28,6 +29,7 @@
       },
       {
         "label": "overlay",
+        "create": false,
         "url": "overlay.html",
         "width": 360,
         "height": 360,
@@ -40,19 +42,16 @@
         "focus": false,
         "visible": false
       }
-    ]
+    ],
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "publisher": "Plead",
     "createUpdaterArtifacts": true,
-    "resources": {
-      "identity/ddoktti-identity.msix": "ddoktti-identity.msix",
-      "identity/ddoktti-cert.cer": "ddoktti-cert.cer",
-      "identity/register-identity.ps1": "register-identity.ps1",
-      "identity/unregister-identity.ps1": "unregister-identity.ps1"
-    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -61,7 +60,9 @@
     ],
     "windows": {
       "nsis": {
-        "languages": ["Korean"],
+        "languages": [
+          "Korean"
+        ],
         "installerHooks": "nsis-hooks.nsh"
       }
     }

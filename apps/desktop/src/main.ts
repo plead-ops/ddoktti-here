@@ -1,7 +1,8 @@
+import { setupCompanion, type Snapshot } from './companion-settings';
 /**
  * 설정 창 — 표시/일반 탭.
- * Windows OS 알림(UserNotificationListener) 기반이라 서버·로그인·SSE 가 없다.
- * 무엇을 알릴지(멘션/DM/키워드/뮤트/DND)는 전적으로 슬랙 자체 설정을 따른다.
+ * 서비스 계정 연결 기반으로 개편 중. Windows 알림 접근 권한은 사용하지 않는다.
+ * Slack API 전환 후 앱의 DM·멘션 필터를 사용한다.
  */
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -24,9 +25,6 @@ const appVersion = $("app-version");
 const autoUpdateCb = $<HTMLInputElement>("auto-update");
 const checkUpdateBtn = $<HTMLButtonElement>("check-update");
 const updateStatus = $("update-status");
-const naStatus = $("na-status");
-const naRequest = $<HTMLButtonElement>("na-request");
-const naSettings = $<HTMLButtonElement>("na-settings");
 // 문제 해결(진단)
 const diagView = $<HTMLButtonElement>("diag-view");
 const diagSend = $<HTMLButtonElement>("diag-send");
@@ -54,6 +52,8 @@ interface MonitorInfo {
 }
 
 let display: DisplaySettings | null = null;
+let displayWrites = Promise.resolve();
+let pendingDisplayWrites = 0;
 
 function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
@@ -151,7 +151,10 @@ async function saveDisplay(): Promise<void> {
   };
   ovScaleVal.textContent = `${display.scale.toFixed(1)}x`;
   ovSpeedVal.textContent = `${display.speed.toFixed(1)}x`;
-  await invoke("set_display_settings", { settings: display }).catch(() => {});
+  const settings = { ...display };
+  pendingDisplayWrites++;
+  displayWrites = displayWrites.then(() => invoke("set_display_settings", { settings })).then(() => undefined).catch(e => { diagStatus.textContent = String(e); }).finally(() => { pendingDisplayWrites--; });
+  await displayWrites;
 }
 ovScale.addEventListener("input", () => void saveDisplay());
 ovSpeed.addEventListener("input", () => void saveDisplay());
@@ -167,6 +170,7 @@ ovMonitor.addEventListener("change", () => {
   void saveDisplay();
 });
 // 미리보기 버튼: 오버레이가 떠 있으면 "닫기"로 변형(상태 표시)
+let residentMode:boolean|undefined;
 let overlayShown = false;
 function setPreviewBtn(shown: boolean): void {
   overlayShown = shown;
@@ -180,8 +184,7 @@ testBtn.addEventListener("click", async () => {
   }
   if (overlayShown) {
     // 닫기: 오버레이가 큐를 비우고 스스로 숨김 → overlay-hidden 이벤트로 버튼 갱신
-    const { emit } = await import("@tauri-apps/api/event");
-    await emit("overlay-clear").catch(() => {});
+    await invoke("dismiss_alert", { id: "preview:1" });
   } else {
     await invoke("preview_overlay");
   }
@@ -190,12 +193,18 @@ if (isTauri()) {
   void (async () => {
     const { listen } = await import("@tauri-apps/api/event");
     await listen<DisplaySettings>("display-settings", (e) => {
+      if (pendingDisplayWrites > 0) return;
       display = e.payload;
       setPosUI(display.position);
+      ovScale.value=String(display.scale); ovScaleVal.textContent=`${display.scale.toFixed(1)}x`;
+      ovSpeed.value=String(display.speed); ovSpeedVal.textContent=`${display.speed.toFixed(1)}x`;
+      ovSound.checked=display.sound; ovMotion.checked=display.reduce_motion; ovTop.checked=display.always_on_top; syncMotion();
+      void loadMonitors();
     });
     // 오버레이 표시/숨김에 따라 미리보기 버튼 상태 갱신
-    await listen("overlay-shown", () => setPreviewBtn(true));
-    await listen("overlay-hidden", () => setPreviewBtn(false));
+    await listen<Snapshot>("companion-state", (e) => {setPreviewBtn(e.payload.alerts.some(a => a.source === "preview"));if(residentMode!==e.payload.preferences.resident){residentMode=e.payload.preferences.resident;void loadDisplay();}});
+    const state = await invoke<Snapshot>("snapshot");
+    setPreviewBtn(state.alerts.some(a => a.source === "preview"));
   })();
 }
 
@@ -215,7 +224,7 @@ async function loadGeneral(): Promise<void> {
   }
   autoUpdateCb.checked = autoUpdateOn();
 }
-// 자동시작은 패키지 StartupTask 로 제어(WinRT). 실패 시 실제 상태로 되돌림.
+// 자동시작 변경 실패 시 실제 상태로 되돌린다.
 async function setAutostart(enabled: boolean): Promise<void> {
   if (!isTauri()) return;
   try {
@@ -263,34 +272,6 @@ async function doUpdate(silent: boolean): Promise<void> {
   }
 }
 checkUpdateBtn.addEventListener("click", () => void doUpdate(false));
-
-// ── 알림 접근 권한 ──
-const NA_LABEL: Record<string, string> = {
-  allowed: "허용됨 ✅",
-  denied: "거부됨 — Windows 설정에서 허용해 주세요",
-  unspecified: "미허용 — [권한 허용]을 눌러주세요",
-  unsupported: "이 OS에서는 미지원",
-};
-function applyAccess(s: string): void {
-  naStatus.textContent = NA_LABEL[s] ?? s;
-  const hide = s === "allowed" || s === "unsupported";
-  naRequest.hidden = hide;
-  naSettings.hidden = hide;
-}
-async function loadAccess(): Promise<void> {
-  if (!isTauri()) {
-    applyAccess("unsupported");
-    return;
-  }
-  applyAccess(await invoke<string>("notification_access").catch(() => "unspecified"));
-}
-naRequest.addEventListener("click", async () => {
-  naStatus.textContent = "요청 중…";
-  const s = await invoke<string>("request_notification_access").catch(() => "unspecified");
-  applyAccess(s);
-  if (s !== "allowed") await invoke("open_notification_settings").catch(() => {}); // 동의창이 안 뜨면 설정으로
-});
-naSettings.addEventListener("click", () => void invoke("open_notification_settings").catch(() => {}));
 
 // ── 문제 해결(진단) ──
 function copyText(t: string): void {
@@ -341,14 +322,14 @@ diagSend.addEventListener("click", async () => {
     diagSend.disabled = false;
   }
 });
-// 설정에서 권한을 바꾸고 돌아오면 상태 갱신 + 모니터 목록 갱신(연결 변동 반영)
+// 설정 창으로 돌아오면 모니터 연결 변동을 반영한다.
 window.addEventListener("focus", () => {
-  void loadAccess();
   void loadMonitors();
 });
 
 // ── 시작 ──
 void loadDisplay();
 void loadGeneral();
-void loadAccess();
 if (autoUpdateOn()) void doUpdate(true); // 시작 시 조용히 업데이트 확인
+
+void setupCompanion().catch(e => { document.getElementById("companion-status")!.textContent=String(e); });

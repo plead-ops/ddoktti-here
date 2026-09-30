@@ -1,0 +1,13 @@
+Tool: built-in image_gen (transparent_background=true)
+References: assets/sprite1.png, assets/sprite3.png
+Purpose: concept only, not production animation frames
+
+Use case: stylized-concept.
+Asset type: transparent 4 by 4 sprite animation sheet for the existing desktop mascot Ddoktti.
+Input images are character identity references, NOT backgrounds or layout targets. Preserve the green rounded-square robot head, single short blue antenna, huge round navy glasses, white eyes, expressive black pupils, tiny mouth, dark navy business suit, white shirt, blue tie, tiny gold lapel pin, green mitten hands and short dark shoes. Match the clean flat 2D cartoon, bold dark outlines, simple fills of the references. No Slack logo.
+Create exactly 16 full-body poses in a perfectly regular 4-column 4-row square grid with equal cells. Transparent background, no grid lines, no labels, no letters, no watermark. Each sprite centered in its own cell with consistent head size, foot baseline and 15 percent padding; no overlaps or cropped limbs. Read frames left to right.
+Row 1: a four-frame seamless walking cycle toward the right, alternating left and right foot contact and passing positions, body stays centered in each cell; consistent 3/4 right-facing head.
+Row 2: four-frame gentle stretch sequence, neutral stance then both hands raised overhead then leaning slightly sideways then returning close to neutral.
+Row 3: four-frame upcoming-meeting notification: holds a small cream calendar card with a blue top binding and a simple clock pictogram (no numbers or text), raises other hand to wave in alternating positions, friendly expression.
+Row 4: four-frame timer-complete celebration: small orange alarm clock beside mascot, hands rise, joyful tiny hop, lands with cheerful expression.
+Prioritize precise character identity and clean frame-to-frame consistency over decorative details. Genuine transparent alpha outside sprites.

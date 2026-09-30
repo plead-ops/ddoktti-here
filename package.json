@@ -2,7 +2,7 @@
   "name": "ddoktti-here",
   "private": true,
   "version": "0.1.5",
-  "description": "똑띠왔어요 — 윈도우 슬랙 알림 감지 오버레이 데스크탑 앱",
+  "description": "똑띠왔어요 — Slack·캘린더와 함께하는 데스크톱 캐릭터 앱",
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=22"
@@ -13,7 +13,8 @@
     "lint": "pnpm -r lint",
     "dev:desktop": "pnpm --filter @ddoktti/desktop dev",
     "tauri": "pnpm --filter @ddoktti/desktop tauri",
-    "icons": "pnpm --filter @ddoktti/desktop tauri icon ../../assets/icons/app-icon-1024.png"
+    "icons": "node scripts/export-pet-svg.mjs && node scripts/export-native-icons.mjs",
+    "svg": "node scripts/export-pet-svg.mjs"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

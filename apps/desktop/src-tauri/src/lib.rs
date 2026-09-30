@@ -8,14 +8,17 @@ use tauri::{
     WindowEvent,
 };
 
+mod calendar;
+mod companion;
 mod diag;
-mod notifier;
+mod fullscreen;
+mod native_pet;
+mod slack;
+mod surfaces;
 
-/// 오버레이 한 변 기본 크기(논리 px). scale 을 곱한다.
-/// 창은 스프라이트(보이는 마스코트)보다 크다 — CSS `.overlay{padding:10%}` 로 스프라이트를
-/// 창의 80% 안쪽에 그려 그림자(drop-shadow)가 창 밖으로 잘리지 않게 한다.
-/// 보이는 마스코트 크기 = 300 × 0.8 = 240(이전 기본값과 동일).
-const OVERLAY_BASE: f64 = 300.0;
+/// Logical overlay bounds reserve room for the HTML speech bubble.
+const OVERLAY_WIDTH: f64 = 400.0;
+const OVERLAY_HEIGHT: f64 = 450.0;
 
 // ───────────────────── 표시 설정 (로컬 영속) ─────────────────────
 fn default_speed() -> f64 {
@@ -79,22 +82,49 @@ fn settings_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("display.json"))
 }
 
-fn load_display(app: &AppHandle) -> DisplaySettings {
+fn read_display(app: &AppHandle) -> DisplaySettings {
     settings_path(app)
         .and_then(|p| fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
 
+struct RuntimeDisplay(std::sync::Mutex<DisplaySettings>);
+fn load_display(app: &AppHandle) -> DisplaySettings {
+    if let Some(state) = app.try_state::<RuntimeDisplay>() {
+        state.0.lock().unwrap().clone()
+    } else {
+        read_display(app)
+    }
+}
+
 fn save_display(app: &AppHandle, s: &DisplaySettings) -> Result<(), String> {
     let p = settings_path(app).ok_or("no config dir")?;
     let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
-    fs::write(p, json).map_err(|e| e.to_string())
+    fs::write(p, json).map_err(|e| e.to_string())?;
+    if let Some(state) = app.try_state::<RuntimeDisplay>() {
+        *state.0.lock().unwrap() = s.clone();
+    }
+    Ok(())
 }
 
 #[tauri::command]
 fn get_display_settings(app: AppHandle) -> DisplaySettings {
-    load_display(&app)
+    effective_display(&app)
+}
+fn effective_display(app: &AppHandle) -> DisplaySettings {
+    display_for_mode(load_display(app), companion::resident(app))
+}
+fn display_for_mode(mut s: DisplaySettings, resident: bool) -> DisplaySettings {
+    if resident {
+        // Autonomous pets start on the primary display; user placement is only
+        // an alert-only preference and must not influence autonomous movement.
+        s.position = "bottom".into();
+        s.monitor = "primary".into();
+        s.custom_x = 0.5;
+        s.custom_y = 1.0;
+    }
+    s
 }
 
 #[derive(Serialize)]
@@ -103,6 +133,18 @@ struct MonitorInfo {
     id: String,
     /// 설정창에 보일 사람이 읽기 좋은 라벨
     label: String,
+}
+
+fn monitor_id(m: &Monitor) -> String {
+    m.name().map(|n| n.to_string()).unwrap_or_else(|| {
+        format!(
+            "display:{}:{}:{}x{}",
+            m.position().x,
+            m.position().y,
+            m.size().width,
+            m.size().height
+        )
+    })
 }
 
 /// 연결된 모니터 목록(설정창의 '출력 화면' 드롭다운용).
@@ -121,10 +163,7 @@ fn list_monitors(app: AppHandle) -> Vec<MonitorInfo> {
         .iter()
         .enumerate()
         .map(|(i, m)| {
-            let id = m
-                .name()
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| format!("display-{i}"));
+            let id = monitor_id(m);
             let size = m.size();
             let is_primary = Some(&id) == primary.as_ref();
             let label = format!(
@@ -141,8 +180,41 @@ fn list_monitors(app: AppHandle) -> Vec<MonitorInfo> {
 
 #[tauri::command]
 fn set_display_settings(app: AppHandle, settings: DisplaySettings) -> Result<(), String> {
-    save_display(&app, &settings)?;
-    let _ = apply_overlay_layout(&app);
+    let old = effective_display(&app);
+    let mut settings = settings;
+    if !settings.scale.is_finite()
+        || !settings.speed.is_finite()
+        || !settings.custom_x.is_finite()
+        || !settings.custom_y.is_finite()
+        || !settings.margin.is_finite()
+    {
+        return Err("설정 값이 올바르지 않아요".into());
+    }
+    settings.scale = settings.scale.clamp(0.5, 3.0);
+    settings.speed = settings.speed.clamp(0.5, 3.0);
+    settings.custom_x = settings.custom_x.clamp(0.0, 1.0);
+    settings.custom_y = settings.custom_y.clamp(0.0, 1.0);
+    settings.margin = settings.margin.clamp(0.0, 100.0);
+    let mut stored = settings.clone();
+    if companion::resident(&app) {
+        let base = load_display(&app);
+        stored.position = base.position;
+        stored.monitor = base.monitor;
+        stored.custom_x = base.custom_x;
+        stored.custom_y = base.custom_y;
+    }
+    save_display(&app, &stored)?;
+    if old.position != settings.position
+        || old.monitor != settings.monitor
+        || old.custom_x != settings.custom_x
+        || old.custom_y != settings.custom_y
+        || old.margin != settings.margin
+    {
+        apply_overlay_layout(&app).map_err(|e| e.to_string())?;
+    }
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.set_always_on_top(settings.always_on_top);
+    }
     let _ = app.emit("display-settings", &settings); // 오버레이/설정창 즉시 반영
     Ok(())
 }
@@ -166,10 +238,7 @@ fn resolve_monitor(win: &WebviewWindow, s: &DisplaySettings) -> Option<Monitor> 
         // 특정 모니터 고정 — 제거되면 주 디스플레이로 폴백
         name => {
             if let Ok(monitors) = win.available_monitors() {
-                if let Some(m) = monitors
-                    .into_iter()
-                    .find(|m| m.name().map(|n| n.to_string()) == Some(name.to_string()))
-                {
+                if let Some(m) = monitors.into_iter().find(|m| monitor_id(m) == name) {
                     return Some(m);
                 }
             }
@@ -179,132 +248,115 @@ fn resolve_monitor(win: &WebviewWindow, s: &DisplaySettings) -> Option<Monitor> 
 }
 
 /// 오버레이 창 크기·위치를 현재 설정대로 적용 (대상 모니터의 작업영역=작업표시줄 제외 기준)
-fn apply_overlay_layout(app: &AppHandle) -> tauri::Result<()> {
+pub(crate) fn apply_overlay_layout(app: &AppHandle) -> tauri::Result<()> {
     let Some(win) = app.get_webview_window("overlay") else {
         return Ok(());
     };
-    let s = load_display(app);
+    let s = effective_display(app);
+    win.set_always_on_top(s.always_on_top)?;
     let Some(monitor) = resolve_monitor(&win, &s) else {
         return Ok(());
     };
-    let sf = monitor.scale_factor();
-
-    let _ = win.set_always_on_top(s.always_on_top);
-
-    let side = ((OVERLAY_BASE * s.scale) * sf).round().max(1.0) as u32;
-    win.set_size(PhysicalSize::new(side, side))?;
-
-    // 작업영역(work area): 작업표시줄을 제외한 사용 가능 화면 영역
     let wa = monitor.work_area();
-    let (ox, oy) = (wa.position.x, wa.position.y);
-    let (mw, mh) = (wa.size.width as i32, wa.size.height as i32);
-    let (ww, wh) = (side as i32, side as i32);
-    let gap = (s.margin * sf) as i32;
-
-    let (x, y) = if s.position == "custom" {
-        let aw = (mw - ww).max(0) as f64;
-        let ah = (mh - wh).max(0) as f64;
-        (ox + (s.custom_x * aw) as i32, oy + (s.custom_y * ah) as i32)
+    let sf = monitor.scale_factor();
+    let margin = s.margin * sf;
+    let half = pet_half(&s) * sf;
+    let height = pet_height(&s) * sf;
+    let left = wa.position.x as f64 + half + margin;
+    let right = (wa.position.x as f64 + wa.size.width as f64 - half - margin).max(left);
+    let top = wa.position.y as f64 + height + margin;
+    let bottom = (wa.position.y as f64 + wa.size.height as f64 - margin).max(top);
+    let x = if s.position == "custom" {
+        left + (right - left) * s.custom_x
+    } else if s.position.contains("left") {
+        left
+    } else if s.position.contains("right") {
+        right
     } else {
-        let x = match s.position.as_str() {
-            "top-left" | "left" | "bottom-left" => ox + gap,
-            "top-right" | "right" | "bottom-right" => ox + mw - ww - gap,
-            _ => ox + (mw - ww) / 2,
-        };
-        let y = match s.position.as_str() {
-            "top-left" | "top" | "top-right" => oy + gap,
-            "bottom-left" | "bottom" | "bottom-right" => oy + mh - wh - gap,
-            _ => oy + (mh - wh) / 2,
-        };
-        (x, y)
+        (left + right) / 2.0
     };
-    win.set_position(PhysicalPosition::new(x, y))?;
-    Ok(())
+    let y = if s.position == "custom" {
+        top + (bottom - top) * s.custom_y
+    } else if s.position.contains("top") {
+        top
+    } else if s.position.contains("bottom") {
+        bottom
+    } else {
+        (top + bottom) / 2.0
+    };
+    let result = place_pet(app, &win, &monitor, x, y, &s);
+    native_pet::reset(app);
+    result
 }
-
-#[tauri::command]
-fn show_overlay(app: AppHandle) -> Result<(), String> {
-    let win = app
-        .get_webview_window("overlay")
-        .ok_or("no overlay window")?;
-    apply_overlay_layout(&app).map_err(|e| e.to_string())?; // 항상위 설정도 여기서 적용
-    win.show().map_err(|e| e.to_string())?;
-    Ok(())
+fn pet_size(s: &DisplaySettings) -> f64 {
+    (180.0 * s.scale / 1.7).clamp(110.0, 245.0)
 }
+fn pet_half(s: &DisplaySettings) -> f64 {
+    pet_size(s) * 0.46
+}
+fn pet_height(s: &DisplaySettings) -> f64 {
+    pet_size(s) * 0.83
+}
+fn place_pet(
+    app: &AppHandle,
+    win: &WebviewWindow,
+    m: &Monitor,
+    x: f64,
+    y: f64,
+    _s: &DisplaySettings,
+) -> tauri::Result<()> {
+    let wa = m.work_area();
+    let sf = m.scale_factor();
+    let ww = (OVERLAY_WIDTH * sf).min(wa.size.width as f64);
+    let wh = (OVERLAY_HEIGHT * sf).min(wa.size.height as f64);
+    let wx = (x - ww / 2.0).clamp(
+        wa.position.x as f64,
+        wa.position.x as f64 + wa.size.width as f64 - ww,
+    );
+    let wy = (y - wh).clamp(
+        wa.position.y as f64,
+        wa.position.y as f64 + wa.size.height as f64 - wh,
+    );
+    let size = PhysicalSize::new(ww as u32, wh as u32);
+    let position = PhysicalPosition::new(wx.round() as i32, wy.round() as i32);
+    let resized = win.inner_size()? != size;
+    let moved = win.outer_position()? != position;
+    let anchor = Some((x - wx.round(), y - wy.round()));
+    let changed = app
+        .state::<companion::Companion>()
+        .0
+        .lock()
+        .unwrap()
+        .pet_anchor
+        != anchor;
+    if resized {
+        win.set_size(size)?;
+    }
+    if moved {
+        win.set_position(position)?;
+    }
+    if !changed && !resized && !moved {
+        return Ok(());
+    }
 
-#[tauri::command]
-fn hide_overlay(app: AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("overlay") {
-        win.hide().map_err(|e| e.to_string())?;
+    let _ = app.emit(
+        "pet-layout",
+        serde_json::json!({"x":(x-wx.round())/sf,"y":(y-wy.round())/sf}),
+    );
+    {
+        let state = app.state::<companion::Companion>();
+        state.0.lock().unwrap().pet_anchor = Some((x - wx.round(), y - wy.round()));
     }
     Ok(())
 }
-
-/// 오버레이를 띄우고 페이로드를 전달(커맨드/네이티브 알림 폴러 공용).
+/// 오버레이를 띄우고 페이로드를 전달(서비스 이벤트/미리보기 공용).
 pub(crate) fn push_overlay(app: &AppHandle, payload: serde_json::Value) -> Result<(), String> {
-    show_overlay(app.clone())?;
-    if let Some(overlay) = app.get_webview_window("overlay") {
-        overlay.emit("notify", payload).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// 해당 알림(id)을 닫도록 오버레이에 통지(슬랙에서 읽힘 → 자동 닫기).
-/// 오버레이는 "dismiss-one" 이벤트의 {id} 를 듣는다(overlay.ts).
-pub(crate) fn dismiss_overlay(app: &AppHandle, id: &str) -> Result<(), String> {
-    if let Some(overlay) = app.get_webview_window("overlay") {
-        overlay
-            .emit("dismiss-one", serde_json::json!({ "id": id }))
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    companion::push(app, payload)
 }
 
 #[tauri::command]
 fn display_notification(app: AppHandle, payload: serde_json::Value) -> Result<(), String> {
     push_overlay(&app, payload)
-}
-
-/// 알림 접근 권한 상태: "allowed" | "denied" | "unspecified" | "unsupported".
-#[tauri::command]
-fn notification_access() -> String {
-    notifier::access_status().to_string()
-}
-
-/// 알림 접근 권한 요청(동의창 시도). 결과 상태 문자열 반환.
-#[tauri::command]
-fn request_notification_access() -> String {
-    notifier::request_access().to_string()
-}
-
-/// Windows 알림(개인정보) 설정 페이지 열기 — 동의창이 안 뜰 때 수동 허용 유도.
-#[tauri::command]
-fn open_notification_settings() -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer.exe")
-            .arg("ms-settings:privacy-notifications")
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// 오버레이 클릭 → 슬랙 데스크톱 앱 열기(AUMID). OS 알림엔 정밀 딥링크가 없어 앱만 연다.
-#[tauri::command]
-fn open_slack(aumid: String) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer.exe")
-            .arg(format!("shell:AppsFolder\\{aumid}"))
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = aumid;
-    }
-    Ok(())
 }
 
 /// 진단 리포트 텍스트(조회 모달/복사용). 메시지 내용은 포함하지 않음.
@@ -322,40 +374,24 @@ async fn send_diagnostics(app: AppHandle) -> Result<(), String> {
         return Err("전송이 설정되지 않았어요(웹훅 미설정 빌드)".into());
     }
     let report = diag::collect(&app);
-    let truncated: String = report.chars().take(35000).collect();
-    let payload = serde_json::json!({ "text": format!("```\n{truncated}\n```") });
-    let body = serde_json::to_vec(&payload).map_err(|e| e.to_string())?;
-    let mut tmp = std::env::temp_dir();
-    tmp.push("ddoktti-diag.json");
-    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        let cmd = format!(
-            "try {{ Invoke-RestMethod -Uri '{webhook}' -Method Post -ContentType 'application/json' -InFile '{}'; exit 0 }} catch {{ exit 1 }}",
-            tmp.display()
-        );
-        let status = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &cmd])
-            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW — 콘솔 창 숨김
-            .status();
-        let _ = std::fs::remove_file(&tmp);
-        match status {
-            Ok(s) if s.success() => Ok(()),
-            Ok(_) => Err("전송 실패(네트워크/웹훅 확인)".into()),
-            Err(e) => Err(format!("전송 실행 실패: {e}")),
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (webhook, tmp);
-        Err("Windows 전용".into())
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|_| "진단 전송 준비 실패".to_string())?
+            .post(webhook)
+            .json(&serde_json::json!({"text": report}))
+            .send()
+            .and_then(|r| r.error_for_status())
+            .map_err(|_| "진단 전송 실패".to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| "진단 전송 작업 실패".to_string())?
 }
 
 // ───────────────────── 자동 시작 (HKCU Run 키) ─────────────────────
-// 표준 방식. exe 가 외부 위치(일반 폴더)라 패키지 ID 가 있어도 Run 키로 로그인 실행됨.
+// Windows 구현. macOS 로그인 항목 연동은 별도 구현한다.
 // 설치 프로그램(nsis-hooks)이 기본 등록, 토글은 여기서 등록/해제.
 #[cfg(target_os = "windows")]
 const RUN_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -364,7 +400,14 @@ const RUN_VALUE: &str = "DdoktiHere";
 
 /// 로그인 자동시작이 켜져 있는지(Run 값 존재 여부).
 #[tauri::command]
-fn autostart_enabled() -> bool {
+fn autostart_enabled(app: AppHandle) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        return app.autolaunch().is_enabled().unwrap_or(false);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
     #[cfg(target_os = "windows")]
     {
         use winreg::enums::HKEY_CURRENT_USER;
@@ -374,7 +417,7 @@ fn autostart_enabled() -> bool {
             .and_then(|k| k.get_value::<String, _>(RUN_VALUE))
             .is_ok()
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         false
     }
@@ -383,6 +426,19 @@ fn autostart_enabled() -> bool {
 /// 로그인 자동시작 켜기/끄기 + 사용자 선호 기록(.autostart-disabled).
 #[tauri::command]
 fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    if !cfg!(any(target_os = "windows", target_os = "macos")) {
+        return Err("이 운영체제의 자동 시작은 아직 지원하지 않아요".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        if enabled {
+            app.autolaunch().enable()
+        } else {
+            app.autolaunch().disable()
+        }
+        .map_err(|e| e.to_string())?;
+    }
     if let Ok(dir) = app.path().app_config_dir() {
         let _ = fs::create_dir_all(&dir);
         let marker = dir.join(".autostart-disabled");
@@ -429,28 +485,42 @@ fn preview_overlay(app: AppHandle) -> Result<(), String> {
 fn persist_overlay_position(app: AppHandle) -> Result<(), String> {
     let win = app.get_webview_window("overlay").ok_or("no overlay")?;
     let pos = win.outer_position().map_err(|e| e.to_string())?;
-    let size = win.outer_size().map_err(|e| e.to_string())?;
-    // 창이 실제로 떠 있는 모니터 기준(없으면 주 모니터) — 배치 시 대상 모니터와 일치
+    if companion::resident(&app) {
+        return Ok(());
+    }
+    let anchor = app
+        .state::<companion::Companion>()
+        .0
+        .lock()
+        .unwrap()
+        .pet_anchor
+        .unwrap_or((200.0, 450.0));
+    let x = pos.x as f64 + anchor.0;
+    let y = pos.y as f64 + anchor.1;
     let monitor = win
-        .current_monitor()
-        .map_err(|e| e.to_string())?
+        .monitor_from_point(x, y - 1.0)
+        .ok()
+        .flatten()
         .or_else(|| win.primary_monitor().ok().flatten())
         .ok_or("no monitor")?;
-    let wa = monitor.work_area(); // 작업표시줄 제외 영역 기준(배치와 일치)
-    let aw = (wa.size.width as f64 - size.width as f64).max(1.0);
-    let ah = (wa.size.height as f64 - size.height as f64).max(1.0);
-    let cx = (((pos.x - wa.position.x) as f64) / aw).clamp(0.0, 1.0);
-    let cy = (((pos.y - wa.position.y) as f64) / ah).clamp(0.0, 1.0);
-
+    let wa = monitor.work_area();
+    let sf = monitor.scale_factor();
     let mut s = load_display(&app);
+    let half = pet_half(&s) * sf;
+    let h = pet_height(&s) * sf;
+    let margin = s.margin * sf;
     s.position = "custom".into();
-    s.custom_x = cx;
-    s.custom_y = cy;
+    s.monitor = monitor_id(&monitor);
+    s.custom_x = ((x - wa.position.x as f64 - half - margin)
+        / (wa.size.width as f64 - 2.0 * (half + margin)).max(1.0))
+    .clamp(0.0, 1.0);
+    s.custom_y = ((y - wa.position.y as f64 - h - margin)
+        / (wa.size.height as f64 - h - 2.0 * margin).max(1.0))
+    .clamp(0.0, 1.0);
     save_display(&app, &s)?;
-    let _ = app.emit("display-settings", &s); // 설정창 동기화
+    let _ = app.emit("display-settings", &s);
     Ok(())
 }
-
 // ───────────────────── 창/트레이 ─────────────────────
 fn show_settings(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("settings") {
@@ -468,32 +538,87 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args(["--autostart"])
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
-            show_overlay,
-            hide_overlay,
             preview_overlay,
             display_notification,
             persist_overlay_position,
             get_display_settings,
             set_display_settings,
             list_monitors,
-            open_slack,
-            notification_access,
-            request_notification_access,
-            open_notification_settings,
             collect_diagnostics,
             send_diagnostics,
             autostart_enabled,
-            set_autostart
+            set_autostart,
+            companion::snapshot,
+            companion::set_preferences,
+            companion::timer_action,
+            companion::dismiss_alert,
+            companion::overlay_ready,
+            companion::overlay_regions,
+            companion::open_settings,
+            slack::slack_status,
+            slack::slack_connect,
+            slack::slack_disconnect,
+            slack::slack_filters,
+            calendar::calendar_status,
+            calendar::calendar_connect,
+            calendar::calendar_disconnect,
+            calendar::calendar_refresh,
+            native_pet::native_pet_ui,
+            native_pet::native_pet_metrics,
         ])
         .setup(|app| {
+            app.manage(RuntimeDisplay(std::sync::Mutex::new(read_display(
+                app.handle(),
+            ))));
+            companion::init(app.handle());
+            calendar::init(app.handle());
+            slack::init(app.handle());
+            native_pet::init(app.handle()).map_err(std::io::Error::other)?;
+            // WebView2 can dispatch IPC while another window is being created.
+            // Register every command's state before any HTML starts loading.
+            for config in &app.config().app.windows {
+                tauri::WebviewWindowBuilder::from_config(app, config)?.build()?;
+            }
+            let _ = apply_overlay_layout(app.handle());
+            native_pet::start(app.handle());
+            #[cfg(debug_assertions)]
+            if native_pet::smoke::requested(app.handle()) {
+                native_pet::smoke::start(app.handle());
+                return Ok(());
+            }
             let settings_i = MenuItem::with_id(app, "settings", "설정…", true, None::<&str>)?;
             let preview_i =
                 MenuItem::with_id(app, "preview", "알림화면 미리보기", true, None::<&str>)?;
+            let timer_i =
+                MenuItem::with_id(app, "timer-start", "25분 타이머 시작", true, None::<&str>)?;
+            let pause_i = MenuItem::with_id(
+                app,
+                "timer-toggle",
+                "타이머 일시정지 / 이어서",
+                true,
+                None::<&str>,
+            )?;
+            let cancel_i =
+                MenuItem::with_id(app, "timer-cancel", "타이머 취소", true, None::<&str>)?;
+            let quiet_i = MenuItem::with_id(app, "quiet", "30분 알림 중지", true, None::<&str>)?;
+            let resume_i = MenuItem::with_id(app, "resume", "알림 재개", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
                 &[
+                    &timer_i,
+                    &pause_i,
+                    &cancel_i,
+                    &PredefinedMenuItem::separator(app)?,
+                    &quiet_i,
+                    &resume_i,
+                    &PredefinedMenuItem::separator(app)?,
                     &settings_i,
                     &preview_i,
                     &PredefinedMenuItem::separator(app)?,
@@ -515,6 +640,33 @@ pub fn run() {
                     "preview" => {
                         let _ = preview_overlay(app.clone());
                     }
+                    "timer-start" => {
+                        let _ = companion::timer_action(app.clone(), "start".into(), Some(25));
+                    }
+                    "timer-toggle" => {
+                        let running =
+                            companion::snapshot(app.clone())["timer"]["deadline"].is_number();
+                        let _ = companion::timer_action(
+                            app.clone(),
+                            if running { "pause" } else { "resume" }.into(),
+                            None,
+                        );
+                    }
+                    "timer-cancel" => {
+                        let _ = companion::timer_action(app.clone(), "cancel".into(), None);
+                    }
+                    "quiet" => {
+                        let _ = companion::set_preferences(
+                            app.clone(),
+                            serde_json::json!({"quiet_until":companion::now()+1800}),
+                        );
+                    }
+                    "resume" => {
+                        let _ = companion::set_preferences(
+                            app.clone(),
+                            serde_json::json!({"quiet_until":0}),
+                        );
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -528,14 +680,19 @@ pub fn run() {
             // 그 외(수동 실행)는 설정창을 띄운다.
             let handle = app.handle().clone();
             let autostarted = std::env::args().any(|a| a == "--autostart");
-            if !autostarted {
+            let onboarded = {
+                let state = app.state::<companion::Companion>();
+                let value = state.0.lock().unwrap().saved.preferences.onboarded;
+                value
+            };
+            if !autostarted || !onboarded {
                 show_settings(&handle);
             }
 
-            // 진단 로깅 초기화(notifier 가 기록하므로 먼저). 그 외 플랫폼은 no-op.
-            diag::init(&handle);
-            // Windows OS 알림(슬랙) 폴링 시작. 그 외 플랫폼은 no-op.
-            notifier::start(handle);
+            // 서비스 스케줄러는 운영체제와 독립적으로 실행한다.
+            companion::start(handle.clone());
+            calendar::start(handle.clone());
+            slack::start(handle.clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -548,4 +705,30 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running 똑띠왔어요");
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+    #[test]
+    fn autonomous_start_does_not_use_alert_placement() {
+        let mut s = DisplaySettings::default();
+        s.position = "top-right".into();
+        s.monitor = "second".into();
+        let resident = display_for_mode(s.clone(), true);
+        let alerts = display_for_mode(s, false);
+        assert_eq!(resident.position, "bottom");
+        assert_eq!(resident.monitor, "primary");
+        assert_eq!(alerts.position, "top-right");
+        assert_eq!(alerts.monitor, "second");
+    }
+    #[test]
+    fn obsolete_resident_placement_is_ignored() {
+        let mut value = serde_json::to_value(DisplaySettings::default()).unwrap();
+        value["resident_placement"] = serde_json::json!({"position":"top-left","monitor":"removed","custom_x":0.0,"custom_y":0.0});
+        let s: DisplaySettings = serde_json::from_value(value).unwrap();
+        let resident = display_for_mode(s, true);
+        assert_eq!(resident.position, "bottom");
+        assert_eq!(resident.monitor, "primary");
+    }
 }

@@ -1,90 +1,103 @@
-# 똑띠왔어요 (ddoktti-here)
+# 똑띠왔어요
 
-> Slack 알림을 절대 놓치지 않게 — 알림이 오면 화면에 **마스코트가 뿅** 하고 나타나는 Windows 데스크탑 앱.
+**화면 위를 산책하고, 필요한 순간에 소식을 전하는 작은 데스크톱 동료.**
 
-<p align="center"><img src="assets/ddoktti.gif" width="220" alt="똑띠왔어요 마스코트" /></p>
+똑띠는 컴퓨터 화면과 다른 앱의 창 주변을 돌아다니다가 쉬고, 졸고, 다양한 표정으로 반응합니다. Slack의 DM·멘션, Google Calendar 일정, 타이머 완료와 스트레칭 시간을 캐릭터와 말풍선으로 알려줍니다.
 
-슬랙 메신저는 알림이 와도 조용히 배지만 깜빡여서 놓치기 쉽습니다. **똑띠왔어요**는 Windows가
-띄우는 Slack 알림을 감지해, 화면 위에 큼지막한 마스코트 **똑띠**를 띄워 확실히 알려줍니다.
-메시지를 읽으면 똑띠는 알아서 사라지고, 똑띠를 클릭하면 슬랙으로 바로 이동합니다.
+[개인정보처리방침](PRIVACY.md) · [이용약관](TERMS.md) · [문의·문제 신고](https://github.com/plead-ops/ddoktti-here/issues) · [릴리즈](https://github.com/plead-ops/ddoktti-here/releases)
 
-> 마스코트 캐릭터의 이름은 **똑띠** 입니다.
+## 똑띠와 함께하기
 
-- 🔔 **놓침 방지** — 슬랙 알림이 오면 항상 위에 마스코트 오버레이
-- 🧠 **슬랙 규칙 그대로** — 멘션/DM/키워드/뮤트/방해금지(DND) 등 *무엇을 알릴지는 슬랙 설정을 따름*
-- ✅ **읽으면 자동으로 닫힘** — 슬랙에서 확인하거나 슬랙 창을 열면 오버레이가 사라짐
-- 🖱️ **클릭하면 슬랙으로** — 마스코트를 누르면 슬랙 데스크탑이 열림
-- 🔒 **완전 로컬** — 서버·로그인·OAuth 없음. 토큰도, 메시지 저장도 없음
+- **자율적으로 움직이는 캐릭터** — 걷기, 달리기, 쉬기, 졸기와 감정 표현을 상황에 맞게 재생합니다. 창 가장자리를 붙잡고 오르거나 창 사이를 이동합니다.
+- **작은 상호작용** — 클릭하면 간지러워하고, 졸 때 클릭하면 놀라서 깨어납니다. 드래그하면 옷자락에 매달리고 놓으면 떨어져 착지합니다.
+- **Slack 알림** — 연결한 계정의 DM, 참여한 공개 채널의 개인 멘션, @channel·@here, 소속 사용자 그룹 멘션을 구분합니다.
+- **Google Calendar 알림** — 캘린더 목록을 자동 확인하여 내가 주최하거나 참석하는 일정, 응답 전 초대와 개인 일정을 챙깁니다. 중복 일정은 합쳐서 알립니다.
+- **타이머와 스트레칭** — 집중 시간을 설정하고, 컴퓨터 사용 중 쉬는 시간을 안내받을 수 있습니다.
+- **원하는 표시 방식** — 항상 함께하거나 알림이 있을 때만 표시할 수 있습니다. 내용 숨기기, 전체 화면에서 숨기기, 알림 쉬기도 제공합니다.
 
-## 동작 방식
+Windows와 macOS를 대상으로 개발합니다. 캐릭터는 네이티브 투명 창에서, 설정과 알림 말풍선은 HTML 화면으로 표시합니다. 계정 연결 없이도 캐릭터·타이머·스트레칭 기능을 사용할 수 있습니다.
 
-Windows의 **`UserNotificationListener`** API로 슬랙 데스크탑 앱이 띄운 알림을 읽어, 슬랙 메시지일 때만
-오버레이를 띄웁니다. 별도 Slack 연동/권한 설정이 필요 없고, 슬랙이 알림을 띄울지 말지(멘션·DND 등)를
-이미 판단해 둔 것을 그대로 활용합니다. 즉 **슬랙에서 알림 설정만 해두면 끝**입니다.
+## 계정 연결
 
-## 설치 (사용자)
+### Slack
 
-1. [Releases](https://github.com/plead-ops/ddoktti-here/releases)에서 최신 `*-setup.exe`를 받아 설치합니다.
-2. 처음 실행하면 설정 창이 뜹니다. **일반 탭 → 알림 접근 권한**에서 **[권한 허용]**(또는
-   [Windows 설정 열기])으로 "알림 접근"을 켜주세요. *한 번만 하면 됩니다.*
-3. 끝. 이제 슬랙 알림이 오면 마스코트가 나타납니다. 앱은 트레이에 상주하며 로그인 시 자동 시작됩니다.
+설정 또는 첫 실행 화면에서 **Slack에 추가하고 연결**을 누르세요. 브라우저에서 워크스페이스를 선택하고 필요한 권한을 승인하면 앱으로 연결됩니다. 워크스페이스에 이미 설치되어 있어도 개인 계정 승인이 필요하며, 조직 정책에 따라 관리자 승인이 필요할 수 있습니다.
 
-**요구 사항**: Windows 10/11 · Slack 데스크탑 앱(로그인 상태) · WebView2 런타임(Win11 기본 탑재)
+Slack 방해금지를 반영하고 앱 내 알림 필터를 제공합니다. 비공개 채널·그룹 DM과 Slack의 채널별 음소거 설정 전체는 지원하지 않습니다. @here는 Slack에서 활동 중인 상태일 때 처리합니다. 운영체제 알림을 감시하는 방식은 사용하지 않습니다.
 
-## 사용법
+### Google Calendar
 
-- **트레이 아이콘**: 설정 열기 / 알림화면 미리보기 / 종료
-- **표시 설정**(설정 → 표시): 위치(미니맵에서 선택 또는 오버레이를 드래그), 이미지 크기, 애니메이션 속도,
-  알림음, 모션 줄이기, 항상 위에 표시 — 변경 사항은 떠 있는 오버레이에 실시간 반영
-- **오버레이 동작**: 클릭 = 슬랙 열기 + 닫기 / 드래그 = 위치 이동(자동 저장) / 여러 알림은 +N 배지로 표시
-- **자동 닫힘**: 슬랙에서 해당 메시지를 읽거나, 슬랙 창을 포커스하면 사라짐
+**Google Calendar 연결**을 누르고 브라우저에서 Google 계정과 읽기 권한을 승인하세요. 앱은 캘린더 목록과 일정을 PC에서 직접 조회합니다. 기본 캘린더 외에 목록에 추가한 캘린더도 확인하며, 접근 권한이 없는 일정은 읽을 수 없습니다. 일정 생성·수정·삭제 권한은 요청하지 않습니다.
 
-## 개발 / 소스 빌드
+OAuth 앱이 테스트 상태일 때는 등록된 테스트 계정만 사용할 수 있고 재인증이 필요할 수 있습니다. 공개 OAuth 검증은 진행 중이며 실제 계정 연결·수신 검증은 별도로 진행하고 있습니다. 운영자의 준비 절차는 [Google 공개 배포 안내](docs/google-publication.md)를 참고하세요.
 
-모노레포 구성:
+## 개인정보와 권한
 
-```
-apps/desktop/         Tauri 데스크탑 앱
-  src/                설정창 · 오버레이 (TypeScript)
-  src-tauri/src/
-    lib.rs            창/트레이/설정/오버레이 배치/권한 커맨드
-    notifier.rs       Windows 알림 폴링 → 오버레이 트리거 (windows 크레이트)
-packages/shared/      오버레이 페이로드 타입 (zod)
-assets/               스프라이트 · 아이콘
+Google 일정과 Google 사용자 토큰은 똑띠 중계 서버에 전송하지 않습니다. Google 갱신 토큰과 Slack 기기 세션은 OS 자격 증명 저장소에 보관합니다. Slack OAuth 토큰은 중계 서버에서 암호화하여 보관하며, 메시지 이벤트는 알림 판별·전달을 위해 일시적으로 처리합니다.
+
+창 위 이동에는 창의 위치·크기 등 배치 정보를 사용합니다. 화면을 캡처하거나 창 제목·문서 내용을 수집하지 않습니다. 사용자의 메시지·일정을 광고, 판매 또는 AI 모델 학습에 사용하지 않습니다. 상세 처리 항목, 보관 기간, 연결 해제 방법은 [개인정보처리방침](PRIVACY.md)을 확인하세요.
+
+## 개발 및 미리보기
+
+필요한 도구: Node.js 22.13 이상, pnpm 9, Rust stable(1.90 이상), 운영체제별 Tauri 빌드 도구.
+Windows는 MSVC C++ Build Tools와 WebView2, macOS는 Xcode Command Line Tools가 필요합니다.
+
+```sh
+pnpm install --frozen-lockfile
+pnpm dev:desktop      # 웹 화면 미리보기
+pnpm tauri dev        # 데스크톱 앱 실행
 ```
 
-**사전 요구**: Node 22+ · pnpm 9 (`npm i -g pnpm`) · Rust + Visual Studio **C++ Build Tools(MSVC)** · WebView2
+Vite 개발 서버에서 다음 경로를 열 수 있습니다. 미리보기는 샘플 데이터를 사용합니다.
 
-```bash
-pnpm install
-pnpm dev:desktop      # 개발 실행 (Tauri)
-pnpm icons            # 앱 아이콘 생성(1회)
+| 경로 | 내용 |
+|---|---|
+| `/ui-preview.html` | 설정·첫 실행·알림 말풍선 |
+| `/motions.html` | 캐릭터의 전체 동작 |
+| `/surfaces.html` | 가상 창 위 이동·등반 |
+
+계정 연결을 포함한 빌드는 다음 환경변수를 사용합니다.
+
+| 변수 | 용도 |
+|---|---|
+| `SLACK_RELAY_URL` | `https://ddoktti-here-server.plead.co.kr` |
+| `GOOGLE_CLIENT_ID` | Google Desktop OAuth 클라이언트 ID |
+| `GOOGLE_CLIENT_SECRET` | 해당 Desktop OAuth 클라이언트의 구성 값 |
+
+Google Desktop OAuth 구성은 배포 바이너리에서 추출할 수 있는 공개 클라이언트 정보입니다. 실제 사용자 토큰이나 Slack 서버 비밀키를 앱에 포함하지 마세요. 개인 인증 JSON·토큰·서명키를 저장소에 커밋하지 마세요.
+
+```sh
+pnpm typecheck
+pnpm build
+node --test tests/*.test.mjs
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
-> **Windows on ARM(예: Parallels) 주의**: `@tauri-apps/cli`는 ARM64 Windows용 프리빌트 바이너리가
-> 없어 `pnpm tauri`가 동작하지 않습니다. 로컬 빌드가 필요하면 x64 Node를 쓰거나, 그냥 아래 CI로
-> 빌드하세요. (배포 산출물은 어차피 x64)
+## 프로젝트 구조
 
-## 릴리즈 (CI)
+| 경로 | 역할 |
+|---|---|
+| `apps/desktop/src/` | 설정, 말풍선, 웹 미리보기 |
+| `apps/desktop/src-tauri/src/native_pet/` | 네이티브 렌더링, 입력, 이동 엔진 |
+| `apps/desktop/src-tauri/src/calendar.rs` | Google OAuth와 일정 동기화 |
+| `apps/desktop/src-tauri/src/slack.rs` | Slack 계정 연결과 중계 서버 클라이언트 |
+| `apps/desktop/src-tauri/src/companion.rs` | 타이머, 스트레칭, 알림 상태 |
+| `packages/shared/` | 공통 알림 타입 |
+| `assets/concepts/` | 캐릭터 원본과 작업 시안 |
+| `services/slack-relay/` | 서버 분리 이전의 참고 구현·테스트 |
 
-`.github/workflows/desktop-release.yml` — GitHub Actions(Windows x64). **`v*` 태그를 push하면**
-nsis 설치본을 빌드해 **GitHub Release를 생성하고 첨부**합니다.
+운영 Slack 서버는 별도 `plead-ops/ddokttihere-server` 비공개 저장소에서 관리하며 Docker·Dokploy로 배포합니다. 이 저장소의 `services/slack-relay`는 운영 서버의 최신 소스가 아닙니다.
 
-```bash
-# 새 버전 릴리즈 (예: package.json/tauri.conf.json 의 version 과 맞춰서)
-git tag v0.1.0 && git push origin v0.1.0
-```
+## 빌드와 검증 상태
 
-자동 업데이트는 없습니다 — 사용자는 Releases에서 새 설치본을 받습니다. 일반 exe 설치만으로 동작합니다.
+- Windows: NSIS 설치본과 업데이트 서명 산출물을 생성합니다. `desktop-release` 수동 실행은 테스트 아티팩트를 만들고, `v*` 태그는 릴리즈를 생성합니다.
+- macOS: `macos-build` 수동 실행으로 Universal app/DMG를 생성합니다. Developer ID 서명·공증은 별도 자격 증명이 필요합니다.
+- Slack 서버: 배포·HTTPS·자동 배포·서명 요청 검증 완료. 실제 사용자 승인 후 DM·멘션 수신 검증은 남아 있습니다.
+- Google Calendar: Desktop OAuth 빌드 설정 등록 완료. 공개 검증 및 실제 계정 로그인·일정 조회 검증은 남아 있습니다.
+- OS별 세부 동작과 검증 범위는 아래 문서를 참고하세요. 이 README의 최신 기능이 기존 릴리즈에 모두 포함되어 있는 것은 아닙니다.
 
-## 한계
+[네이티브 렌더링](docs/native-rendering.md) · [Windows 검증](docs/windows-validation.md) · [macOS 배포](docs/macos-distribution.md) · [캐릭터 제작 규칙](docs/vector-artwork.md) · [개편 설계](docs/plans/desktop-companion-v2.md)
 
-- 클릭 시 **슬랙 앱이 열리지만 특정 메시지로 정확히 점프하진 않습니다** — Windows 알림에는 메시지
-  딥링크가 노출되지 않아 앱을 여는 수준까지만 가능합니다.
-- 동작하려면 사용자가 **Windows "알림 접근" 권한**을 한 번 허용해야 합니다.
-- macOS는 지원하지 않습니다(Windows 전용).
+## 운영과 문의
 
-## 만든 곳
-
-이 프로젝트는 스마트 개인회생 서비스 [**똑생**](https://www.ddok.life)을 만든 **플리드**(Plead)와
-**법무법인 현림**에서 관리합니다.
+플리드(Plead)에서 관리하는 똑띠왔어요 프로젝트입니다. 버그·기능 제안은 [GitHub Issues](https://github.com/plead-ops/ddoktti-here/issues)를 이용하세요. 공개 게시물에는 메시지·일정 내용, 토큰, 비밀번호를 올리지 마세요.

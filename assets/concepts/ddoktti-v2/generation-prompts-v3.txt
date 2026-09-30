@@ -1,0 +1,18 @@
+Tool: built-in image_gen, transparent_background=true
+References: walk-sheet-v2.png (art style / walk poses), assets/sprite1.png (original proportions / Slack concept)
+
+WALK: walk-sheet-v3.png
+Edit image 1, the eight-frame walking sprite sheet. Image 2 is the ORIGINAL character proportion reference only.
+Make ONE targeted correction in all eight frames: shorten both trouser legs by approximately 45 percent, making tiny stubby chibi legs with compact rounded shoes tucked just below the suit hem like image 2. The combined visible trouser-and-shoe height below the jacket should be about 15% of full character height, NOT long human legs. Preserve the huge green robot head, antenna, glasses, eyes, face, suit torso, hands, blue tie, gold pin, line quality and colors exactly as image1. Do not shrink the entire character or elongate torso to compensate.
+CRITICAL: preserve the successful walking motion in image1: eight sequential alternating foot contact, knee lift, passing and reaching poses in exactly 4 columns x 2 rows. Each lifted foot must still read clearly even with short legs. Small cute steps with oppositely swinging arms. Identical character scale and consistent grounded foot baseline across cells. Right facing throughout. Full body visible, no crop. Equal cells and generous clear padding, no neighboring cell intrusion. Genuine transparent background, no words, no labels, no floor, no shadow, no dots. Return corrected complete sheet.
+
+SLACK: slack-sheet-v2.png
+Create a newly redrawn Slack notification animation sheet for Ddoktti. Reference1 (walking sheet) is the CURRENT flat cartoon art style and robot identity; reference2 is the original Slack alert concept and SHORT LEGGED proportions.
+Exactly FOUR full-body sequential frames in a single horizontal row of four equal cells. Green rounded square robot head, short blue antenna, big round navy glasses, white eyes black pupils, dark navy suit white shirt bright blue tie tiny gold lapel pin, green mitten hands. Cute chibi proportions with SHORT STUBBY LEGS: visible legs and shoes below suit hem only 15 percent of overall character height. Same head size, body scale, and foot baseline in all frames. Crisp bold dark outlines, flat colors, match the new animation assets.
+Action: joyfully announcing an incoming Slack message.
+All four frames hold the SAME white rounded-square Slack notification card, with dark outline and accurate recognizable multicolor Slack hash logo (cyan green yellow magenta), in the LEFT hand next to torso; card size and position stable.
+Frame1 notices the message, open curious eyes, tiny o mouth, right hand near chest.
+Frame2 excited smile, right hand lifts halfway toward head.
+Frame3 waves right hand beside head, cheerful open eyes.
+Frame4 right hand lowers halfway, closed happy smile ready to loop into frame1.
+No hopping or changes of height. Grounded feet, slight natural upper-body expression only. No text, no lettering, no numbers, no detached motion marks, no stars, no dots, no shadows or floor. Transparent alpha background. Generous padding of at least 12% inside every cell; nothing overlaps neighboring cells. Fully visible antenna, shoes, hands and card in every cell.

@@ -1,0 +1,22 @@
+Mode: built-in image_gen
+
+Accepted running asset: apps/desktop/public/sprites/companion/run-v3.png
+Source: exec-34f6ac8a-dc1a-45a1-88ce-8c2ac4140829.png
+Playback uses source cells 0, 1, 2, 5 (zero-based): forward reach, support, opposite reach, recovery. Other generated cells repeat the leading leg and are deliberately unused.
+Prompt:
+Edit this sprite sheet. The legs are STILL WRONG: the lighter camera-near shin points toward the right in all eight frames. This looks like dragging a leg. Correct ONLY leg and arm poses, keep mascot identity, short leg lengths, face, suit and clean transparency.
+Four columns two rows. Eight frames. IMPORTANT in cells 3,4,5,6 the LIGHTER foreground leg must point toward SCREEN LEFT, with its shoe on the LEFT side of the pelvis. The DARKER background leg extends to SCREEN RIGHT behind it. Cross the foreground thigh IN FRONT OF the other thigh. Do NOT keep the lighter leg pointing screen-right in these cells.
+Cell1: lighter leg forward/right long SHORT stride, darker leg back/left.
+Cell2: lighter foot vertically below torso on floor, darker knee driving to right.
+Cell3: lighter thigh sweeps diagonally down-left, near shoe trailing LEFT; dark thigh forward-right, far knee up.
+Cell4: lighter heel folded up on LEFT behind body; dark shoe stretched forward RIGHT, both airborne.
+Cell5: dark shoe lands on RIGHT; lighter leg bent trailing on LEFT. This is exactly the opposite leg arrangement of Cell1.
+Cell6: dark foot under torso; lighter knee coming from left toward center, lighter shoe still LEFT.
+Cell7: lighter knee lifted forward RIGHT, dark toe pushes back LEFT.
+Cell8: lighter foot stretches RIGHT and dark heel tucks up LEFT, airborne.
+Near arm must swap from left/back to right/front as near leg goes from right/front to left/back. Explicitly vary closed passing poses (2,6) and open split poses (1,4,5,8). Short chibi legs, no elongated legs. Maintain same consistent torso lean, body scale, cell spacing. Do NOT repeat Cell1 in Cell5: opposite leg must be on top. Genuine transparent PNG.
+
+Accepted landing asset: apps/desktop/public/sprites/companion/edge-v2.png
+Prompt:
+Use case: precise-object-edit. Edit this 4 column x 2 row transparent sprite sheet. Preserve all character identity, face, glasses, antenna, suit, outline, upper bodies, original frame arrangement and scale. Correct the leg proportions especially the LOWER ROW, FOURTH (rightmost) FRAME standing after landing: trousers below jacket must be short stubby legs matching TOP ROW RIGHTMOST standing character, shorten lower legs by about 35 percent without shrinking head or torso. Lower row THIRD frame landing crouch: keep knees compact with small feet under hips, hands on knees, no wide splayed long legs. Lower row SECOND frame falling: short legs same length as corrected standing pose, compact bent knees. Keep all other poses unchanged. All feet have a consistent small shoe size. All 8 heads same dimensions. True transparent background, no text or ground line, no shadows. Keep generous clear margins around each of the eight full body sprites in exact 4x2 grid.
+

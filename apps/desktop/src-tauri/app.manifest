@@ -1,10 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<!--
-  Win32 side-by-side(fusion) 매니페스트.
-  Tauri 기본 매니페스트(DPI/롱패스/UTF-8/공통컨트롤/지원OS/asInvoker)를 그대로 포함하고,
-  맨 아래 <msix> 요소로 이 exe 를 Sparse Package(신원 패키지)와 연결한다.
-  publisher/packageName/applicationId 는 identity/AppxManifest.xml 과 정확히 일치해야 한다.
--->
+<!-- Windows DPI, UTF-8 and compatibility settings; no notification-listener package identity. -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <assemblyIdentity type="win32" name="PleadDdoktti" version="1.0.0.0" />
   <dependency>
@@ -36,8 +31,5 @@
       </requestedPrivileges>
     </security>
   </trustInfo>
-  <msix xmlns="urn:schemas-microsoft-com:msix.v1"
-        publisher="CN=Plead"
-        packageName="PleadDdoktti"
-        applicationId="DdoktiHere" />
+
 </assembly>

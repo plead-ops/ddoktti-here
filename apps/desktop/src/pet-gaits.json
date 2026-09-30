@@ -1,0 +1,4 @@
+{
+  "walk": { "frameMs": 130, "frames": 8, "stride": 88 },
+  "run": { "frameMs": 115, "frames": 4, "stride": 112 }
+}

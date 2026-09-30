@@ -1,0 +1,80 @@
+import {createServer} from 'node:http';import {readFile,writeFile,mkdtemp,mkdir} from 'node:fs/promises';import {join,extname} from 'node:path';import {tmpdir} from 'node:os';import {fileURLToPath} from 'node:url';import {spawn} from 'node:child_process';import {once} from 'node:events';
+const root=fileURLToPath(new URL('../apps/desktop/dist/',import.meta.url));const artifacts=join(tmpdir(),'ddoktti-ui-review');await mkdir(artifacts,{recursive:true});const server=createServer(async(req,res)=>{try{const path=new URL(req.url,'http://x').pathname;const file=join(root,path==='/'?'index.html':path);const data=await readFile(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png','.svg':'image/svg+xml'})[extname(file)]??'application/octet-stream');res.end(data);}catch{res.writeHead(404);res.end();}});server.listen(0,'127.0.0.1');await once(server,'listening');const port=server.address().port,profile=await mkdtemp(join(tmpdir(),'ddoktti-chrome-'));const chrome=spawn(process.env.CHROME_PATH??(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':process.platform==='win32'?'C:/Program Files/Google/Chrome/Application/chrome.exe':'google-chrome'),['--headless=new','--disable-gpu','--remote-debugging-port=0',`--user-data-dir=${profile}`,'--no-first-run','--no-default-browser-check','about:blank'],{stdio:['ignore','ignore','pipe']});
+let ws;
+try{const debug=await new Promise((resolve,reject)=>{let out='';chrome.stderr.on('data',b=>{out+=b;const m=out.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)/);if(m)resolve(m[1]);});chrome.once('exit',()=>reject(Error('chrome exited')));setTimeout(()=>reject(Error('chrome startup timeout')),10000).unref();});const tabs=await(await fetch(`http://127.0.0.1:${debug}/json`)).json();ws=new WebSocket(tabs.find(t=>t.type==='page').webSocketDebuggerUrl);await once(ws,'open');let n=0;const waiting=new Map();ws.onmessage=e=>{const r=JSON.parse(e.data);if(r.id){const p=waiting.get(r.id);waiting.delete(r.id);r.error?p.reject(Error(JSON.stringify(r.error))):p.resolve(r.result);}};const call=(method,params={})=>new Promise((resolve,reject)=>{console.log(method);setTimeout(()=>reject(Error('CDP timeout '+method)),10000).unref();const id=++n;waiting.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});await call('Page.enable');await call('Runtime.enable');
+
+await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1150,deviceScaleFactor:1,mobile:false});await call('Page.navigate',{url:`http://127.0.0.1:${port}/ui-preview.html`});await new Promise(r=>setTimeout(r,1000));
+const evaluate=async(expression)=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
+console.log('ready',await evaluate(`document.getElementById('feedback').textContent`));
+await evaluate(`window.s=document.getElementById('settings-frame').contentDocument;window.p=document.getElementById('pet-frame').contentDocument;document.querySelector('[data-scene="calendar"]').click()`);
+console.log('calendar',await evaluate(`({title:p.getElementById('title').textContent,meeting:!p.getElementById('meeting').hidden})`));
+await writeFile(join(artifacts,'ddoktti-ui-preview.png'),Buffer.from((await call('Page.captureScreenshot')).data,'base64'));
+console.log('privacy',await evaluate(`s.getElementById('pref-private_content').click();p.getElementById('title').textContent`));
+console.log('onboarding',await evaluate(`document.querySelector('[data-scene="welcome"]').click();s.getElementById('onboard-next').click();({visible:!s.getElementById('onboarding').hidden,connect:!s.getElementById('onboard-connect').hidden,inert:s.getElementById('app').inert})`));
+await writeFile(join(artifacts,'ddoktti-ui-welcome.png'),Buffer.from((await call('Page.captureScreenshot')).data,'base64'));
+console.log('finish',await evaluate(`s.getElementById('onboard-finish').click();s.getElementById('onboarding').hidden`));
+await evaluate(`const a=document.getElementById('account-state');a.value='on';a.dispatchEvent(new Event('change'));`);
+console.log('accounts',await evaluate(`({filters:!s.getElementById('slack-filters').hidden,events:s.getElementById('calendar-events').children.length})`));
+console.log('calendar policy UI',await evaluate(`({obsoleteOption:s.getElementById('pref-calendar_unanswered')!==null,autoDiscovery:s.querySelector('[data-panel=connections]').textContent.includes('새로 추가된 캘린더까지 자동으로 확인'),pendingIncluded:s.querySelector('[data-panel=connections]').textContent.includes('응답 전 초대도 포함')})`));
+console.log('timer',await evaluate(`document.querySelector('[data-scene="settings"]').click();s.getElementById('timer-start').click();s.getElementById('timer-pause').click();({clock:s.getElementById('timer-clock').textContent,button:s.getElementById('timer-pause').textContent})`));
+console.log('menu',await evaluate(`document.querySelector('[data-scene="menu"]').click();({visible:!p.getElementById('pet-menu').hidden})`));
+console.log('switches',await evaluate(`({all:[...s.querySelectorAll('input[type="checkbox"]')].every(e=>e.getAttribute('role')==='switch'),brandImages:s.querySelectorAll('.brand img').length,navIcons:s.querySelectorAll('.nav-item svg').length})`));
+console.log('resident placement hidden',await evaluate(`({position:s.getElementById('alert-position-row').hidden,monitor:s.getElementById('alert-monitor-row').hidden})`));
+console.log('alert placement visible',await evaluate(`s.getElementById('pref-resident').click();({position:!s.getElementById('alert-position-row').hidden,monitor:!s.getElementById('alert-monitor-row').hidden})`));
+await evaluate(`p.getElementById('pet').click()`);await new Promise(r=>setTimeout(r,70));console.log('click tickle',await evaluate(`({reaction:p.getElementById('pet-reaction').textContent,visible:!p.getElementById('pet-reaction').hidden,menu:p.getElementById('pet-menu').hidden})`));
+await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
+console.log('mobile',await evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth,settingsWidth:s.documentElement.clientWidth,settingsScroll:s.documentElement.scrollWidth})`));
+
+console.log('settings audit',await evaluate(`({duplicate:s.querySelector('[data-panel="general"]').textContent.includes('서비스 계정 연결'),accountTabs:s.querySelectorAll('[data-tab="connections"]').length})`));
+await evaluate(`s.getElementById('slack-disconnect').click()`);
+console.log('independent disconnect',await evaluate(`({slackFiltersHidden:s.getElementById('slack-filters').hidden,calendarEvents:s.getElementById('calendar-events').children.length})`));
+await evaluate(`s.getElementById('calendar-disconnect').click();s.getElementById('slack-connect').click()`);await new Promise(r=>setTimeout(r,800));
+console.log('independent connect',await evaluate(`({slackConnected:!s.getElementById('slack-filters').hidden,calendarEvents:s.getElementById('calendar-events').children.length})`));
+console.log('dependent switches',await evaluate(`s.getElementById('pref-stretch').click();s.getElementById('ov-motion').click();({stretchDisabled:s.getElementById('pref-stretch_minutes').disabled,speedDisabled:s.getElementById('ov-speed').disabled})`));
+await call('Page.addScriptToEvaluateOnNewDocument',{source:`
+window.mockCalls=[];window.handlers={};const callbacks={};let seq=0;
+window.demoState={preferences:{onboarded:true,resident:true,hide_fullscreen:true,private_content:false,stretch:true,stretch_minutes:50,quiet_until:0,timer_during_quiet:true,calendar_minutes:5,calendar_unanswered:false},timer:{duration:0,deadline:null,remaining:0,completed:false},alerts:[{id:'timer',source:'timer',title:'타이머 완료',createdAt:1},{id:'calendar',source:'calendar',title:'곧 회의',startsAt:Date.now()/1000+60,createdAt:2},{id:'slack',source:'slack',title:'메시지',createdAt:3}],now:Date.now()/1000};
+window.emitDemo=(event,payload)=>{for(const id of window.handlers[event]||[])callbacks[id]({event,id,payload});};
+window.__TAURI_INTERNALS__={transformCallback(fn){const id=++seq;callbacks[id]=fn;return id;},unregisterCallback(){},invoke:async(cmd,args)=>{window.mockCalls.push({cmd,args});if(cmd==='plugin:event|listen'){(window.handlers[args.event]??=[]).push(args.handler);return ++seq;}if(cmd==='get_display_settings')return {speed:1,sound:false,reduce_motion:false,scale:1.7};if(cmd==='overlay_ready')return window.demoState;if(cmd==='pet_world')return window.demoWorld??{monitor:'mock',x:200,y:450,width:1000,height:450,size:180,windows:[]};if(cmd==='surface_move'){if(window.demoWorld){window.demoWorld.x=args.x;window.demoWorld.y=args.y;}return true;}if(cmd==='move_pet')return {edge:false,grounded:true};return null;}};
+`});
+await call('Emulation.setDeviceMetricsOverride',{width:400,height:450,deviceScaleFactor:1,mobile:false});await call('Page.navigate',{url:`http://127.0.0.1:${port}/overlay.html`});await new Promise(r=>setTimeout(r,300));
+console.log('overlay priority',await evaluate(`document.getElementById('title').textContent`));
+console.log('overlay next',await evaluate(`document.getElementById('next-alert').click();document.getElementById('title').textContent`));
+await evaluate(`emitDemo('native-pet',{busy:false,dragging:false,menu:false,reaction:'간지러워요!',mode:'tickle'})`);
+const reaction=await evaluate(`({hiddenBubble:document.getElementById('bubble').hidden,reaction:document.getElementById('pet-reaction').textContent,petHidden:getComputedStyle(document.getElementById('pet')).display==='none'})`);console.log('native reaction',reaction);if(!reaction.hiddenBubble||!reaction.petHidden)throw Error('Native-only character/HTML reaction failed');
+await evaluate(`emitDemo('native-pet',{busy:false,dragging:false,menu:false,reaction:null,mode:'idle'})`);
+if(!await evaluate(`!document.getElementById('bubble').hidden`))throw Error('Notification did not resume');
+await evaluate(`emitDemo('pet-layout',{x:65,y:155})`);console.log('overlay popup',await evaluate(`({below:document.getElementById('bubble').classList.contains('below'),bounds:document.getElementById('bubble').getBoundingClientRect().toJSON()})`));
+for(const field of ['busy','dragging']){await evaluate(`emitDemo('native-pet',{busy:false,dragging:false,menu:false,reaction:null,mode:'climb',${field}:true})`);if(!await evaluate(`document.getElementById('bubble').hidden`))throw Error('Popup visible during '+field);}
+await evaluate(`emitDemo('native-pet',{busy:false,dragging:false,menu:true,reaction:null,mode:'idle'})`);
+if(!await evaluate(`!document.getElementById('pet-menu').hidden && document.getElementById('bubble').hidden`))throw Error('Native context menu failed');
+await evaluate(`document.getElementById('pet-minutes').value='10';document.getElementById('pet-timer').dispatchEvent(new Event('submit',{cancelable:true}))`);await new Promise(r=>setTimeout(r,50));
+if(!await evaluate(`mockCalls.some(c=>c.cmd==='timer_action'&&c.args.minutes===10)`))throw Error('Popup timer command failed');
+await evaluate(`emitDemo('native-pet-error','test');emitDemo('native-pet-error','')`);if(!await evaluate(`document.getElementById('pet-error').hidden`))throw Error('Recovered error remains');
+if(await evaluate(`mockCalls.some(c=>['pet_world','surface_move','move_pet','pet_drag_start'].includes(c.cmd))`))throw Error('WebView still runs pet movement');
+if(await evaluate(`performance.getEntriesByType('resource').some(r=>r.name.includes('/pet-vector-'))`))throw Error('Production popup loads preview atlas');
+console.log('native popup integration passed');
+await call('Emulation.setDeviceMetricsOverride',{width:1200,height:1050,deviceScaleFactor:1,mobile:false});
+await call('Page.navigate',{url:`http://127.0.0.1:${port}/surfaces.html`});await new Promise(r=>setTimeout(r,700));
+console.log('surface preview ready',await evaluate(`({state:document.getElementById('state').textContent,windows:[...document.querySelectorAll('.demo-window')].filter(w=>!w.hidden).length})`));
+await writeFile(join(artifacts,'ddoktti-surfaces.png'),Buffer.from((await call('Page.captureScreenshot')).data,'base64'));
+await new Promise(r=>setTimeout(r,2000));
+console.log('surface autonomous',await evaluate(`document.getElementById('state').textContent`));
+await writeFile(join(artifacts,'ddoktti-surfaces-climb.png'),Buffer.from((await call('Page.captureScreenshot')).data,'base64'));
+
+await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1800,deviceScaleFactor:2,mobile:false});
+await call('Page.navigate',{url:`http://127.0.0.1:${port}/motions.html`});await new Promise(r=>setTimeout(r,800));
+console.log('vector gallery',await evaluate(`({cards:document.querySelectorAll('.card').length,svg:document.querySelectorAll('.stage svg').length,canvas:document.querySelectorAll('canvas').length,raster:document.querySelectorAll('image').length})`));
+await evaluate(`document.getElementById('play').click()`);
+console.log('persistent vector nodes',await evaluate(`(()=>{
+ const svg=document.querySelector('[data-motion="walk"] svg'),slider=document.querySelector('[data-motion="walk"] input');
+ const set=t=>{slider.value=t;slider.dispatchEvent(new Event('input'));};
+ set(0);const first=svg.querySelector('[data-pose-frame="walk-0"]');
+ const root=svg.firstElementChild;set(130);set(0);
+ if(svg.firstElementChild!==root||svg.querySelector('[data-pose-frame="walk-0"]')!==first)throw Error('Frame DOM was replaced');
+ if(svg.querySelectorAll('image').length)throw Error('External SVG image remains');
+ if(svg.querySelectorAll('[data-pose-frame]:not([style*="display: none"])').length!==1)throw Error('Blank or overlapping frame');
+ return {sameRoot:true,sameFrame:true,externalImages:0};
+})()`));
+await writeFile(join(artifacts,'ddoktti-vector-gallery.png'),Buffer.from((await call('Page.captureScreenshot')).data,'base64'));
+}finally{ws?.close();chrome.kill();server.close();}

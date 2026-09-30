@@ -1,15 +1,12 @@
 fn main() {
-    // Windows: 커스텀 SxS 매니페스트를 임베드한다(app.manifest).
-    // 그 안의 <msix> 요소가 exe 를 Sparse Package(신원 패키지)와 연결 → 패키지 ID 부여.
-    #[cfg(windows)]
-    {
+    // build.rs는 호스트에서 실행되므로 교차 빌드도 대상 OS를 기준으로 판단한다.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo:rerun-if-changed=app.manifest");
         let attrs = tauri_build::Attributes::new().windows_attributes(
             tauri_build::WindowsAttributes::new().app_manifest(include_str!("app.manifest")),
         );
         tauri_build::try_build(attrs).expect("failed to run tauri-build");
-    }
-    #[cfg(not(windows))]
-    {
+    } else {
         tauri_build::build();
     }
 }

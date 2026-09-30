@@ -1,0 +1,40 @@
+import {gaitSpeed} from './pet-gait';
+import {renderPetRope} from './pet-rope';
+import { renderVectorPet } from './pet-vector';
+import { behaviors } from './pet-behaviors';
+interface Spec {id:string;name:string;category:string;desc:string;duration:number;row?:number}
+const descriptions:Record<string,[string,string]>={run:['달리기','짧은 다리로 빠르게 뛰어가요.'],bored:['심심함','두리번거리다가 발끝으로 장난을 쳐요.'],sleepy:['졸음','하품하고 눈을 감으며 꾸벅꾸벅 졸아요.'],jump:['가벼운 점프','웅크렸다가 한 번 폴짝, 사뿐히 착지해요.'],excited:['신나서 방방','좋은 일이 생겼어요! 연속으로 뛰어요.'],greeting:['반가움','눈을 맞추고 손을 흔들며 인사해요.'],proud:['뿌듯함','가슴을 펴고 으쓱. 타이머를 마치면 나타나요.'],shy:['부끄러움','볼을 붉히고 두 손을 모아요. 간지럼 뒤에도 보여요.'],curious:['호기심','고개를 갸웃하고 안경을 고쳐 써요.'],surprised:['깜짝 놀람','눈을 번쩍 뜨고 살짝 움찔해요.'],playful:['장난기','빼꼼 얼굴을 내밀고 윙크해요.'],sulking:['살짝 삐침','볼을 부풀리고 팔짱을 끼다가 풀려요.'],cheering:['응원','작은 주먹을 들고 힘을 북돋워줘요.'],relieved:['안도감','놀란 마음을 가라앉히고 가슴을 쓸어내려요.']};
+const specs:Spec[]=[...([['grab','가장자리 붙잡기',1400],['climb','창 옆면 등반',2500],['pull','몸 끌어올리기',700],['prepare','이동 점프 준비',500],['travel-jump','창 사이 점프',1200]] as const).map(([id,name,duration])=>({id,name,duration,category:'interaction',desc:'창 인식 엔진과 연결된 전용 동작이에요. 창 위 산책 체험에서 이동도 확인할 수 있어요.'})),{id:'idle',name:'가만히 쉬기',category:'daily',desc:'평소의 편안한 기본 자세예요.',duration:4000},{id:'walk',name:'산책',category:'daily',desc:'발 기준선을 고정한 짧은 다리 걷기예요.',duration:6500},...Object.entries(behaviors).map(([id,b])=>({id,name:descriptions[id]![0],category:['run','bored','sleepy','jump','excited'].includes(id)?'daily':'emotion',desc:descriptions[id]![1],duration:b.duration})),{id:'tickle',name:'간지럽히기',category:'interaction',desc:'몸을 움츠리고 웃어요. 앱에서는 캐릭터를 클릭하면 간지럽혀요.',duration:2200},{id:'drag',name:'옷자락에 매달리기',category:'interaction',desc:'드래그 중 들린 자세로 작게 흔들려요.',duration:2500},{id:'wobble',name:'아슬아슬 균형 잡기',category:'interaction',desc:'산책 경계에서 휘청했다가 균형을 잡아요.',duration:1800},{id:'fall',name:'낙하 → 착지',category:'interaction',desc:'놓으면 아래로 떨어져 착지해요. 카드 안에서 이동을 재현했어요.',duration:2400},{id:'land',name:'착지',category:'interaction',desc:'낙하 뒤 몸을 낮춰 충격을 받아내요.',duration:1800},{id:'wake',name:'클릭해서 깨우기',category:'interaction',desc:'캐릭터를 클릭하거나 Enter를 누르면 놀라서 깨어나요.',duration:9000},...['Slack 메시지','일정 안내','타이머 완료','스트레칭 권유'].map((name,row)=>({id:`alert-${row}`,name,category:'alert',row,desc:['새 메시지를 알리는 놀람·점프·소개 동작이에요.','시계를 확인하고 다가오는 일정을 알려줘요.','기다림부터 환호와 착지까지 이어져요.','기지개와 좌우 스트레칭으로 쉬는 시간을 권해요.'][row]!,duration:3500}))];
+const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
+const reduced=$<HTMLInputElement>('reduced'),travel=$<HTMLInputElement>('travel');
+reduced.checked=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let paused=false,speed=1,last=0;
+const labels:Record<string,string>={daily:'일상',emotion:'감정',interaction:'상호작용',alert:'알림'};
+interface Card{spec:Spec;element:HTMLElement;svg:SVGSVGElement;elapsed:number;wake:number|null;paused:boolean;slider:HTMLInputElement;time:HTMLElement;state:HTMLElement;bubble:HTMLElement;play:HTMLButtonElement;visible:boolean}
+const cards:Card[]=[];
+for(const spec of specs){const element=document.createElement('article');element.className='card';element.dataset.motion=spec.id;element.dataset.category=spec.category;element.innerHTML=`<div class="card-head"><h2></h2><span class="tag"></span></div><div class="stage"><svg viewBox="0 0 400 300" role="img"></svg><div class="bubble" hidden></div></div><p class="card-desc"></p><div class="timeline"><input type="range" min="0" step="10" value="0"><span class="time"></span></div><div class="card-actions"><span class="state"></span><div><button class="card-play">멈춤</button> <button class="replay">다시 보기</button></div></div>`;
+ element.querySelector('h2')!.textContent=spec.name;element.querySelector('.tag')!.textContent=labels[spec.category]!;element.querySelector('.card-desc')!.textContent=spec.desc;
+ const canvas=element.querySelector('svg')!,slider=element.querySelector('input')!;canvas.setAttribute('aria-label',spec.name+' 애니메이션');slider.max=String(spec.duration);slider.setAttribute('aria-label',spec.name+' 재생 위치');
+ const card:Card={spec,element,svg:canvas,elapsed:0,wake:null,paused:false,slider,time:element.querySelector('.time')!,state:element.querySelector('.state')!,bubble:element.querySelector('.bubble')!,play:element.querySelector('.card-play')!,visible:true};
+ slider.oninput=()=>{card.paused=true;card.wake=null;card.elapsed=Number(slider.value);draw(card);};card.play.onclick=()=>{card.paused=!card.paused;draw(card);};element.querySelector<HTMLButtonElement>('.replay')!.onclick=()=>{card.elapsed=0;card.wake=null;card.paused=false;draw(card);};
+ if(spec.id==='wake'){element.classList.add('wake');canvas.tabIndex=0;canvas.setAttribute('role','button');canvas.setAttribute('aria-label','졸고 있는 똑띠 깨우기');const wake=()=>{card.wake=0;card.paused=false;draw(card);};canvas.onclick=wake;canvas.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();wake();}};}
+ cards.push(card);$('gallery').append(element);
+}
+function draw(c:Card){const {svg,spec}=c,t=Math.min(c.elapsed,c.spec.duration);let pose=spec.id,elapsed=t,x=200,y=270,direction=1;c.bubble.hidden=true;
+ if(['walk','run'].includes(pose)&&travel.checked&&!reduced.checked){const distance=(t*gaitSpeed(pose,260)/1000+100)%400;direction=distance>=200?-1:1;x=100+(direction<0?400-distance:distance);}
+ if(pose==='wake'){if(c.wake===null){pose='sleepy';c.bubble.textContent='클릭하면 깨어나요';}else if(c.wake<1800){pose='surprised';elapsed=c.wake;c.bubble.textContent='앗, 깼어요!';}else{pose='curious';elapsed=c.wake-1800;c.bubble.textContent='무슨 일이에요?';}c.bubble.hidden=false;}
+ if(pose==='fall'){if(t<900){y-=reduced.checked?0:70*(1-Math.min(t/900,1)**2);}else{pose=t<1500?'land':'relieved';elapsed=t-900;}}
+ if(spec.category==='alert'){pose=['slack','calendar','timer','stretch'][spec.row!]!;c.bubble.hidden=false;c.bubble.textContent=['새 메시지가 왔어요!','곧 일정이 시작돼요','약속한 시간이 됐어요!','우리, 쭉— 펴볼까요?'][spec.row!]!;}
+ renderVectorPet(svg,pose,elapsed,{x,y,direction,reduced:reduced.checked});
+ renderPetRope(svg,pose,elapsed,{x,y,direction,reduced:reduced.checked,anchor:['grab','climb','pull'].includes(pose)?{x:x+119.6,y:18}:null});
+ c.slider.value=String(t);c.time.textContent=`${(t/1000).toFixed(1)} / ${(spec.duration/1000).toFixed(1)}s`;c.state.textContent=reduced.checked?'정지 포즈':`${paused||c.paused?'일시정지':'재생 중'} · SVG`;c.play.textContent=c.paused?'재생':'멈춤';}
+function all(){cards.forEach(draw);}
+function pause(value:boolean){paused=value;$('play').textContent=paused?'전체 재생':'전체 일시정지';all();}
+$('play').onclick=()=>pause(!paused);$('restart').onclick=()=>{cards.forEach(c=>{c.elapsed=0;c.wake=null;c.paused=false;});all();};$('step').onclick=()=>{pause(true);cards.forEach(c=>{c.elapsed=Math.min(c.spec.duration,c.elapsed+100);if(c.wake!==null)c.wake+=100;});all();};
+$<HTMLSelectElement>('speed').onchange=e=>{speed=Number((e.target as HTMLSelectElement).value);};$<HTMLSelectElement>('background').onchange=e=>{document.body.className=(e.target as HTMLSelectElement).value;};reduced.onchange=all;travel.onchange=all;
+document.querySelectorAll<HTMLButtonElement>('[data-filter]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-filter]').forEach(el=>el.setAttribute('aria-pressed',String(el===b)));for(const c of cards)c.element.hidden=b.dataset.filter!=='all'&&c.spec.category!==b.dataset.filter;$('status').textContent=`${cards.filter(c=>!c.element.hidden).length}개 동작 · 총 ${cards.length}개`;all();});
+const observer=new IntersectionObserver(entries=>{for(const entry of entries){const c=cards.find(c=>c.element===entry.target);if(c)c.visible=entry.isIntersecting;}});cards.forEach(c=>observer.observe(c.element));
+function animate(now:number){requestAnimationFrame(animate);if(now-last<33)return;const dt=last?Math.min(now-last,80)*speed:0;last=now;if(document.hidden)return;for(const c of cards){if(!paused&&!c.paused&&!reduced.checked){c.elapsed=(c.elapsed+dt)%(c.spec.duration+700);
+ if(c.wake!==null){c.wake+=dt;if(c.wake>6500){c.wake=null;c.elapsed=0;}}}
+ if(c.visible&&!c.element.hidden)draw(c);}}
+$('status').textContent=`전체 ${cards.length}개 동작 · SVG 벡터 애니메이션`;all();requestAnimationFrame(animate);

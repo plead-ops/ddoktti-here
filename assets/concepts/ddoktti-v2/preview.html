@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>똑띠 · 움직임 연구 03</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5ef;color:#1c3028;font-family:system-ui,sans-serif}main{max-width:1120px;margin:48px auto;padding:0 24px}.eyebrow{color:#547262;letter-spacing:.14em;font-size:12px;font-weight:700}h1{font-size:clamp(28px,5vw,44px);letter-spacing:-.05em;margin:14px 0}p{line-height:1.7;color:#586b60}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:24px 0}button,select{font:inherit;padding:10px 14px;border:1px solid #bbcbbd;border-radius:12px;background:white;color:inherit}button{cursor:pointer}button:focus-visible,select:focus-visible{outline:3px solid #29995b;outline-offset:3px}.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}article{background:#fff;border:1px solid #dce4d9;border-radius:24px;overflow:hidden}.stage{background:radial-gradient(ellipse at bottom,#e7efdb,transparent 70%)}canvas{display:block;width:100%;height:auto;aspect-ratio:480/290}.copy{padding:4px 24px 20px}h2{font-size:19px;margin:5px 0}.copy p{margin:8px 0;font-size:14px}.tag{font-size:11px;color:#748374;letter-spacing:.1em}.phase{display:block;color:#4b735a;font:12px ui-monospace,monospace;padding:0 24px 12px;min-height:26px}footer{margin:26px 0;font-size:13px;line-height:1.8;color:#617368}a{color:#237249}.dark .stage{background:#23342c}@media(max-width:600px){.cards{grid-template-columns:1fr}main{margin-top:28px}}
+</style>
+<main>
+<div class="eyebrow">DDOKTTI / MOTION STUDY 03</div>
+<h1>걷고, 알리고, 아슬아슬 버티고.</h1>
+<p><a href="notifications.html">새 알림 동작 + HTML 말풍선 미리보기 →</a></p>
+<p>슬랙 알림을 포함한 7가지 동작. 걷기는 발 동작과 화면 이동을 함께, 낙하는 떨어지는 속도와 착지를 함께 확인합니다.</p>
+<div class="toolbar"><button id="toggle" type="button">일시정지</button><button id="step" type="button">한 단계씩</button><button id="restart" type="button">처음부터</button><label>재생 속도 <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option></select></label><button id="background" type="button" aria-pressed="false">어두운 배경</button></div>
+<p id="status" role="status">이미지를 불러오는 중…</p>
+<section class="cards" aria-label="동작별 시안">
+<article data-kind="slack"><div class="stage"><canvas width="960" height="580" role="img" aria-label="새로 그린 똑띠 슬랙 알림 4프레임"></canvas></div><span class="phase"></span><div class="copy"><span class="tag">01 / SLACK</span><h2>슬랙 왔어요!</h2><p>짧은 다리와 큰 머리 비율로 다시 그렸어요. 슬랙 카드를 들고 손을 흔들어요.</p></div></article>
+<article data-kind="walk"><div class="stage"><canvas width="960" height="580" role="img" aria-label="발을 들어 내딛으며 화면을 왕복하는 똑띠"></canvas></div><span class="phase"></span><div class="copy"><span class="tag">02 / WALK</span><h2>짧은 다리로, 총총</h2><p>걷는 동작은 유지하고 다리를 짧게 줄였어요. 작은 발걸음으로 화면을 왕복합니다.</p></div></article>
+<article data-kind="calendar"><div class="stage"><canvas width="960" height="580" role="img" aria-label="달력을 들고 일정 안내하는 똑띠"></canvas></div><span class="phase"></span><div class="copy"><span class="tag">03 / CALENDAR</span><h2>곧 일정이 시작돼요</h2><p>별도 시트로 다시 생성해 아래 행의 그림이 섞이지 않게 했습니다.</p></div></article>
+<article data-kind="stretch"><div class="stage"><canvas width="960" height="580" role="img" aria-label="똑띠 스트레칭"></canvas></div><span class="phase"></span><div class="copy"><span class="tag">04 / STRETCH</span><h2>잠깐 몸을 풀까요?</h2><p>일하다가 잠깐, 똑띠와 함께 기지개를 켜요.</p></div></article>
+<article data-kind="timer"><div class="stage"><canvas width="960" height="580" role="img" aria-label="똑띠 타이머 완료 동작"></canvas></div><span class="phase"></span><div class="copy"><span class="tag">05 / TIMER</span><h2>약속한 시간이 됐어요</h2><p>시계와 함께 완료를 알리고 확인을 기다려요.</p></div></article>
+<article data-kind="wobble"><div class="stage"><canvas width="960" height="580" role="img" aria-label="가장자리에서 균형을 잃었다가 되찾는 똑띠"></canvas></div><span class="phase"></span><div class="copy"><span class="tag">06 / ALMOST FALLING</span><h2>어어… 휴, 살았다!</h2><p>발을 헛디딤 → 버티기 → 중심 되찾기 → 안도. 떨어지지 않는 경로입니다.</p></div></article>
+<article data-kind="fall"><div class="stage"><canvas width="960" height="580" role="img" aria-label="위에서 떨어져 웅크려 착지하고 다시 서는 똑띠"></canvas></div><span class="phase"></span><div class="copy"><span class="tag">07 / FALL & LAND</span><h2>툭, 떨어져도 괜찮아</h2><p>놓임 → 가속 낙하 → 웅크려 착지 → 다시 서기. 드래그해서 놓았을 때를 상상한 동작입니다.</p></div></article>
+</section>
+<footer>애니메이션 검토용 페이지입니다. 실제 앱이나 알림 설정은 변경하지 않습니다. ‘한 단계씩’은 120ms 단위로 진행합니다.<br>새 PNG는 내장 이미지 생성 도구로 만들었으며, 캔버스는 프레임 표시·이동만 담당합니다. 원본 v1은 보관했습니다.<br>참고: <a href="https://github.com/tonybaloney/vscode-pets/blob/main/src/panel/states.ts">VS Code Pets의 매달림·낙하·착지 상태</a> · <a href="https://github.com/Adrianotiger/desktopPet">eSheep의 화면 위 이동·낙하</a></footer>
+</main>
+<script src="preview.js"></script>
+</html>

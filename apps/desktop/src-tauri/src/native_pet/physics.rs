@@ -1,0 +1,724 @@
+//! Monitor-local logical coordinates. No window APIs: deterministic and testable.
+use crate::surfaces::{WindowRect, World};
+#[derive(Clone, Debug, PartialEq)]
+pub struct Ledge {
+    pub id: String,
+    pub left: f64,
+    pub right: f64,
+    pub y: f64,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Motion {
+    Grounded,
+    Fall,
+    Land,
+    Prepare,
+    Jump,
+    Grab,
+    Climb,
+    Pull,
+    Wobble,
+}
+impl Motion {
+    pub fn pose(self) -> &'static str {
+        match self {
+            Self::Grounded => "idle",
+            Self::Fall => "fall",
+            Self::Land => "land",
+            Self::Prepare => "prepare",
+            Self::Jump => "travel-jump",
+            Self::Grab => "grab",
+            Self::Climb => "climb",
+            Self::Pull => "pull",
+            Self::Wobble => "wobble",
+        }
+    }
+}
+fn clamp(v: f64, a: f64, b: f64) -> f64 {
+    v.clamp(a, b.max(a))
+}
+fn smooth(t: f64) -> f64 {
+    let t = t.clamp(0., 1.);
+    t * t * (3. - 2. * t)
+}
+pub fn climb_distance(age: f64, size: f64) -> f64 {
+    let cycles = age.max(0.) / 0.8;
+    size * 0.4 * (cycles.floor() + smooth((cycles.fract() - 0.25) / 0.5))
+}
+pub fn climb_frame(age: f64) -> usize {
+    [1, 0, 2, 3][((age.max(0.) / 0.2).floor() as usize) % 4]
+}
+pub fn ledges(w: &World) -> Vec<Ledge> {
+    let mut out = Vec::new();
+    let half = w.size * 0.46;
+    let height = w.size * 0.83;
+    for (i, win) in w.windows.iter().enumerate() {
+        if win.y < height || win.y > w.height {
+            continue;
+        }
+        let mut parts = vec![(win.x.max(0.), (win.x + win.width).min(w.width))];
+        for front in &w.windows[..i] {
+            if front.y < win.y + 1. && front.y + front.height > win.y - height {
+                parts = parts
+                    .into_iter()
+                    .flat_map(|(a, b)| {
+                        if front.x + front.width <= a || front.x >= b {
+                            vec![(a, b)]
+                        } else {
+                            vec![(a, b.min(front.x)), (a.max(front.x + front.width), b)]
+                                .into_iter()
+                                .filter(|(l, r)| r > l)
+                                .collect()
+                        }
+                    })
+                    .collect();
+            }
+        }
+        for (left, right) in parts {
+            if right - left >= half * 2. {
+                out.push(Ledge {
+                    id: win.id.clone(),
+                    left,
+                    right,
+                    y: win.y,
+                });
+            }
+        }
+    }
+    out
+}
+#[derive(Clone)]
+struct Plan {
+    x: f64,
+    y: f64,
+    vx: f64,
+    vy: f64,
+    id: String,
+}
+pub struct Physics {
+    pub x: f64,
+    pub y: f64,
+    pub direction: f64,
+    pub motion: Motion,
+    pub age: f64,
+    pub world: World,
+    pub ledges: Vec<Ledge>,
+    attached: Option<WindowRect>,
+    support: Option<String>,
+    side: f64,
+    vx: f64,
+    vy: f64,
+    cooldown: f64,
+    plan: Option<Plan>,
+    pull_start: (f64, f64),
+    seed: u64,
+}
+impl Physics {
+    pub fn new(world: World) -> Self {
+        let mut p = Self {
+            x: world.x,
+            y: world.y,
+            direction: 1.,
+            motion: Motion::Fall,
+            age: 0.,
+            ledges: ledges(&world),
+            world,
+            attached: None,
+            support: None,
+            side: 1.,
+            vx: 0.,
+            vy: 0.,
+            cooldown: 4.,
+            plan: None,
+            pull_start: (0., 0.),
+            seed: 0x927fd,
+        };
+        p.reset(p.x, p.y);
+        p
+    }
+    fn random(&mut self) -> f64 {
+        self.seed = self.seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        (self.seed >> 11) as f64 / (1u64 << 53) as f64
+    }
+    pub fn half(&self) -> f64 {
+        self.world.size * 0.46
+    }
+    pub fn height(&self) -> f64 {
+        self.world.size * 0.83
+    }
+    pub fn busy(&self) -> bool {
+        self.motion != Motion::Grounded
+    }
+    fn entering(&mut self, m: Motion) {
+        self.motion = m;
+        self.age = 0.;
+    }
+    fn at(&self, x: f64, y: f64, id: Option<&str>) -> Option<Ledge> {
+        self.ledges
+            .iter()
+            .find(|p| {
+                id.is_none_or(|id| p.id == id)
+                    && (p.y - y).abs() < 3.
+                    && x >= p.left + self.half()
+                    && x <= p.right - self.half()
+            })
+            .cloned()
+    }
+    fn attach(&mut self, p: Option<Ledge>) {
+        self.support = p.map(|p| p.id);
+        self.attached = self
+            .world
+            .windows
+            .iter()
+            .find(|w| Some(&w.id) == self.support.as_ref())
+            .cloned();
+    }
+    pub fn reset(&mut self, x: f64, y: f64) {
+        self.x = clamp(x, self.half(), self.world.width - self.half());
+        self.y = clamp(y, self.height(), self.world.height);
+        self.vx = 0.;
+        self.vy = 0.;
+        self.plan = None;
+        self.attach(self.at(self.x, self.y, None));
+        self.entering(
+            if self.support.is_some() || self.y >= self.world.height - 1. {
+                Motion::Grounded
+            } else {
+                Motion::Fall
+            },
+        );
+    }
+    fn falling(&mut self) {
+        self.attach(None);
+        self.plan = None;
+        self.vx = 0.;
+        self.vy = 0.;
+        self.entering(Motion::Fall);
+    }
+    fn climbing(&self) -> bool {
+        matches!(self.motion, Motion::Grab | Motion::Climb | Motion::Pull)
+    }
+    pub fn rope_anchor(&self) -> Option<(f64, f64)> {
+        if !self.climbing() {
+            return None;
+        }
+        self.attached
+            .as_ref()
+            .map(|w| (if self.side > 0. { w.x } else { w.x + w.width }, w.y))
+    }
+    fn climb_visible(&self, w: &WindowRect) -> bool {
+        let edge = if self.side > 0. { w.x } else { w.x + w.width };
+        if w.y < self.height()
+            || edge < self.half() * 2.
+            || edge > self.world.width - self.half() * 2.
+        {
+            return false;
+        }
+        let left = if self.side > 0. {
+            edge - self.half() * 2.
+        } else {
+            edge
+        };
+        !self
+            .world
+            .windows
+            .iter()
+            .take_while(|v| v.id != w.id)
+            .any(|v| {
+                v.x < left + self.half() * 2.
+                    && v.x + v.width > left
+                    && v.y < self.y
+                    && v.y + v.height > w.y.min(self.y - self.height())
+            })
+    }
+    pub fn update(&mut self, world: World) {
+        if world.monitor != self.world.monitor || world.size != self.world.size {
+            self.world = world;
+            self.ledges = ledges(&self.world);
+            self.attached = None;
+            self.support = None;
+            self.reset(self.world.x, self.world.y);
+            return;
+        }
+        self.world = world;
+        self.ledges = ledges(&self.world);
+        if let Some(old) = self.attached.clone() {
+            if let Some(next) = self.world.windows.iter().find(|w| w.id == old.id).cloned() {
+                if self.climbing() {
+                    let dx = if self.side > 0. {
+                        next.x - old.x
+                    } else {
+                        next.x + next.width - old.x - old.width
+                    };
+                    let dy = next.y - old.y;
+                    self.x += dx;
+                    self.y += dy;
+                    self.pull_start.0 += dx;
+                    self.pull_start.1 += dy;
+                } else {
+                    self.x = next.x + (self.x - old.x) / old.width * next.width;
+                    self.y += next.y - old.y;
+                }
+                self.attached = Some(next.clone());
+                if (!self.climbing() && self.at(self.x, self.y, Some(&next.id)).is_none())
+                    || (self.climbing() && !self.climb_visible(&next))
+                    || self.x < self.half()
+                    || self.x > self.world.width - self.half()
+                    || self.y < self.height()
+                    || self.y > self.world.height
+                {
+                    self.falling();
+                }
+            } else {
+                self.falling();
+            }
+        }
+        self.x = clamp(self.x, self.half(), self.world.width - self.half());
+        self.y = clamp(self.y, self.height(), self.world.height);
+    }
+    fn start_climb(&mut self, dx: f64) -> bool {
+        let side = dx.signum();
+        if side == 0. {
+            return false;
+        }
+        for w in self.world.windows.clone() {
+            let edge = if side > 0. { w.x } else { w.x + w.width };
+            let hand = self.x + side * self.half();
+            if self.y <= w.y + self.height() * 0.35
+                || self.y - self.height() >= w.y + w.height
+                || (edge - hand).abs() > dx.abs() + 5.
+                || (edge - hand) * side < -3.
+            {
+                continue;
+            }
+            self.side = side;
+            if !self.ledges.iter().any(|p| {
+                p.id == w.id
+                    && if side > 0. {
+                        p.left <= w.x + 2.
+                    } else {
+                        p.right >= w.x + w.width - 2.
+                    }
+            }) || !self.climb_visible(&w)
+            {
+                continue;
+            }
+            self.direction = side;
+            self.x = edge - side * self.half();
+            self.support = Some(w.id.clone());
+            self.attached = Some(w);
+            self.entering(Motion::Grab);
+            return true;
+        }
+        false
+    }
+    fn jump_plan(&mut self) -> Option<Plan> {
+        let mut plans = Vec::new();
+        for p in &self.ledges {
+            if Some(&p.id) == self.support.as_ref() || (p.y - self.y).abs() >= 220. {
+                continue;
+            }
+            let x = clamp(
+                self.x,
+                p.left + self.half() + 8.,
+                p.right - self.half() - 8.,
+            );
+            let dx = x - self.x;
+            if dx.abs() < self.half() || dx.abs() > 300. {
+                continue;
+            }
+            let rise = (self.y - p.y + 55.).max(70.);
+            if self.y - rise < self.height() + 5. {
+                continue;
+            }
+            let vy = -(1800. * rise).sqrt();
+            let time = (-vy + (vy * vy + 1800. * (p.y - self.y)).sqrt()) / 900.;
+            if time > 0. && (dx / time).abs() <= 350. {
+                plans.push(Plan {
+                    x,
+                    y: p.y,
+                    vx: dx / time,
+                    vy,
+                    id: p.id.clone(),
+                });
+            }
+        }
+        let i = (self.random() * plans.len() as f64) as usize;
+        plans.get(i).cloned()
+    }
+    pub fn step(&mut self, seconds: f64, walk: f64, autonomous: bool, reduced: bool) {
+        let dt = seconds.clamp(0., 0.1);
+        let n = (dt / (1. / 60.)).ceil().max(1.) as usize;
+        for _ in 0..n {
+            self.tick(dt / n as f64, walk, autonomous, reduced);
+        }
+    }
+    fn tick(&mut self, dt: f64, walk: f64, autonomous: bool, reduced: bool) {
+        let old_age = self.age;
+        self.age += dt;
+        self.cooldown = (self.cooldown - dt).max(0.);
+        if reduced {
+            if self.busy() {
+                let p = self
+                    .ledges
+                    .iter()
+                    .filter(|p| {
+                        p.y >= self.y - 3.
+                            && self.x >= p.left + self.half()
+                            && self.x <= p.right - self.half()
+                    })
+                    .min_by(|a, b| a.y.total_cmp(&b.y))
+                    .cloned();
+                self.y = p.as_ref().map_or(self.world.height, |p| p.y);
+                self.attach(p);
+                self.entering(Motion::Grounded);
+                self.vx = 0.;
+                self.vy = 0.;
+            }
+            return;
+        }
+        match self.motion {
+            Motion::Land => {
+                if self.age >= 0.45 {
+                    self.entering(Motion::Grounded);
+                }
+                return;
+            }
+            Motion::Grab => {
+                if self.age >= 0.35 {
+                    self.entering(Motion::Climb);
+                }
+                return;
+            }
+            Motion::Climb => {
+                if let Some(w) = &self.attached {
+                    let target = w.y + self.height() * 0.6;
+                    self.y = (self.y
+                        - (climb_distance(self.age, self.world.size)
+                            - climb_distance(old_age, self.world.size)))
+                    .max(target);
+                    if self.y <= target + 0.1 {
+                        self.pull_start = (self.x, self.y);
+                        self.entering(Motion::Pull);
+                    }
+                } else {
+                    self.falling();
+                }
+                return;
+            }
+            Motion::Pull => {
+                if let Some(w) = self.attached.clone() {
+                    let x = if self.side > 0. {
+                        w.x + self.half() + 3.
+                    } else {
+                        w.x + w.width - self.half() - 3.
+                    };
+                    let t = smooth(self.age / 0.7);
+                    self.x = self.pull_start.0 + (x - self.pull_start.0) * t;
+                    self.y = self.pull_start.1 + (w.y - self.pull_start.1) * t;
+                    if t >= 1. {
+                        if let Some(p) = self.at(self.x, self.y, Some(&w.id)) {
+                            self.attach(Some(p));
+                            self.entering(Motion::Land);
+                            self.cooldown = 6.;
+                        } else {
+                            self.falling();
+                        }
+                    }
+                } else {
+                    self.falling();
+                }
+                return;
+            }
+            Motion::Prepare => {
+                let valid = self.plan.as_ref().is_some_and(|p| {
+                    self.ledges.iter().any(|l| {
+                        l.id == p.id
+                            && (l.y - p.y).abs() < 3.
+                            && p.x >= l.left + self.half()
+                            && p.x <= l.right - self.half()
+                    })
+                });
+                if !autonomous || !valid {
+                    self.plan = None;
+                    self.entering(Motion::Grounded);
+                    return;
+                }
+                if self.age >= 0.28 {
+                    let p = self.plan.clone().unwrap();
+                    self.attach(None);
+                    self.vx = p.vx;
+                    self.vy = p.vy;
+                    self.direction = self.vx.signum();
+                    self.entering(Motion::Jump);
+                }
+                return;
+            }
+            Motion::Wobble => {
+                if self.age >= 0.65 {
+                    if autonomous && self.support.is_some() && self.random() < 0.18 {
+                        self.falling();
+                        self.y += 3.;
+                        self.vx = self.direction * 100.;
+                    } else {
+                        self.direction *= -1.;
+                        self.entering(Motion::Grounded);
+                    }
+                    self.cooldown = 3.;
+                }
+                return;
+            }
+            Motion::Fall | Motion::Jump => {
+                let (ox, oy) = (self.x, self.y);
+                self.vy = (self.vy + 900. * dt).min(700.);
+                self.x = clamp(
+                    self.x + self.vx * dt,
+                    self.half(),
+                    self.world.width - self.half(),
+                );
+                self.y = (self.y + self.vy * dt).max(self.height());
+                if self.y <= self.height() && self.vy < 0. {
+                    self.vy = 0.;
+                }
+                if self.vy >= 0. {
+                    let p = self
+                        .ledges
+                        .iter()
+                        .filter(|p| {
+                            if p.y < oy - 2. || p.y > self.y {
+                                return false;
+                            }
+                            let x = ox
+                                + (self.x - ox)
+                                    * ((p.y - oy) / (self.y - oy).max(0.0001)).clamp(0., 1.);
+                            x >= p.left + self.half() && x <= p.right - self.half()
+                        })
+                        .min_by(|a, b| a.y.total_cmp(&b.y))
+                        .cloned();
+                    if p.is_some() || self.y >= self.world.height {
+                        self.y = p.as_ref().map_or(self.world.height, |p| p.y);
+                        if let Some(p) = &p {
+                            self.x = clamp(self.x, p.left + self.half(), p.right - self.half());
+                        }
+                        self.attach(p);
+                        self.vx = 0.;
+                        self.vy = 0.;
+                        self.plan = None;
+                        self.entering(Motion::Land);
+                        self.cooldown = 5.;
+                    }
+                }
+                return;
+            }
+            Motion::Grounded => {}
+        }
+        if self.support.is_some() && self.at(self.x, self.y, self.support.as_deref()).is_none()
+            || self.support.is_none() && self.y < self.world.height - 1.
+        {
+            self.falling();
+            return;
+        }
+        if !autonomous {
+            return;
+        }
+        if self.cooldown == 0. {
+            self.cooldown = 8. + self.random() * 8.;
+            if let Some(p) = self.jump_plan() {
+                if self.random() < 0.55 {
+                    self.plan = Some(p);
+                    self.entering(Motion::Prepare);
+                    return;
+                }
+            }
+        }
+        let dx = walk * self.direction * dt;
+        if dx == 0. || self.start_climb(dx) {
+            return;
+        }
+        let p = self.at(self.x, self.y, self.support.as_deref());
+        let left = p.as_ref().map_or(self.half(), |p| p.left + self.half());
+        let right = p
+            .as_ref()
+            .map_or(self.world.width - self.half(), |p| p.right - self.half());
+        let next = self.x + dx;
+        if next < left || next > right {
+            self.x = clamp(next, left, right);
+            self.entering(Motion::Wobble);
+        } else {
+            self.x = next;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn rect(id: &str, x: f64, y: f64, width: f64, height: f64) -> WindowRect {
+        WindowRect {
+            id: id.into(),
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+    fn world(windows: Vec<WindowRect>, x: f64, y: f64) -> World {
+        World {
+            monitor: "main".into(),
+            width: 1000.,
+            height: 700.,
+            size: 100.,
+            x,
+            y,
+            windows,
+        }
+    }
+    fn advance(p: &mut Physics, seconds: f64, walk: f64, auto: bool) {
+        for _ in 0..(seconds * 60.).ceil() as usize {
+            p.step(1. / 60., walk, auto, false);
+        }
+    }
+    #[test]
+    fn occlusion_and_full_body_support() {
+        let w = world(
+            vec![
+                rect("front", 350., 100., 200., 300.),
+                rect("back", 100., 300., 700., 400.),
+                rect("top", 0., 20., 400., 400.),
+            ],
+            400.,
+            100.,
+        );
+        let ls = ledges(&w);
+        let back: Vec<_> = ls
+            .iter()
+            .filter(|p| p.id == "back")
+            .map(|p| (p.left, p.right))
+            .collect();
+        assert_eq!(back, vec![(100., 350.), (550., 800.)]);
+        assert!(!ls.iter().any(|p| p.id == "top"));
+        let mut p = Physics::new(world(vec![rect("a", 250., 260., 350., 440.)], 260., 100.));
+        advance(&mut p, 3., 0., false);
+        assert_eq!(p.y, 700.);
+        assert!(p.support.is_none());
+    }
+    #[test]
+    fn landing_follows_moving_resized_window_and_falls_when_closed() {
+        let mut p = Physics::new(world(vec![rect("a", 200., 300., 400., 400.)], 400., 100.));
+        advance(&mut p, 2., 0., false);
+        assert_eq!(p.support.as_deref(), Some("a"));
+        p.update(world(vec![rect("a", 300., 250., 500., 450.)], 400., 300.));
+        assert_eq!((p.x, p.y), (550., 250.));
+        p.update(world(vec![], 550., 250.));
+        assert_eq!(p.motion, Motion::Fall);
+        advance(&mut p, 3., 0., false);
+        assert_eq!(p.y, 700.);
+    }
+    #[test]
+    fn rope_climbs_both_sides_and_disappears_on_landing() {
+        for (x, direction, edge) in [(190., 1., 250.), (760., -1., 700.)] {
+            let mut p = Physics::new(world(vec![rect("a", 250., 250., 450., 450.)], x, 700.));
+            p.direction = direction;
+            let mut states = Vec::new();
+            for _ in 0..900 {
+                p.step(1. / 60., 70., true, false);
+                states.push(p.motion);
+                if p.motion == Motion::Climb {
+                    assert_eq!(p.rope_anchor(), Some((edge, 250.)));
+                }
+                if p.motion == Motion::Grounded && p.support.is_some() {
+                    break;
+                }
+            }
+            for m in [
+                Motion::Grab,
+                Motion::Climb,
+                Motion::Pull,
+                Motion::Land,
+                Motion::Grounded,
+            ] {
+                assert!(states.contains(&m), "missing {m:?}");
+            }
+            assert_eq!(p.y, 250.);
+            assert_eq!(p.rope_anchor(), None);
+        }
+    }
+    #[test]
+    fn rope_tracks_window_and_detaches_on_drag_close_or_reduce() {
+        let mut p = Physics::new(world(vec![rect("a", 250., 250., 450., 450.)], 200., 700.));
+        advance(&mut p, 0.2, 70., true);
+        assert_eq!(p.motion, Motion::Grab);
+        p.update(world(vec![rect("a", 280., 230., 450., 470.)], 200., 700.));
+        assert_eq!(p.x, 234.);
+        assert_eq!(p.rope_anchor(), Some((280., 230.)));
+        p.reset(500., 400.);
+        assert_eq!(p.rope_anchor(), None);
+        for reduced in [true, false] {
+            let mut p = Physics::new(world(vec![rect("a", 250., 250., 450., 450.)], 200., 700.));
+            advance(&mut p, 0.5, 70., true);
+            if reduced {
+                p.step(0.1, 70., true, true);
+            } else {
+                p.update(world(vec![], 200., 700.));
+            }
+            assert_eq!(p.rope_anchor(), None);
+        }
+    }
+    #[test]
+    fn ascent_only_during_pull_and_independent_of_frame_rate() {
+        assert_eq!(climb_distance(0.2, 100.), 0.);
+        assert!((climb_distance(0.4, 100.) - 20.).abs() < 1e-8);
+        assert_eq!(climb_distance(0.6, 100.), 40.);
+        assert_eq!(climb_distance(0.79, 100.), 40.);
+        assert_eq!([0., 0.21, 0.41, 0.61].map(climb_frame), [1, 0, 2, 3]);
+        let run = |dt| {
+            let mut p = Physics::new(world(vec![rect("a", 250., 150., 450., 550.)], 204., 700.));
+            assert!(p.start_climb(1.));
+            p.entering(Motion::Climb);
+            for _ in 0..(2. / dt) as usize {
+                p.step(dt, 0., false, false);
+            }
+            p.y
+        };
+        assert!((run(1. / 30.) - run(1. / 60.)).abs() < 0.01);
+    }
+    #[test]
+    fn alerts_cancel_preparation_but_allow_airborne_landing() {
+        let mut p = Physics::new(world(
+            vec![
+                rect("a", 100., 500., 300., 200.),
+                rect("b", 480., 420., 350., 280.),
+            ],
+            350.,
+            500.,
+        ));
+        p.plan = p.jump_plan();
+        assert!(p.plan.is_some());
+        p.entering(Motion::Prepare);
+        p.step(0.1, 0., false, false);
+        assert_eq!(p.motion, Motion::Grounded);
+        p.plan = p.jump_plan();
+        p.entering(Motion::Prepare);
+        advance(&mut p, 0.3, 0., true);
+        assert_eq!(p.motion, Motion::Jump);
+        advance(&mut p, 3., 0., false);
+        assert_eq!(p.support.as_deref(), Some("b"));
+        assert_eq!(p.y, 420.);
+    }
+    #[test]
+    fn monitor_change_and_delayed_frames_cannot_leave_pet_floating() {
+        let mut p = Physics::new(world(vec![rect("a", 100., 550., 600., 150.)], 300., 100.));
+        for _ in 0..25 {
+            p.step(0.1, 0., false, false);
+        }
+        assert_eq!(p.y, 550.);
+        let mut w = world(vec![], 40., 100.);
+        w.monitor = "other".into();
+        w.size = 180.;
+        p.update(w);
+        p.step(0.1, 100., true, true);
+        assert_eq!(p.y, 700.);
+        assert!(p.x >= p.half());
+        assert!(p.support.is_none());
+    }
+}
