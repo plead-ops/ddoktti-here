@@ -382,3 +382,5 @@ body.settings { --bg:#f7f5ee; --bg-2:#eeeee5; --card:#fffef9; --line:#dcded2; --
 .settings .switch{width:38px;height:22px;flex:none}.settings .switch input{opacity:1;position:relative;margin:0;z-index:auto}.settings .switch i{display:none}
 .settings .nav-item svg{width:19px;height:19px;flex:none;stroke-width:1.8}
 @media(prefers-reduced-motion:reduce){.settings input[type=checkbox],.settings input[type=checkbox]::after{transition:none}}
+
+.reminder-chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.reminder-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid #ccd8c0;border-radius:18px;padding:5px 6px 5px 12px;background:#f0f5e9;font-size:13px}.reminder-chip button{border:0;border-radius:50%;width:24px;height:24px;background:transparent;color:inherit;cursor:pointer;font-size:18px}.reminder-chip button:hover{background:#dce7d3}.reminder-chip button:disabled{opacity:.3;cursor:default}#calendar-reminder-minutes{width:90px}

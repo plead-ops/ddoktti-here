@@ -8,5 +8,5 @@ export function popupPosition(x:number,y:number,petSize:number,width:number,heig
 export function layoutPet(doc:Document,anchor:{x:number;y:number},size:number){
  const root=doc.getElementById('pet-root')!;const win=doc.defaultView!;
  root.style.setProperty('--pet-x',anchor.x+'px');root.style.setProperty('--pet-y',(anchor.y+size*10/260)+'px');root.style.setProperty('--pet-size',size+'px');
- for(const id of ['bubble','pet-menu']){const el=doc.getElementById(id)!;const width=Math.min(id==='bubble'?360:250,win.innerWidth-16);el.style.width=width+'px';const p=popupPosition(anchor.x,anchor.y,size,width,el.offsetHeight||190,win.innerWidth,win.innerHeight);el.style.left=p.left+'px';el.style.top=p.top+'px';el.classList.toggle('below',p.below);el.style.setProperty('--tail-x',p.tail+'px');}
+ for(const id of ['bubble','pet-menu','pet-reaction']){const el=doc.getElementById(id);if(!el)continue;const width=Math.min(id==='bubble'?360:id==='pet-reaction'?260:250,win.innerWidth-16);el.style.width=width+'px';const p=popupPosition(anchor.x,anchor.y,size,width,el.offsetHeight||190,win.innerWidth,win.innerHeight);el.style.left=p.left+'px';el.style.top=p.top+'px';el.classList.toggle('below',p.below);el.style.setProperty('--tail-x',p.tail+'px');}
 }

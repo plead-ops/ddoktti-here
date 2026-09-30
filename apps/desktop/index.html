@@ -42,8 +42,8 @@
         <section class="panel" data-panel="connections" hidden>
           <h2>필요한 소식만, 가까이</h2><p class="panel-desc">서비스마다 따로 연결하거나 해제할 수 있어요.</p>
           <article class="soft-card"><h3>Slack</h3><p>내 DM과 멘션을 알려드려요.</p><p class="hint">아래 버튼으로 사용할 워크스페이스에 똑띠를 추가하고 내 계정을 연결해 주세요. 이미 설치되어 있어도 내 계정의 권한 승인이 필요해요. 워크스페이스 정책에 따라 관리자 승인이 필요할 수 있어요.</p><p id="slack-status" class="hint">계정 연결 서버 설정을 준비하고 있어요.</p><div class="action-line"><button id="slack-connect" class="btn primary" disabled>Slack에 추가하고 연결</button><button id="slack-disconnect" class="btn" hidden>연결 해제 / 취소</button></div><div id="slack-filters" hidden><label class="inline-check"><input type="checkbox" role="switch" id="slack-dm" checked> DM</label><label class="inline-check"><input type="checkbox" role="switch" id="slack-mention" checked> 나를 직접 멘션</label><label class="inline-check"><input type="checkbox" role="switch" id="slack-broadcast" checked> @channel · @here</label><label class="inline-check"><input type="checkbox" role="switch" id="slack-group" checked> 내가 포함된 그룹 멘션</label><label for="slack-exclude">제외할 발신자 ID (쉼표로 구분)</label><input id="slack-exclude" type="text" placeholder="U0123456789, U9876543210"><button id="slack-save" class="btn">알림 설정 저장</button><p class="hint">Slack 방해금지를 반영해요. 채널별 음소거 등 모든 Slack 알림 설정이 복제되지는 않아요.</p></div></article>
-          <article class="soft-card"><h3>Google Calendar</h3><p>새로 추가된 캘린더까지 자동으로 확인해요. 내가 주최·참석한 일정과 개인 일정을 알리고, 응답 전 초대도 포함해요. 거절·취소·종일 일정은 제외하며 같은 일정은 한 번만 알려요.</p><p id="calendar-status" class="hint" role="status">연결 확인 중…</p><div class="action-line"><button id="calendar-connect" class="btn primary">Google Calendar 연결</button><button id="calendar-refresh" class="btn" hidden>새로고침</button><button id="calendar-disconnect" class="btn" hidden>연결 해제 / 취소</button></div><ul id="calendar-events" class="event-list"></ul></article>
-          <div class="row"><label for="pref-calendar_minutes">일정 시작 전 알림</label><select id="pref-calendar_minutes" class="select"><option value="1">1분 전</option><option value="5">5분 전</option><option value="10">10분 전</option><option value="15">15분 전</option><option value="30">30분 전</option></select></div>
+          <article class="soft-card"><h3>Google Calendar</h3><p>새로 추가된 캘린더까지 자동으로 확인해요. 내가 주최·참석한 일정과 개인 일정을 알리고, 응답 전 초대도 포함해요. 거절·취소·종일 일정은 제외하며 중복 일정은 하나로 합쳐요.</p><p id="calendar-status" class="hint" role="status">연결 확인 중…</p><div class="action-line"><button id="calendar-connect" class="btn primary">Google Calendar 연결</button><button id="calendar-refresh" class="btn" hidden>새로고침</button><button id="calendar-disconnect" class="btn" hidden>연결 해제 / 취소</button></div><ul id="calendar-events" class="event-list"></ul></article>
+          <div class="soft-card"><h3>일정 시작 전 알림</h3><p class="hint">원하는 시점을 최대 8개까지 추가해요. 같은 일정이 여러 캘린더에 있어도 각 시점에 한 번씩 알려요.</p><div id="calendar-reminders" class="reminder-chips" aria-label="설정된 일정 알림"></div><form id="calendar-reminder-form" class="action-line"><label for="calendar-reminder-minutes">시작</label><input id="calendar-reminder-minutes" class="small-input" type="number" min="0" max="1440" step="1" value="10" required aria-describedby="calendar-reminder-help"><span>분 전</span><button id="calendar-reminder-add" class="btn" type="submit">추가</button></form><p id="calendar-reminder-help" class="hint" role="status">0분은 일정 시작 시각이에요. 최대 24시간 전까지 설정할 수 있어요.</p></div>
         </section>
         <!-- 표시 -->
         <section class="panel" data-panel="display" hidden>
@@ -67,13 +67,15 @@
               <button data-pos="bottom-right" title="우하"></button>
             </div>
           </div>
+          <div class="row" id="activity-scope-row"><div class="row-text"><b>활동 범위</b><span>연결된 화면 사이를 가끔 산책해요. 분리되면 메인 화면으로 돌아와요.</span></div><select id="ov-activity-scope" class="select"><option value="primary">메인 모니터만</option><option value="all">모든 모니터</option></select></div>
+          <div class="row" id="follow-cursor-row"><div class="row-text"><b>마우스와 놀기</b><span>가까이 오면 잠깐 따라오고, 클릭할 공간을 남겨둬요.</span></div><input id="ov-follow-cursor" type="checkbox" role="switch" aria-label="마우스와 놀기" checked></div>
           <div class="row" id="alert-monitor-row">
             <div class="row-text"><b id="monitor-title">알림을 띄울 모니터</b><span id="monitor-help">연결이 끊기면 주 디스플레이로 옮겨요.</span></div>
             <select id="ov-monitor" class="select"></select>
           </div>
           <div class="row">
             <div class="row-text"><b>이미지 크기</b><span id="ov-scale-val">1.7x</span></div>
-            <input id="ov-scale" type="range" min="0.5" max="3" step="0.1" value="1.7" />
+            <input id="ov-scale" type="range" min="0.5" max="5" step="0.1" value="1.7" />
           </div>
           <div class="row">
             <div class="row-text"><b>동작 줄이기</b><span>이동·점프·낙하 없이 정지 자세로 보여요</span></div>

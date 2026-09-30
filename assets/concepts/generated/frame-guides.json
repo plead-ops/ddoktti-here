@@ -1,0 +1,132 @@
+[
+  {
+    "source": "landing-hurt-v2.png",
+    "frames": [
+      {
+        "sheet": "edge-v2",
+        "index": 6,
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 231,
+        "headCenter": 297.5,
+        "neck": 328,
+        "headTop": 116
+      },
+      {
+        "sheet": "hurt-v1",
+        "index": 0,
+        "x": 512,
+        "y": 0,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 236,
+        "headCenter": 277.0,
+        "neck": 351,
+        "headTop": 139
+      },
+      {
+        "sheet": "hurt-v1",
+        "index": 1,
+        "x": 1024,
+        "y": 0,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 230,
+        "headCenter": 263.0,
+        "neck": 345,
+        "headTop": 139
+      },
+      {
+        "sheet": "hurt-v1",
+        "index": 2,
+        "x": 0,
+        "y": 512,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 236,
+        "headCenter": 295.0,
+        "neck": 315,
+        "headTop": 108
+      },
+      {
+        "sheet": "hurt-v1",
+        "index": 3,
+        "x": 512,
+        "y": 512,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 232,
+        "headCenter": 302.0,
+        "neck": 315,
+        "headTop": 106
+      },
+      {
+        "sheet": "hurt-v1",
+        "index": 4,
+        "x": 1024,
+        "y": 512,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 224,
+        "headCenter": 288.0,
+        "neck": 317,
+        "headTop": 107
+      }
+    ]
+  },
+  {
+    "source": "sleep-yawn-v3.png",
+    "frames": [
+      {
+        "sheet": "behaviors-v2",
+        "index": 8,
+        "x": 0,
+        "y": 0,
+        "width": 627,
+        "height": 627,
+        "eyeSpan": 288,
+        "headCenter": 378.0,
+        "neck": 419,
+        "headTop": 160
+      },
+      {
+        "sheet": "behaviors-v2",
+        "index": 9,
+        "x": 627,
+        "y": 0,
+        "width": 627,
+        "height": 627,
+        "eyeSpan": 294,
+        "headCenter": 310.0,
+        "neck": 423,
+        "headTop": 161
+      },
+      {
+        "sheet": "behaviors-v2",
+        "index": 10,
+        "x": 0,
+        "y": 627,
+        "width": 627,
+        "height": 627,
+        "eyeSpan": 285,
+        "headCenter": 352.5,
+        "neck": 357,
+        "headTop": 101
+      },
+      {
+        "sheet": "behaviors-v2",
+        "index": 11,
+        "x": 627,
+        "y": 627,
+        "width": 627,
+        "height": 627,
+        "eyeSpan": 274,
+        "headCenter": 312.0,
+        "neck": 363,
+        "headTop": 101
+      }
+    ]
+  }
+]

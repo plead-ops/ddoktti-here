@@ -165,8 +165,15 @@ fn oauth(app: &AppHandle, generation: u64) -> Result<(), String> {
                     let _=stream.write_all(b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
                     continue;
                 }
-                let html="<!doctype html><meta charset=utf-8><title>똑띠</title><p>로그인 응답을 받았어요. 똑띠 설정 화면에서 연결 결과를 확인해 주세요.</p>";
-                let response=format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{html}",html.len());
+                let denied = params.contains_key("error");
+                let html = include_str!("../pages/account-callback.html")
+                    .replace("{{STATE}}", if denied { "cancelled" } else { "received" })
+                    .replace("{{ICON}}", if denied { "↩" } else { "✓" })
+                    .replace("{{TITLE}}", if denied { "연결을 취소했어요" } else { "Google 인증 응답을 받았어요" })
+                    .replace("{{BODY}}", if denied { "아직 Google 캘린더가 연결되지 않았어요. 원할 때 다시 연결할 수 있어요." } else { "똑띠가 계정 연결을 마무리하고 있어요. 일정 알림을 받을 준비가 거의 끝났어요." })
+                    .replace("{{NEXT}}", "똑띠 설정으로 돌아가 주세요")
+                    .replace("{{HELP}}", if denied { "연결된 계정에서 Google 캘린더 연결을 다시 시작해 주세요." } else { "연결된 계정에 Google 캘린더가 표시되는지 확인해 주세요. 오류가 있으면 앱에서 안내해 드려요." });
+                let response=format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{html}",html.len());
                 let _ = stream.write_all(response.as_bytes());
                 if params.contains_key("error") {
                     return Err("Google 연결을 허용하지 않았어요".into());
@@ -701,23 +708,30 @@ pub fn start(app: AppHandle) {
                 let state = app.state::<Calendar>();
                 let mut s = state.0.lock().unwrap();
                 event_snapshot = s.events.clone();
+                let reminders = prefs.reminders();
                 valid = s
                     .events
                     .iter()
-                    .map(|e| format!("calendar:{}", e.id))
+                    .flat_map(|e| {
+                        reminders
+                            .iter()
+                            .map(|minutes| reminder_id(&e.id, *minutes))
+                            .chain(std::iter::once(format!("calendar:{}", e.id)))
+                    })
                     .collect::<Vec<_>>();
                 if s.connected && prefs.quiet_until <= t {
                     for e in &s.events {
-                        let id = format!("calendar:{}", e.id);
-                        if reminder_due(
-                            e.start,
-                            e.end,
-                            prefs.calendar_minutes,
-                            t,
-                            prefs.quiet_until,
-                        ) && !s.fired.contains_key(&id)
+                        // After sleep/quiet, offer only the most recent applicable reminder.
+                        // Earlier missed reminders must never arrive as a burst.
+                        if let Some(minutes) =
+                            latest_reminder(e.start, e.end, &reminders, t, prefs.quiet_until)
                         {
-                            due.push(json!({"id":id,"source":"calendar","trigger":"calendar","title":if t<e.start{"곧 일정이 시작돼요"}else{"일정이 시작됐어요"},"body":e.title,"startsAt":e.start,"endsAt":e.end,"expiresAt":e.end,"deepLink":e.url,"meetingUrl":e.meeting_url}));
+                            let id = reminder_id(&e.id, minutes);
+                            let legacy_delivered = minutes == prefs.calendar_minutes
+                                && s.fired.contains_key(&format!("calendar:{}", e.id));
+                            if !s.fired.contains_key(&id) && !legacy_delivered {
+                                due.push(json!({"id":id,"source":"calendar","trigger":"calendar","title":if t<e.start{"곧 일정이 시작돼요"}else{"일정이 시작됐어요"},"body":e.title,"startsAt":e.start,"endsAt":e.end,"expiresAt":e.end,"deepLink":e.url,"meetingUrl":e.meeting_url}));
+                            }
                         }
                     }
                     for alert in &due {
@@ -739,6 +753,16 @@ pub fn start(app: AppHandle) {
                 let state = app.state::<crate::companion::Companion>();
                 let mut s = state.0.lock().unwrap();
                 let n = s.alerts.len();
+                // A later reminder supersedes the unread/snoozed earlier one for this event.
+                let replaced = event_snapshot
+                    .iter()
+                    .filter(|e| due.iter().any(|a| belongs_to_event(a, &e.id)))
+                    .map(|e| e.id.as_str())
+                    .collect::<Vec<_>>();
+                s.alerts
+                    .retain(|a| !replaced.iter().any(|id| belongs_to_event(a, id)));
+                s.snoozed
+                    .retain(|_, (_, a)| !replaced.iter().any(|id| belongs_to_event(a, id)));
                 s.alerts
                     .retain(|a| a["source"] != "calendar" || valid.iter().any(|id| a["id"] == *id));
                 s.snoozed.retain(|_, (_, a)| {
@@ -747,9 +771,7 @@ pub fn start(app: AppHandle) {
                 let mut updated = false;
                 for a in s.alerts.iter_mut() {
                     if a["source"] == "calendar" {
-                        if let Some(e) = event_snapshot
-                            .iter()
-                            .find(|e| a["id"] == format!("calendar:{}", e.id))
+                        if let Some(e) = event_snapshot.iter().find(|e| belongs_to_event(a, &e.id))
                         {
                             updated |= a["body"] != e.title
                                 || a["startsAt"] != e.start
@@ -765,9 +787,7 @@ pub fn start(app: AppHandle) {
                 }
                 for (_, a) in s.snoozed.values_mut() {
                     if a["source"] == "calendar" {
-                        if let Some(e) = event_snapshot
-                            .iter()
-                            .find(|e| a["id"] == format!("calendar:{}", e.id))
+                        if let Some(e) = event_snapshot.iter().find(|e| belongs_to_event(a, &e.id))
                         {
                             a["body"] = json!(e.title);
                             a["startsAt"] = json!(e.start);
@@ -851,6 +871,25 @@ pub(crate) fn defer_unread(app: &AppHandle, ids: &[String]) {
     }
 }
 
+fn reminder_id(event: &str, minutes: u64) -> String {
+    format!("calendar:{event}:reminder:{minutes}")
+}
+fn belongs_to_event(alert: &Value, event: &str) -> bool {
+    alert["source"] == "calendar"
+        && alert["id"].as_str().is_some_and(|id| {
+            id == format!("calendar:{event}")
+                || id
+                    .strip_prefix(&format!("calendar:{event}:reminder:"))
+                    .is_some_and(|n| n.parse::<u64>().is_ok())
+        })
+}
+fn latest_reminder(start: u64, end: u64, minutes: &[u64], t: u64, quiet_until: u64) -> Option<u64> {
+    minutes
+        .iter()
+        .copied()
+        .filter(|m| reminder_due(start, end, *m, t, quiet_until))
+        .min()
+}
 fn reminder_due(start: u64, end: u64, minutes: u64, t: u64, quiet_until: u64) -> bool {
     t >= quiet_until
         && t >= start.saturating_sub(minutes * 60)
@@ -1045,5 +1084,33 @@ mod multi_calendar_tests {
             occurrence_key(&e, &source(true), ME),
             occurrence_key(&e, &source(true), "other@example.com")
         );
+    }
+}
+
+#[cfg(test)]
+mod multi_reminder_tests {
+    use super::*;
+    #[test]
+    fn each_threshold_and_wake_catchup_choose_one_reminder() {
+        let times = [30, 10, 0];
+        let start = 10000;
+        assert_eq!(latest_reminder(start, 14000, &times, 8000, 0), None);
+        assert_eq!(latest_reminder(start, 14000, &times, 8200, 0), Some(30));
+        assert_eq!(latest_reminder(start, 14000, &times, 9400, 0), Some(10));
+        assert_eq!(latest_reminder(start, 14000, &times, 10000, 0), Some(0));
+        assert_eq!(latest_reminder(start, 14000, &times, 10050, 10040), Some(0));
+        assert_eq!(latest_reminder(start, 14000, &times, 10300, 0), None);
+        assert_eq!(latest_reminder(start, 14000, &times, 9500, 9600), None);
+    }
+    #[test]
+    fn reminder_keys_are_independent_but_share_event_identity() {
+        let a = json!({"source":"calendar","id":reminder_id("meeting:instance",30)});
+        assert_ne!(
+            reminder_id("meeting:instance", 30),
+            reminder_id("meeting:instance", 10)
+        );
+        assert!(belongs_to_event(&a, "meeting:instance"));
+        assert!(!belongs_to_event(&a, "meeting"));
+        assert!(!belongs_to_event(&a, "other"));
     }
 }

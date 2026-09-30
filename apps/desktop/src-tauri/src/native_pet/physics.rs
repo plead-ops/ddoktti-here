@@ -12,6 +12,7 @@ pub enum Motion {
     Grounded,
     Fall,
     Land,
+    Hurt,
     Prepare,
     Jump,
     Grab,
@@ -25,6 +26,7 @@ impl Motion {
             Self::Grounded => "idle",
             Self::Fall => "fall",
             Self::Land => "land",
+            Self::Hurt => "hurt",
             Self::Prepare => "prepare",
             Self::Jump => "travel-jump",
             Self::Grab => "grab",
@@ -50,7 +52,7 @@ pub fn climb_frame(age: f64) -> usize {
 }
 pub fn ledges(w: &World) -> Vec<Ledge> {
     let mut out = Vec::new();
-    let half = w.size * 0.46;
+    let half = w.size * 0.07;
     let height = w.size * 0.83;
     for (i, win) in w.windows.iter().enumerate() {
         if win.y < height || win.y > w.height {
@@ -113,6 +115,8 @@ pub struct Physics {
     approach: Option<(String, f64)>,
     pull_start: (f64, f64),
     seed: u64,
+    fall_origin: f64,
+    deliberate_jump: bool,
 }
 impl Physics {
     pub fn new(world: World) -> Self {
@@ -134,6 +138,8 @@ impl Physics {
             approach: None,
             pull_start: (0., 0.),
             seed: 0x927fd,
+            fall_origin: 0.,
+            deliberate_jump: false,
         };
         p.reset(p.x, p.y);
         p
@@ -144,6 +150,14 @@ impl Physics {
     }
     pub fn half(&self) -> f64 {
         self.world.size * 0.46
+    }
+    pub fn foot(&self) -> f64 {
+        self.world.size * 0.07
+    }
+    pub fn on_floor(&self) -> bool {
+        self.support.is_none()
+            && (self.y - self.world.height).abs() < 2.
+            && self.motion == Motion::Grounded
     }
     pub fn height(&self) -> f64 {
         self.world.size * 0.83
@@ -161,10 +175,31 @@ impl Physics {
             .find(|p| {
                 id.is_none_or(|id| p.id == id)
                     && (p.y - y).abs() < 3.
-                    && x >= p.left + self.half()
-                    && x <= p.right - self.half()
+                    && x >= p.left + self.foot()
+                    && x <= p.right - self.foot()
             })
             .cloned()
+    }
+    // Body overhang is allowed; both feet must remain on the exposed segment.
+    fn edge_landing(&self, w: &WindowRect, side: f64) -> Option<f64> {
+        self.ledges
+            .iter()
+            .find(|p| {
+                p.id == w.id
+                    && if side > 0. {
+                        p.left <= w.x + 2.
+                    } else {
+                        p.right >= w.x + w.width - 2.
+                    }
+            })
+            .map(|p| {
+                let edge = if side > 0. { w.x } else { w.x + w.width };
+                clamp(
+                    edge + side * (self.foot() + 3.),
+                    p.left + self.foot(),
+                    p.right - self.foot(),
+                )
+            })
     }
     fn attach(&mut self, p: Option<Ledge>) {
         self.support = p.map(|p| p.id);
@@ -176,6 +211,8 @@ impl Physics {
             .cloned();
     }
     pub fn reset(&mut self, x: f64, y: f64) {
+        self.fall_origin = y;
+        self.deliberate_jump = false;
         self.x = clamp(x, self.half(), self.world.width - self.half());
         self.y = clamp(y, self.height(), self.world.height);
         self.vx = 0.;
@@ -192,6 +229,8 @@ impl Physics {
         );
     }
     fn falling(&mut self) {
+        self.fall_origin = self.y;
+        self.deliberate_jump = false;
         self.approach = None;
         self.attach(None);
         self.plan = None;
@@ -293,7 +332,7 @@ impl Physics {
         self.side = side;
         let edge = if side > 0. { w.x } else { w.x + w.width };
         let x = edge - side * self.half();
-        let landing = edge + side * (self.half() + 3.);
+        let landing = self.edge_landing(&w, side)?;
         if self.at(landing, w.y, Some(id)).is_none() || !self.climb_visible(&w) {
             return None;
         }
@@ -383,10 +422,11 @@ impl Physics {
             if Some(&p.id) == self.support.as_ref() || (p.y - self.y).abs() >= 220. {
                 continue;
             }
+            let margin = 8_f64.min(((p.right - p.left) / 2. - self.foot()).max(0.));
             let x = clamp(
                 self.x,
-                p.left + self.half() + 8.,
-                p.right - self.half() - 8.,
+                p.left + self.foot() + margin,
+                p.right - self.foot() - margin,
             );
             let dx = x - self.x;
             if dx.abs() < self.half() || dx.abs() > 300. {
@@ -411,6 +451,24 @@ impl Physics {
         let i = (self.random() * plans.len() as f64) as usize;
         plans.get(i).cloned()
     }
+    pub fn follow_step(&mut self, dt: f64, speed: f64) -> bool {
+        if self.motion != Motion::Grounded || speed <= 0. || dt <= 0. {
+            return false;
+        }
+        let p = self.at(self.x, self.y, self.support.as_deref());
+        let left = p.as_ref().map_or(self.half(), |p| p.left + self.foot());
+        let right = p
+            .as_ref()
+            .map_or(self.world.width - self.half(), |p| p.right - self.foot());
+        let next = self.x + self.direction * speed * dt;
+        self.x = clamp(next, left, right);
+        if next < left || next > right {
+            self.approach = None;
+            self.entering(Motion::Wobble);
+            return true;
+        }
+        false
+    }
     pub fn step(&mut self, seconds: f64, walk: f64, autonomous: bool, reduced: bool) {
         let dt = seconds.clamp(0., 0.1);
         let n = (dt / (1. / 60.)).ceil().max(1.) as usize;
@@ -430,8 +488,8 @@ impl Physics {
                     .iter()
                     .filter(|p| {
                         p.y >= self.y - 3.
-                            && self.x >= p.left + self.half()
-                            && self.x <= p.right - self.half()
+                            && self.x >= p.left + self.foot()
+                            && self.x <= p.right - self.foot()
                     })
                     .min_by(|a, b| a.y.total_cmp(&b.y))
                     .cloned();
@@ -444,6 +502,12 @@ impl Physics {
             return;
         }
         match self.motion {
+            Motion::Hurt => {
+                if self.age >= 2.8 {
+                    self.entering(Motion::Grounded);
+                }
+                return;
+            }
             Motion::Land => {
                 if self.age >= 0.45 {
                     self.entering(Motion::Grounded);
@@ -474,10 +538,9 @@ impl Physics {
             }
             Motion::Pull => {
                 if let Some(w) = self.attached.clone() {
-                    let x = if self.side > 0. {
-                        w.x + self.half() + 3.
-                    } else {
-                        w.x + w.width - self.half() - 3.
+                    let Some(x) = self.edge_landing(&w, self.side) else {
+                        self.falling();
+                        return;
                     };
                     let t = smooth(self.age / 0.7);
                     self.x = self.pull_start.0 + (x - self.pull_start.0) * t;
@@ -501,8 +564,8 @@ impl Physics {
                     self.ledges.iter().any(|l| {
                         l.id == p.id
                             && (l.y - p.y).abs() < 3.
-                            && p.x >= l.left + self.half()
-                            && p.x <= l.right - self.half()
+                            && p.x >= l.left + self.foot()
+                            && p.x <= l.right - self.foot()
                     })
                 });
                 if !autonomous || !valid {
@@ -516,6 +579,7 @@ impl Physics {
                     self.vx = p.vx;
                     self.vy = p.vy;
                     self.direction = self.vx.signum();
+                    self.deliberate_jump = true;
                     self.entering(Motion::Jump);
                 }
                 return;
@@ -536,13 +600,19 @@ impl Physics {
             }
             Motion::Fall | Motion::Jump => {
                 let (ox, oy) = (self.x, self.y);
+                // Integrate acceleration exactly so narrow jump targets do not
+                // shift with frame rate; include any time spent at terminal speed.
+                let accelerating = ((700. - self.vy) / 900.).clamp(0., dt);
+                let dy = self.vy * accelerating
+                    + 450. * accelerating * accelerating
+                    + 700. * (dt - accelerating);
                 self.vy = (self.vy + 900. * dt).min(700.);
                 self.x = clamp(
                     self.x + self.vx * dt,
                     self.half(),
                     self.world.width - self.half(),
                 );
-                self.y = (self.y + self.vy * dt).max(self.height());
+                self.y = (self.y + dy).max(self.height());
                 if self.y <= self.height() && self.vy < 0. {
                     self.vy = 0.;
                 }
@@ -557,20 +627,22 @@ impl Physics {
                             let x = ox
                                 + (self.x - ox)
                                     * ((p.y - oy) / (self.y - oy).max(0.0001)).clamp(0., 1.);
-                            x >= p.left + self.half() && x <= p.right - self.half()
+                            x >= p.left + self.foot() && x <= p.right - self.foot()
                         })
                         .min_by(|a, b| a.y.total_cmp(&b.y))
                         .cloned();
                     if p.is_some() || self.y >= self.world.height {
                         self.y = p.as_ref().map_or(self.world.height, |p| p.y);
                         if let Some(p) = &p {
-                            self.x = clamp(self.x, p.left + self.half(), p.right - self.half());
+                            self.x = clamp(self.x, p.left + self.foot(), p.right - self.foot());
                         }
                         self.attach(p);
                         self.vx = 0.;
                         self.vy = 0.;
                         self.plan = None;
-                        self.entering(Motion::Land);
+                        let hurt = !self.deliberate_jump
+                            && self.y - self.fall_origin > self.height() * 1.2;
+                        self.entering(if hurt { Motion::Hurt } else { Motion::Land });
                         self.cooldown = 5.;
                     }
                 }
@@ -610,10 +682,10 @@ impl Physics {
             return;
         }
         let p = self.at(self.x, self.y, self.support.as_deref());
-        let left = p.as_ref().map_or(self.half(), |p| p.left + self.half());
+        let left = p.as_ref().map_or(self.half(), |p| p.left + self.foot());
         let right = p
             .as_ref()
-            .map_or(self.world.width - self.half(), |p| p.right - self.half());
+            .map_or(self.world.width - self.half(), |p| p.right - self.foot());
         let next = self.x + dx;
         if next < left || next > right {
             self.x = clamp(next, left, right);
@@ -749,7 +821,43 @@ mod tests {
         }
     }
     #[test]
-    fn occlusion_and_full_body_support() {
+    fn pointer_follow_reacts_at_both_window_edges_then_can_retreat() {
+        for direction in [-1., 1.] {
+            let mut p = Physics::new(world(vec![rect("a", 200., 300., 400., 400.)], 400., 300.));
+            p.direction = direction;
+            let edge = if direction > 0. {
+                600. - p.foot()
+            } else {
+                200. + p.foot()
+            };
+            p.x = edge - direction;
+            assert!(!p.follow_step(1. / 60., 0.));
+            assert!(p.follow_step(1. / 60., 180.));
+            assert_eq!(p.motion, Motion::Wobble);
+            assert!((p.x - edge).abs() < 1e-8);
+            assert!(!p.follow_step(1. / 60., 180.));
+            advance(&mut p, 0.7, 0., false);
+            assert_eq!(p.motion, Motion::Grounded);
+            assert_eq!(p.direction, -direction);
+            let x = p.x;
+            p.step(0.1, 80., true, false);
+            assert!((p.x - x) * direction < 0.);
+            assert_eq!(p.support.as_deref(), Some("a"));
+        }
+    }
+    #[test]
+    fn pointer_follow_screen_edge_never_falls_outside_the_desktop() {
+        let mut p = Physics::new(world(vec![], 400., 700.));
+        p.x = p.world.width - p.half();
+        p.direction = 1.;
+        assert!(p.follow_step(1. / 60., 180.));
+        advance(&mut p, 0.7, 0., true);
+        assert_eq!(p.motion, Motion::Grounded);
+        assert_eq!(p.direction, -1.);
+        assert_eq!(p.y, p.world.height);
+    }
+    #[test]
+    fn occlusion_and_foot_support() {
         let w = world(
             vec![
                 rect("front", 350., 100., 200., 300.),
@@ -769,8 +877,8 @@ mod tests {
         assert!(!ls.iter().any(|p| p.id == "top"));
         let mut p = Physics::new(world(vec![rect("a", 250., 260., 350., 440.)], 260., 100.));
         advance(&mut p, 3., 0., false);
-        assert_eq!(p.y, 700.);
-        assert!(p.support.is_none());
+        assert_eq!(p.y, 260.);
+        assert_eq!(p.support.as_deref(), Some("a"));
     }
     #[test]
     fn landing_follows_moving_resized_window_and_falls_when_closed() {
@@ -890,5 +998,125 @@ mod tests {
         assert_eq!(p.y, 700.);
         assert!(p.x >= p.half());
         assert!(p.support.is_none());
+    }
+    #[test]
+    fn high_drop_hurts_low_drop_lands_and_intentional_jump_does_not_hurt() {
+        for (y, expected) in [(100., Motion::Hurt), (650., Motion::Land)] {
+            let mut p = Physics::new(world(vec![], 400., y));
+            for _ in 0..180 {
+                if p.motion != Motion::Fall {
+                    break;
+                }
+                p.step(1. / 60., 0., false, false);
+            }
+            assert_eq!(p.motion, expected);
+            assert_eq!(p.y, 700.);
+            advance(&mut p, 3., 0., false);
+            assert_eq!(p.motion, Motion::Grounded);
+        }
+        let mut p = Physics::new(world(
+            vec![
+                rect("source", 100., 350., 300., 350.),
+                rect("target", 480., 540., 350., 160.),
+            ],
+            350.,
+            350.,
+        ));
+        p.plan = p.jump_plan();
+        assert!(p.plan.is_some());
+        p.entering(Motion::Prepare);
+        advance(&mut p, 0.3, 0., true);
+        assert_eq!(p.motion, Motion::Jump);
+        for _ in 0..180 {
+            if p.motion != Motion::Jump {
+                break;
+            }
+            p.step(1. / 60., 0., false, false);
+        }
+        assert_eq!(p.motion, Motion::Land);
+        assert_eq!(p.support.as_deref(), Some("target"));
+    }
+    #[test]
+    fn narrow_exposed_inactive_window_accepts_rope_and_small_front_window_accepts_drop() {
+        let windows = vec![
+            rect("front", 316., 100., 400., 400.),
+            rect("inactive", 300., 250., 350., 150.),
+        ];
+        let mut p = Physics::new(world(windows.clone(), 100., 700.));
+        assert_eq!(p.edge_landing(&windows[1], 1.), Some(309.));
+        assert!(p.rope_target("inactive", 1.).is_some());
+        p.approach = Some(("inactive".into(), 1.));
+        for _ in 0..1600 {
+            p.step(1. / 60., 80., true, false);
+            if p.motion == Motion::Land {
+                break;
+            }
+        }
+        assert_eq!(p.support.as_deref(), Some("inactive"));
+        assert_eq!((p.x, p.y), (309., 250.));
+        assert_eq!(p.motion, Motion::Land);
+        // Changing focus/Z order cannot detach an otherwise exposed support.
+        p.update(world(windows.into_iter().rev().collect(), p.x, p.y));
+        assert_eq!(p.support.as_deref(), Some("inactive"));
+        assert_eq!(p.motion, Motion::Land);
+        let mut p = Physics::new(world(
+            vec![
+                rect("small-front", 350., 200., 40., 100.),
+                rect("back", 100., 360., 700., 340.),
+            ],
+            370.,
+            100.,
+        ));
+        advance(&mut p, 2., 0., false);
+        assert_eq!(p.support.as_deref(), Some("small-front"));
+        assert_eq!(p.y, 200.);
+    }
+    #[test]
+    fn narrow_jump_destination_uses_available_foot_clearance() {
+        let mut p = Physics::new(world(
+            vec![
+                rect("source", 100., 500., 300., 200.),
+                rect("narrow", 480., 420., 16., 280.),
+            ],
+            350.,
+            500.,
+        ));
+        let plan = p.jump_plan().expect("narrow but supported landing");
+        assert_eq!(plan.x, 488.);
+        p.plan = Some(plan);
+        p.entering(Motion::Prepare);
+        advance(&mut p, 0.3, 0., true);
+        advance(&mut p, 2., 0., false);
+        assert_eq!(p.support.as_deref(), Some("narrow"));
+        assert_eq!(p.y, 420.);
+    }
+    #[test]
+    fn sixty_and_one_twenty_hz_keep_walking_falling_and_climbing_in_sync() {
+        let run = |hz: usize, mode: Motion| {
+            let mut p = Physics::new(world(
+                vec![rect("wall", 700., 150., 200., 550.)],
+                200.,
+                700.,
+            ));
+            match mode {
+                Motion::Fall => p.reset(200., 100.),
+                Motion::Climb => {
+                    p.x = 654.;
+                    assert!(p.start_climb(1.));
+                    p.entering(Motion::Climb);
+                }
+                _ => {}
+            }
+            for _ in 0..hz / 2 {
+                p.step(1. / hz as f64, 80., mode == Motion::Grounded, false);
+            }
+            (p.x, p.y)
+        };
+        for mode in [Motion::Grounded, Motion::Fall, Motion::Climb] {
+            let a = run(60, mode);
+            let b = run(120, mode);
+            assert!((a.0 - b.0).abs() < 0.01);
+            assert!((a.1 - b.1).abs() < 0.01);
+        }
     }
 }

@@ -27,7 +27,8 @@ pub struct Preferences {
     pub stretch_minutes: u64,
     pub quiet_until: u64,
     pub timer_during_quiet: bool,
-    pub calendar_minutes: u64,
+    pub calendar_minutes: u64, // Legacy single reminder; preserved when upgrading.
+    pub calendar_reminders: Vec<u64>,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -42,8 +43,29 @@ impl Default for Preferences {
             quiet_until: 0,
             timer_during_quiet: true,
             calendar_minutes: 5,
+            calendar_reminders: Vec::new(),
         }
     }
+}
+impl Preferences {
+    pub fn reminders(&self) -> Vec<u64> {
+        let mut values = if self.calendar_reminders.is_empty() {
+            vec![self.calendar_minutes]
+        } else {
+            self.calendar_reminders.clone()
+        };
+        values.sort_unstable_by(|a, b| b.cmp(a));
+        values.dedup();
+        values
+    }
+}
+fn normalize_reminders(values: &mut Vec<u64>) -> Result<(), String> {
+    if values.is_empty() || values.len() > 8 || values.iter().any(|n| *n > 1440) {
+        return Err("일정 알림은 0~1440분 사이로 1~8개 설정해 주세요".into());
+    }
+    values.sort_unstable_by(|a, b| b.cmp(a));
+    values.dedup();
+    Ok(())
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Timer {
@@ -132,6 +154,9 @@ pub fn set_preferences(app: AppHandle, patch: Value) -> Result<(), String> {
         p.stretch_minutes = p.stretch_minutes.clamp(10, 180);
         if ![1, 5, 10, 15, 30].contains(&p.calendar_minutes) {
             return Err("일정 알림 시간을 확인해 주세요".into());
+        }
+        if patch.get("calendar_reminders").is_some() {
+            normalize_reminders(&mut p.calendar_reminders)?;
         }
         p.quiet_until = p.quiet_until.min(now() + 24 * 3600);
         let mut saved = s.saved.clone();
@@ -264,6 +289,9 @@ pub fn timer_action(app: AppHandle, action: String, minutes: Option<u64>) -> Res
         s.saved = saved;
         s.alerts.retain(|a| a["source"] != "timer");
     }
+    if action == "start" {
+        crate::native_pet::acknowledge_timer(&app);
+    }
     emit(&app);
     Ok(())
 }
@@ -366,7 +394,23 @@ pub fn start(app: AppHandle) {
                 continue;
             }
             let slack_active = crate::foreground::slack_active();
-            let fullscreen = crate::fullscreen::active();
+            // Query window APIs before locking Companion (UI-thread calls must never wait on this lock).
+            let target = app
+                .get_webview_window("overlay")
+                .and_then(|w| w.current_monitor().ok().flatten())
+                .map(|m| {
+                    #[cfg(target_os = "macos")]
+                    let unit = m.scale_factor();
+                    #[cfg(not(target_os = "macos"))]
+                    let unit = 1.;
+                    [
+                        m.position().x as f64 / unit,
+                        m.position().y as f64 / unit,
+                        m.size().width as f64 / unit,
+                        m.size().height as f64 / unit,
+                    ]
+                });
+            let fullscreen = crate::fullscreen::active(target);
             let full_changed = {
                 let state = app.state::<Companion>();
                 let mut s = state.0.lock().unwrap();
@@ -467,5 +511,20 @@ mod tests {
         let decoded: Timer = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
         assert_eq!(decoded.remaining, 124);
         assert_eq!(decoded.deadline, None);
+    }
+}
+
+#[cfg(test)]
+mod reminder_settings_tests {
+    use super::*;
+    #[test]
+    fn single_reminder_migrates_and_multi_reminders_are_unique() {
+        let old: Preferences = serde_json::from_value(json!({"calendar_minutes":15})).unwrap();
+        assert_eq!(old.reminders(), vec![15]);
+        let mut values = vec![10, 30, 10, 0];
+        normalize_reminders(&mut values).unwrap();
+        assert_eq!(values, vec![30, 10, 0]);
+        assert!(normalize_reminders(&mut vec![]).is_err());
+        assert!(normalize_reminders(&mut vec![1441]).is_err());
     }
 }

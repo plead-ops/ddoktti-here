@@ -22,9 +22,9 @@ test('all traced frames are real vector paths with no embedded bitmaps',async()=
   assert.match(svg,/<path /);assert.doesNotMatch(svg,/<image|data:image|<script/i);
   assert(frame.hit.length>0);count++;
  }
- assert.equal(count,124);
+ assert.equal(count,129);
 });
-test('shared palette and measurements keep all 124 frames consistent',()=>{
+test('shared palette and measurements keep all original and recovery frames consistent',()=>{
  for(const sheet of Object.values(frames))for(const frame of sheet.frames){
   assert.equal(frame.eyeSpan,90);assert(frame.bodyHeight>0);
   assert.equal(frame.bottom,250);
@@ -88,4 +88,20 @@ test('rope hands regenerate from reviewed source coordinates with the same unifo
   const transformed=points.map(([x,y])=>[Number((200+(x-f.source.headCenter)*f.uniformScale).toFixed(2)),Number((250+(y-f.sourceBounds[3])*f.uniformScale).toFixed(2))]);
   assert.deepEqual(hands[i],transformed);
  }
+});
+
+test('landing, hurt and sleepy use traced imagegen sources without synthetic body or mouth overlays',async()=>{
+ const updated=[frames['edge-v2'].frames[6],...frames['hurt-v1'].frames,...frames['behaviors-v2'].frames.slice(8,12)];
+ assert.equal(updated.length,10);
+ for(const frame of updated){
+  assert.match(frame.sourceImage,/^assets\/concepts\/generated\/.+\.png$/);
+  const png=await readFile(new URL(frame.sourceImage,root));
+  assert.equal(png.subarray(1,4).toString(),'PNG');
+  assert.doesNotMatch(artwork[frame.key],/hurt-head|<ellipse|<circle/);
+ }
+});
+test('hurt rub loop stays squinting before easing into recovery',()=>{
+ for(let t=400;t<2100;t+=50)assert([1,2].includes(vectorFrame('hurt',t).index));
+ assert.equal(vectorFrame('hurt',2100).index,3);
+ assert.equal(vectorFrame('hurt',2450).index,4);
 });

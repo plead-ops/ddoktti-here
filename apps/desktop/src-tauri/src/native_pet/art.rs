@@ -15,6 +15,7 @@ pub struct Frame {
 pub struct Sheet {
     pub frames: Vec<Frame>,
 }
+pub const CACHE_BYTES: usize = 96 * 1024 * 1024;
 pub struct Art {
     paths: HashMap<String, String>,
     pub sheets: HashMap<String, Sheet>,
@@ -26,6 +27,20 @@ pub struct Pose {
     pub index: usize,
     pub lift: f64,
     pub offset: f64,
+}
+/// Distance from the foot anchor to the gripping hand in the first hang pose.
+/// Keep the screen attachment tied to the reviewed hand landmarks, not SVG bounds.
+pub fn hanging_reach() -> f64 {
+    static REACH: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *REACH.get_or_init(|| {
+        let hands: HashMap<String, Vec<[f64; 2]>> =
+            serde_json::from_str(include_str!("../../../src/pet-climb-hands.json"))
+                .expect("reviewed hand landmarks");
+        250. - hands["13"]
+            .iter()
+            .map(|p| p[1])
+            .fold(f64::INFINITY, f64::min)
+    })
 }
 pub fn duration(mode: &str) -> f64 {
     match mode {
@@ -41,6 +56,8 @@ pub fn duration(mode: &str) -> f64 {
         "surprised" => 1.8,
         "relieved" => 2.3,
         "tickle" => 2.2,
+        "enough" => 3.0,
+        "ack" => 2.2,
         _ => 7.,
     }
 }
@@ -75,6 +92,7 @@ impl Art {
             "curious" => Some(("emotions-v1", 4, 0.9, false)),
             "surprised" => Some(("emotions-v2", 0, 0.4, false)),
             "playful" => Some(("emotions-v2", 1, 0.55, false)),
+            "ack" => Some(("emotions-v1", 2, 0.4, false)),
             "sulking" => Some(("emotions-v2", 2, 0.55, false)),
             "cheering" => Some(("emotions-v2", 3, 0.55, false)),
             "relieved" => Some(("emotions-v2", 4, 0.45, false)),
@@ -121,6 +139,35 @@ impl Art {
                 if mode == "drag" {
                     p.lift = 12.;
                 }
+            }
+            "enough" => {
+                p.sheet = "emotions-v2";
+                p.index = 8 + ((t / 0.2).floor() as usize).min(2);
+            }
+            "hang" => {
+                p.sheet = "surfaces-v2";
+                p.index = if ((t / 0.6).floor() as usize) % 2 == 0 {
+                    13
+                } else {
+                    15
+                };
+                p.lift = if p.index == 15 { 3.8 } else { 0. };
+            }
+            "peek" => {
+                p.sheet = "surfaces-v2";
+                p.index = 12;
+            }
+            "hurt" => {
+                p.sheet = "hurt-v1";
+                p.index = if t < 0.4 {
+                    0
+                } else if t < 2.1 {
+                    1 + ((t - 0.4) / 0.18).floor() as usize % 2
+                } else if t < 2.45 {
+                    3
+                } else {
+                    4
+                };
             }
             "fall" | "land" => {
                 p.sheet = "edge-v2";
@@ -203,7 +250,10 @@ impl Art {
         );
         self.cache
             .push_back((key.into(), pixel_height, pix.clone()));
-        while self.cache.len() > 16 {
+        while self.cache.len() > 16
+            || (self.cache.len() > 1
+                && self.cache.iter().map(|e| e.2.data().len()).sum::<usize>() > CACHE_BYTES)
+        {
             self.cache.pop_front();
         }
         Ok(pix)
@@ -312,7 +362,7 @@ mod tests {
     fn every_original_frame_rasterizes_transparently_and_cache_is_bounded() {
         let mut art = Art::new().unwrap();
         let keys: Vec<_> = art.paths.keys().cloned().collect();
-        assert_eq!(keys.len(), 124);
+        assert_eq!(keys.len(), 129);
         for key in keys {
             let bitmap = art.bitmap(&key, 260).unwrap();
             assert!(

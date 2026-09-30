@@ -45,6 +45,8 @@ interface DisplaySettings {
   reduce_motion: boolean;
   always_on_top: boolean;
   monitor: string;
+  activity_scope: "primary"|"all";
+  follow_cursor: boolean;
 }
 interface MonitorInfo {
   id: string;
@@ -102,6 +104,8 @@ async function loadDisplay(): Promise<void> {
   display = await invoke<DisplaySettings>("get_display_settings").catch(() => null);
   if (!display) return;
   setPosUI(display.position);
+  $<HTMLSelectElement>("ov-activity-scope").value = display.activity_scope || "all";
+  $<HTMLInputElement>("ov-follow-cursor").checked = display.follow_cursor !== false;
   ovScale.value = String(display.scale);
   ovScaleVal.textContent = `${display.scale.toFixed(1)}x`;
   ovSpeed.value = String(display.speed);
@@ -144,6 +148,8 @@ async function saveDisplay(): Promise<void> {
   display = {
     ...display,
     scale: parseFloat(ovScale.value),
+    activity_scope: $<HTMLSelectElement>("ov-activity-scope").value as "primary"|"all",
+    follow_cursor: $<HTMLInputElement>("ov-follow-cursor").checked,
     speed: parseFloat(ovSpeed.value),
     sound: ovSound.checked,
     reduce_motion: ovMotion.checked,
@@ -156,6 +162,7 @@ async function saveDisplay(): Promise<void> {
   displayWrites = displayWrites.then(() => invoke("set_display_settings", { settings })).then(() => undefined).catch(e => { diagStatus.textContent = String(e); }).finally(() => { pendingDisplayWrites--; });
   await displayWrites;
 }
+for (const id of ['ov-activity-scope','ov-follow-cursor']) $(id).addEventListener('change',()=>void saveDisplay());
 ovScale.addEventListener("input", () => void saveDisplay());
 ovSpeed.addEventListener("input", () => void saveDisplay());
 ovSound.addEventListener("change", () => void saveDisplay());

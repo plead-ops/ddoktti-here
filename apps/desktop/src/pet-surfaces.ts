@@ -5,7 +5,7 @@ import {climbDistance} from './pet-climb';
 export interface SurfaceWindow { id:string;x:number;y:number;width:number;height:number }
 export interface SurfaceWorld { monitor:string;x:number;y:number;width:number;height:number;size:number;windows:SurfaceWindow[] }
 export interface Ledge { id:string;left:number;right:number;y:number }
-export type Motion='grounded'|'fall'|'land'|'prepare'|'jump'|'grab'|'climb'|'pull'|'wobble';
+export type Motion='grounded'|'fall'|'land'|'prepare'|'jump'|'grab'|'climb'|'pull'|'wobble'|'hurt';
 export interface MotionInput { walk:number;autonomous:boolean;reduced:boolean;paused?:boolean }
 const clamp=(v:number,a:number,b:number)=>Math.max(a,Math.min(Math.max(a,b),v));
 const smooth=(t:number)=>t*t*(3-2*t);
@@ -15,7 +15,7 @@ export function subtractInterval(parts:[number,number][],left:number,right:numbe
 }
 /** Front-to-back rectangles. Subtract anything covering the ledge OR the pet above it. */
 export function exposedLedges(w:SurfaceWorld):Ledge[] {
-  const half=w.size*.46,height=w.size*.83;
+  const half=w.size*.07,height=w.size*.83;
   const out:Ledge[]=[];
   w.windows.forEach((win,i)=>{
     if(win.y<height||win.y>w.height)return;
@@ -33,19 +33,25 @@ export class SurfaceMotion {
   private support:string|null=null;
   private attached:SurfaceWindow|null=null;
   private side:1|-1=1;
+  private fallOrigin=0;private deliberateJump=false;
   private vx=0;private vy=0;
   private cooldown=4;private plan:{x:number;y:number;vx:number;vy:number;id:string}|null=null;
   private pullStart={x:0,y:0};
   private random:()=>number;
   constructor(world:SurfaceWorld,random=Math.random){this.world=world;this.x=world.x;this.y=world.y;this.random=random;this.updateWorld(world);this.reset(world.x,world.y);}
   get half(){return this.world.size*.46;}
+  get foot(){return this.world.size*.07;}
   get height(){return this.world.size*.83;}
   get busy(){return this.motion!=='grounded';}
   get supportId(){return this.support;}
   private enter(m:Motion){this.motion=m;this.age=0;}
-  private ledgeAt(x:number,y:number,id?:string){return this.ledges.find(p=>(!id||p.id===id)&&Math.abs(p.y-y)<3&&x>=p.left+this.half&&x<=p.right-this.half);}
+  private ledgeAt(x:number,y:number,id?:string){return this.ledges.find(p=>(!id||p.id===id)&&Math.abs(p.y-y)<3&&x>=p.left+this.foot&&x<=p.right-this.foot);}
+  private edgeLanding(w:SurfaceWindow,side:number){
+    const p=this.ledges.find(p=>p.id===w.id&&(side>0?p.left<=w.x+2:p.right>=w.x+w.width-2));
+    return p?clamp((side>0?w.x:w.x+w.width)+side*(this.foot+3),p.left+this.foot,p.right-this.foot):null;
+  }
   private attach(p:Ledge|null){this.support=p?.id??null;this.attached=this.world.windows.find(w=>w.id===this.support)??null;}
-  reset(x:number,y:number){this.x=clamp(x,this.half,this.world.width-this.half);this.y=clamp(y,this.height,this.world.height);this.vx=this.vy=0;this.plan=null;this.attach(this.ledgeAt(this.x,this.y)??null);this.enter(this.support||this.y>=this.world.height-1?'grounded':'fall');}
+  reset(x:number,y:number){this.fallOrigin=y;this.deliberateJump=false;this.x=clamp(x,this.half,this.world.width-this.half);this.y=clamp(y,this.height,this.world.height);this.vx=this.vy=0;this.plan=null;this.attach(this.ledgeAt(this.x,this.y)??null);this.enter(this.support||this.y>=this.world.height-1?'grounded':'fall');}
   updateWorld(world:SurfaceWorld){
     world={...world,windows:world.windows.map(w=>({...w}))};
     if(world.monitor!==this.world.monitor||world.size!==this.world.size){this.world=world;this.ledges=exposedLedges(world);this.attached=null;this.support=null;this.reset(world.x,world.y);return;}
@@ -68,7 +74,7 @@ export class SurfaceMotion {
     }
     this.x=clamp(this.x,this.half,world.width-this.half);this.y=clamp(this.y,this.height,world.height);
   }
-  private fall(){this.attach(null);this.plan=null;this.vx=this.vy=0;this.enter('fall');}
+  private fall(){this.fallOrigin=this.y;this.deliberateJump=false;this.attach(null);this.plan=null;this.vx=this.vy=0;this.enter('fall');}
   private climbVisible(w:SurfaceWindow){
     const edge=this.side===1?w.x:w.x+w.width;
     if(w.y<this.height||edge<this.half*2||edge>this.world.width-this.half*2)return false;
@@ -92,7 +98,8 @@ export class SurfaceMotion {
   private jumpPlan(){
     const g=900,candidates=this.ledges.filter(p=>p.id!==this.support&&Math.abs(p.y-this.y)<220);
     const plans=candidates.flatMap(p=>{
-      const targetX=clamp(this.x,p.left+this.half+8,p.right-this.half-8),dx=targetX-this.x;
+      const margin=Math.min(8,Math.max(0,(p.right-p.left)/2-this.foot));
+      const targetX=clamp(this.x,p.left+this.foot+margin,p.right-this.foot-margin),dx=targetX-this.x;
       if(Math.abs(dx)<this.half||Math.abs(dx)>300)return [];
       const rise=Math.max(70,this.y-p.y+55),apex=this.y-rise;
       if(apex<this.height+5)return [];
@@ -116,11 +123,12 @@ export class SurfaceMotion {
     if(input.reduced){
       // Keep stable surfaces; resolve loss of support without showing a falling animation.
       if(this.motion!=='grounded'){
-        const p=this.ledges.filter(p=>p.y>=this.y-3&&this.x>=p.left+this.half&&this.x<=p.right-this.half).sort((a,b)=>a.y-b.y)[0];
+        const p=this.ledges.filter(p=>p.y>=this.y-3&&this.x>=p.left+this.foot&&this.x<=p.right-this.foot).sort((a,b)=>a.y-b.y)[0];
         this.y=p?.y??this.world.height;this.attach(p??null);this.enter('grounded');this.vx=this.vy=0;
       }
       return;
     }
+    if(this.motion==='hurt'){if(this.age>=2.8)this.enter('grounded');return;}
     if(this.motion==='land'){if(this.age>=.45)this.enter('grounded');return;}
     if(this.motion==='grab'){
       if(this.age>=.35)this.enter('climb');return;
@@ -132,14 +140,14 @@ export class SurfaceMotion {
     }
     if(this.motion==='pull'){
       const w=this.attached;if(!w){this.fall();return;}
-      const targetX=this.side===1?w.x+this.half+3:w.x+w.width-this.half-3;
+      const targetX=this.edgeLanding(w,this.side);if(targetX===null){this.fall();return;}
       const t=smooth(Math.min(1,this.age/.7));
       this.x=this.pullStart.x+(targetX-this.pullStart.x)*t;this.y=this.pullStart.y+(w.y-this.pullStart.y)*t;
       if(t>=1){const p=this.ledgeAt(this.x,this.y,w.id);if(p){this.attach(p);this.enter('land');this.cooldown=6;}else this.fall();}return;
     }
     if(this.motion==='prepare'){
-      if(!input.autonomous||!this.plan||!this.ledges.some(p=>p.id===this.plan!.id&&Math.abs(p.y-this.plan!.y)<3&&this.plan!.x>=p.left+this.half&&this.plan!.x<=p.right-this.half)){this.plan=null;this.enter('grounded');return;}
-      if(this.age>=.28){const p=this.plan;this.attach(null);this.vx=p.vx;this.vy=p.vy;this.direction=Math.sign(this.vx)||1;this.enter('jump');}return;
+      if(!input.autonomous||!this.plan||!this.ledges.some(p=>p.id===this.plan!.id&&Math.abs(p.y-this.plan!.y)<3&&this.plan!.x>=p.left+this.foot&&this.plan!.x<=p.right-this.foot)){this.plan=null;this.enter('grounded');return;}
+      if(this.age>=.28){const p=this.plan;this.attach(null);this.vx=p.vx;this.vy=p.vy;this.direction=Math.sign(this.vx)||1;this.deliberateJump=true;this.enter('jump');}return;
     }
     if(this.motion==='wobble'){
       if(this.age>=.65){
@@ -151,15 +159,17 @@ export class SurfaceMotion {
     }
     if(this.motion==='fall'||this.motion==='jump'){
       const oldX=this.x,oldY=this.y;
-      this.vy=Math.min(700,this.vy+900*dt);this.x=clamp(this.x+this.vx*dt,this.half,this.world.width-this.half);this.y=Math.max(this.height,this.y+this.vy*dt);
+      // Exact acceleration keeps the planned landing invariant across frame rates.
+      const accelerating=clamp((700-this.vy)/900,0,dt),dy=this.vy*accelerating+450*accelerating*accelerating+700*(dt-accelerating);
+      this.vy=Math.min(700,this.vy+900*dt);this.x=clamp(this.x+this.vx*dt,this.half,this.world.width-this.half);this.y=Math.max(this.height,this.y+dy);
       if(this.y<=this.height&&this.vy<0)this.vy=0;
       if(this.vy>=0){
         const p=this.ledges.filter(p=>{
           if(p.y<oldY-2||p.y>this.y)return false;
           const x=oldX+(this.x-oldX)*clamp((p.y-oldY)/(this.y-oldY||1),0,1);
-          return x>=p.left+this.half&&x<=p.right-this.half;
+          return x>=p.left+this.foot&&x<=p.right-this.foot;
         }).sort((a,b)=>a.y-b.y)[0];
-        if(p||this.y>=this.world.height){this.y=p?.y??this.world.height;if(p)this.x=clamp(this.x,p.left+this.half,p.right-this.half);this.attach(p??null);this.vx=this.vy=0;this.plan=null;this.enter('land');this.cooldown=5;}
+        if(p||this.y>=this.world.height){this.y=p?.y??this.world.height;if(p)this.x=clamp(this.x,p.left+this.foot,p.right-this.foot);this.attach(p??null);this.vx=this.vy=0;this.plan=null;this.enter(!this.deliberateJump&&this.y-this.fallOrigin>this.height*1.2?'hurt':'land');this.cooldown=5;}
       }return;
     }
     if(this.support&&!this.ledgeAt(this.x,this.y,this.support)){this.fall();return;}
@@ -170,7 +180,7 @@ export class SurfaceMotion {
     if(!dx)return;
     if(this.startClimb(dx))return;
     const next=this.x+dx,p=this.support?this.ledgeAt(this.x,this.y,this.support):null;
-    const left=p?p.left+this.half:this.half,right=p?p.right-this.half:this.world.width-this.half;
+    const left=p?p.left+this.foot:this.half,right=p?p.right-this.foot:this.world.width-this.half;
     if(next<left||next>right){this.x=clamp(next,left,right);this.enter('wobble');return;}
     this.x=next;
   }

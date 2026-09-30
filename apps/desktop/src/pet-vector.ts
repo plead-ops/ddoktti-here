@@ -6,7 +6,7 @@ import {climbFrame} from './pet-climb';
 import frames from './pet-vector-frames.json';
 import artwork from './pet-vector-paths.json';
 import { behaviors, behaviorPose } from './pet-behaviors';
-export const VECTOR_POSES=['idle','walk','run','bored','sleepy','jump','excited','greeting','proud','shy','curious','surprised','playful','sulking','cheering','relieved','tickle','drag','wobble','fall','land','grab','climb','pull','prepare','travel-jump','slack','calendar','timer','stretch'] as const;
+export const VECTOR_POSES=['hurt','hang','peek','enough','ack','idle','walk','run','bored','sleepy','jump','excited','greeting','proud','shy','curious','surprised','playful','sulking','cheering','relieved','tickle','drag','wobble','fall','land','grab','climb','pull','prepare','travel-jump','slack','calendar','timer','stretch'] as const;
 export type VectorPose=typeof VECTOR_POSES[number];
 export interface VectorOptions {direction?:number;reduced?:boolean;x?:number;y?:number;scale?:number}
 type Sheet=keyof typeof frames;
@@ -19,6 +19,11 @@ export function vectorFrame(pose:string,elapsed=0,reduced=false){
  if(pose==='run'){sheet='run-v3';index=gaitFrame('run',t,reduced);}
  else if(b&&registered){const p=behaviorPose(b,t,reduced);sheet=registered[0];index=registered[1]*4+p.frame;lift=p.lift;}
  else switch(pose){
+  case 'hurt':sheet='hurt-v1';index=t<400?0:t<2100?1+Math.floor((t-400)/180)%2:t<2450?3:4;break;
+  case 'hang':sheet='surfaces-v2';index=Math.floor(t/600)%2===0?13:15;lift=index===15?3.8:0;break;
+  case 'peek':sheet='surfaces-v2';index=12;break;
+  case 'enough':sheet='emotions-v2';index=8+Math.min(2,Math.floor(t/200));break;
+  case 'ack':sheet='emotions-v1';index=8+Math.min(3,Math.floor(t/400));break;
   case 'idle':sheet='emotions-v2';index=18;break;
   case 'walk':sheet='walk';index=gaitFrame('walk',t,reduced);break;
   case 'tickle':sheet='interactions-v2';index=Math.floor(t/160)%4;break;

@@ -17,10 +17,12 @@ test('occluded ledges are split; title bars with no room above are excluded',()=
 });
 test('drop lands on highest exposed ledge crossed, not desktop',()=>{
  const m=new SurfaceMotion(world([windowRect('high',250,260),windowRect('low',200,500)],400,100));
- advance(m,2);assert.equal(m.supportId,'high');assert.equal(m.y,260);assert.equal(m.motion,'grounded');
+ advance(m,2);assert.equal(m.supportId,'high');assert.equal(m.y,260);assert.equal(m.motion,'hurt');advance(m,2);assert.equal(m.motion,'grounded');
 });
-test('a toe alone is not enough support; fall continues to floor',()=>{
- const m=new SurfaceMotion(world([windowRect('a',250,260)],260,100));advance(m,3);assert.equal(m.y,700);assert.equal(m.supportId,null);
+test('both feet can support the pet close to a window edge; unsupported toes fall',()=>{
+ for(const [x,y,id] of [[260,260,'a'],[253,700,null]]) {
+ const m=new SurfaceMotion(world([windowRect('a',250,260)],x,100));advance(m,3);assert.equal(m.y,y);assert.equal(m.supportId,id);
+ }
 });
 test('stable window ID follows move and resize, including during an alert',()=>{
  const m=new SurfaceMotion(world([windowRect('a',200,300,400)],400,300));
@@ -36,7 +38,7 @@ test('walk to a side, grip, alternate climb, pull over corner, settle on top',()
  const m=new SurfaceMotion(world([windowRect('a',250,250,450,450)],190,700),()=>.9);
  const states=new Set();for(let i=0;i<700;i++){m.step(1/60,{...input,walk:70,autonomous:true});states.add(m.motion);if(m.supportId==='a'&&m.motion==='grounded')break;}
  for(const state of ['grab','climb','pull','land','grounded'])assert(states.has(state),state);
- assert.equal(m.y,250);assert(m.x>250+46);
+ assert.equal(m.y,250);assert.equal(m.x,250+m.foot+3);
 });
 test('support window moves during climbing; lost wall triggers fall',()=>{
  const m=new SurfaceMotion(world([windowRect('a',250,250,450,450)],200,700));advance(m,.2,{walk:70,autonomous:true});
@@ -56,7 +58,7 @@ test('removed jump destination does not cause teleport or floating',()=>{
 });
 test('edge wobble normally recovers; occasional slip falls',()=>{
  for(const r of [.9,0]){
- const m=new SurfaceMotion(world([windowRect('a',100,300,300)],353,300),()=>r);
+ const m=new SurfaceMotion(world([windowRect('a',100,300,300)],392,300),()=>r);
  advance(m,.1,{walk:60,autonomous:true});assert.equal(m.motion,'wobble');advance(m,.7,{autonomous:true});
  if(r===.9){assert.equal(m.motion,'grounded');assert.equal(m.direction,-1);}else assert.equal(m.motion,'fall');
  }
@@ -95,4 +97,45 @@ test('rope anchor follows its window, with climbing pauses between pulls',()=>{
  m.updateWorld(world([windowRect('a',280,230,450,470)]));assert.deepEqual(m.ropeAnchor,{x:280,y:230});
  while(m.motion==='grab')advance(m,1/60);const y=m.y;advance(m,.1);assert.equal(m.y,y);advance(m,.4);assert(m.y<y);
  m.reset(500,400);assert.equal(m.ropeAnchor,null);
+});
+
+
+test('high accidental drops hurt and recover; low drops only land',()=>{
+ for(const [y,expected] of [[100,'hurt'],[650,'land']]) {
+  const m=new SurfaceMotion(world([],400,y));
+  while(m.motion==='fall')m.step(1/60,input);
+  assert.equal(m.motion,expected);assert.equal(m.y,700);
+  advance(m,3);assert.equal(m.motion,'grounded');
+ }
+});
+test('voluntary descending jumps never play the injury reaction',()=>{
+ const m=new SurfaceMotion(world([windowRect('a',100,350,300),windowRect('b',480,540)],350,350),()=>0);
+ for(let i=0;i<900&&m.motion!=='jump';i++)m.step(1/60,{...input,autonomous:true});
+ assert.equal(m.motion,'jump');
+ while(m.motion==='jump')m.step(1/60,input);
+ assert.equal(m.motion,'land');assert.equal(m.supportId,'b');
+});
+test('small front window and exposed inactive back window both accept landings',()=>{
+ const windows=[windowRect('front',350,200,40,100),windowRect('inactive',100,360,700,340)];
+ for(const [x,id,y] of [[370,'front',200],[200,'inactive',360]]) {
+  const m=new SurfaceMotion(world(windows,x,100));advance(m,2);
+  assert.equal(m.supportId,id);assert.equal(m.y,y);
+ }
+ const m=new SurfaceMotion(world(windows,200,360));
+ m.updateWorld(world([...windows].reverse()));assert.equal(m.supportId,'inactive');assert.equal(m.motion,'grounded');
+});
+test('60 and 120 Hz movement keep comparable fall paths and identical walking speed',()=>{
+ const run=(hz,fall)=>{const m=new SurfaceMotion(world([],200,fall?100:700));for(let i=0;i<hz*.5;i++)m.step(1/hz,{...input,walk:80,autonomous:!fall});return m;};
+ assert(Math.abs(run(60,true).y-run(120,true).y)<1e-8);
+ assert(Math.abs(run(60,false).x-run(120,false).x)<1e-8);
+});
+
+
+test('narrow exposed strip supports climbing and jumping without impossible extra margins',()=>{
+ const m=new SurfaceMotion(world([windowRect('front',266,100,450,400),windowRect('back',250,250,350,450)],204,700));
+ for(let i=0;i<1000&&m.motion!=='land';i++)m.step(1/60,{...input,walk:70,autonomous:true});
+ assert.equal(m.supportId,'back');assert.equal(m.motion,'land');assert.equal(m.x,259);
+ const j=new SurfaceMotion(world([windowRect('source',100,500,300),windowRect('narrow',480,420,16)],350,500),()=>0);
+ for(let i=0;i<900&&j.motion!=='jump';i++)j.step(1/60,{...input,autonomous:true});
+ assert.equal(j.motion,'jump');advance(j,2);assert.equal(j.supportId,'narrow');assert.equal(j.y,420);
 });

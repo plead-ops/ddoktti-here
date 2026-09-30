@@ -9,3 +9,21 @@
 #bubble:hover,#bubble:hover:after,#bubble:focus-within,#bubble:focus-within:after,.reduce-motion #bubble:not([hidden]),.reduce-motion #bubble:not([hidden]):after{animation:none}
 @keyframes notification-pulse{0%,100%{background-color:#fffdf3;border-color:#344c3a}50%{background-color:#ffe6a6;border-color:#956222}}
 @media(prefers-reduced-motion:reduce){#bubble:not([hidden]),#bubble:not([hidden]):after{animation:none}}
+
+/* A new alert pops once; the existing color pulse starts after it settles. */
+#bubble.bubble-enter:not([hidden]){transform-origin:var(--tail-x,50%) 100%;animation:bubble-arrive .42s ease-out both,notification-pulse .65s ease-in-out .42s infinite}
+#bubble.bubble-enter.below{transform-origin:var(--tail-x,50%) 0%}
+#bubble.bubble-enter:not([hidden]):after{animation-delay:.42s}
+@keyframes bubble-arrive{0%{transform:translateY(5px) scale(.84)}58%{transform:translateY(-2px) scale(1.035)}80%{transform:scale(.985)}100%{transform:translateY(0) scale(1)}}
+.reduce-motion #bubble.bubble-enter:not([hidden]),.reduce-motion #bubble.bubble-enter:not([hidden]):after{animation:none;transform:none}
+@media(prefers-reduced-motion:reduce){#bubble.bubble-enter:not([hidden]),#bubble.bubble-enter:not([hidden]):after{animation:none;transform:none}}
+
+#bubble.bubble-enter:hover,#bubble.bubble-enter:focus-within{animation:bubble-arrive .42s ease-out both}
+#bubble.bubble-enter:hover:after,#bubble.bubble-enter:focus-within:after{animation:none}
+.reduce-motion #bubble.bubble-enter:hover,.reduce-motion #bubble.bubble-enter:focus-within{animation:none}
+@media(prefers-reduced-motion:reduce){#bubble.bubble-enter:hover,#bubble.bubble-enter:focus-within{animation:none}}
+
+/* Short reactions share the anchored popup layout, with an opaque readable surface. */
+#pet-reaction{inset:auto;position:absolute;width:max-content;max-width:calc(100vw - 16px);padding:11px 16px;border:2px solid #344c3a;border-radius:18px;background:#fffdf3;color:#263c31;font-size:14px;line-height:1.55;font-weight:700;text-align:center;text-shadow:none;box-shadow:0 4px 0 #344c3a22;overflow-wrap:anywhere;pointer-events:none}
+#pet-reaction:after{content:'';position:absolute;left:var(--tail-x,50%);bottom:-8px;width:12px;height:12px;background:#fffdf3;border-right:2px solid #344c3a;border-bottom:2px solid #344c3a;transform:translateX(-50%) rotate(45deg)}
+#pet-reaction.below:after{top:-8px;bottom:auto;transform:translateX(-50%) rotate(225deg)}

@@ -58,6 +58,14 @@ struct DisplaySettings {
     /// 출력 화면: "active"(커서 있는 화면, 기본) | "primary"(주 디스플레이) | 모니터 name(고정, 제거 시 주 화면 폴백)
     #[serde(default = "default_monitor")]
     monitor: String,
+    #[serde(default = "default_activity_scope")]
+    activity_scope: String,
+    #[serde(default = "default_true")]
+    follow_cursor: bool,
+}
+
+fn default_activity_scope() -> String {
+    "all".into()
 }
 
 impl Default for DisplaySettings {
@@ -65,6 +73,8 @@ impl Default for DisplaySettings {
         Self {
             position: "bottom".into(), // 중간 아래
             scale: 1.7,
+            activity_scope: default_activity_scope(),
+            follow_cursor: true,
             margin: 24.0,
             custom_x: 0.5,
             custom_y: 0.92,
@@ -191,7 +201,10 @@ fn set_display_settings(app: AppHandle, settings: DisplaySettings) -> Result<(),
     {
         return Err("설정 값이 올바르지 않아요".into());
     }
-    settings.scale = settings.scale.clamp(0.5, 3.0);
+    settings.scale = settings.scale.clamp(0.5, 5.0);
+    if !["primary", "all"].contains(&settings.activity_scope.as_str()) {
+        return Err("활동 범위가 올바르지 않아요".into());
+    }
     settings.speed = settings.speed.clamp(0.5, 3.0);
     settings.custom_x = settings.custom_x.clamp(0.0, 1.0);
     settings.custom_y = settings.custom_y.clamp(0.0, 1.0);
@@ -294,7 +307,7 @@ pub(crate) fn apply_overlay_layout(app: &AppHandle) -> tauri::Result<()> {
     result
 }
 fn pet_size(s: &DisplaySettings) -> f64 {
-    (180.0 * s.scale / 1.7).clamp(110.0, 245.0)
+    180.0 * s.scale.clamp(0.5, 5.0) / 1.7
 }
 fn pet_half(s: &DisplaySettings) -> f64 {
     pet_size(s) * 0.46
@@ -308,12 +321,12 @@ fn place_pet(
     m: &Monitor,
     x: f64,
     y: f64,
-    _s: &DisplaySettings,
+    settings: &DisplaySettings,
 ) -> tauri::Result<()> {
     let wa = m.work_area();
     let sf = m.scale_factor();
     let ww = (OVERLAY_WIDTH * sf).min(wa.size.width as f64);
-    let wh = (OVERLAY_HEIGHT * sf).min(wa.size.height as f64);
+    let wh = (OVERLAY_HEIGHT.max(pet_size(settings) + 240.) * sf).min(wa.size.height as f64);
     let wx = (x - ww / 2.0).clamp(
         wa.position.x as f64,
         wa.position.x as f64 + wa.size.width as f64 - ww,
@@ -534,6 +547,10 @@ fn persist_overlay_position(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 // ───────────────────── 창/트레이 ─────────────────────
+fn should_show_settings(onboarded: bool, explicit: bool) -> bool {
+    !onboarded || explicit
+}
+
 fn show_settings(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("settings") {
         let _ = win.show();
@@ -544,8 +561,18 @@ fn show_settings(app: &AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_settings(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let onboarded = app
+                .state::<companion::Companion>()
+                .0
+                .lock()
+                .unwrap()
+                .saved
+                .preferences
+                .onboarded;
+            if should_show_settings(onboarded, args.iter().any(|a| a == "--settings")) {
+                show_settings(app);
+            }
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -688,16 +715,15 @@ pub fn run() {
                 let _ = overlay.hide();
             }
 
-            // 로그인 자동시작(Startup 바로가기)은 --autostart 인자로 실행 → 설정창 숨김(트레이만).
-            // 그 외(수동 실행)는 설정창을 띄운다.
+            // Only unfinished onboarding or an explicit settings request opens a window.
             let handle = app.handle().clone();
-            let autostarted = std::env::args().any(|a| a == "--autostart");
+            let explicit_settings = std::env::args().any(|a| a == "--settings");
             let onboarded = {
                 let state = app.state::<companion::Companion>();
                 let value = state.0.lock().unwrap().saved.preferences.onboarded;
                 value
             };
-            if !autostarted || !onboarded {
+            if should_show_settings(onboarded, explicit_settings) {
                 show_settings(&handle);
             }
 
@@ -733,6 +759,12 @@ mod placement_tests {
         assert_eq!(resident.monitor, "primary");
         assert_eq!(alerts.position, "top-right");
         assert_eq!(alerts.monitor, "second");
+    }
+    #[test]
+    fn completed_onboarding_starts_quietly_including_update_relaunch() {
+        assert!(!should_show_settings(true, false));
+        assert!(should_show_settings(false, false));
+        assert!(should_show_settings(true, true));
     }
     #[test]
     fn obsolete_resident_placement_is_ignored() {

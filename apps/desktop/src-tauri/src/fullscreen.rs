@@ -1,6 +1,6 @@
 //! Detect an on-screen full-display window without reading window titles/content.
 #[cfg(target_os = "windows")]
-pub fn active() -> bool {
+pub fn active(target: Option<[f64; 4]>) -> bool {
     #[repr(C)]
     #[derive(Default)]
     struct Rect {
@@ -40,6 +40,11 @@ pub fn active() -> bool {
         if GetWindowRect(w, &mut r) == 0 || GetMonitorInfoW(MonitorFromWindow(w, 2), &mut i) == 0 {
             return false;
         }
+        if target.is_some_and(|t| {
+            (t[0] - i.monitor.left as f64).abs() > 3. || (t[1] - i.monitor.top as f64).abs() > 3.
+        }) {
+            return false;
+        }
         r.left <= i.monitor.left
             && r.top <= i.monitor.top
             && r.right >= i.monitor.right
@@ -47,7 +52,7 @@ pub fn active() -> bool {
     }
 }
 #[cfg(target_os = "macos")]
-pub fn active() -> bool {
+pub fn active(target: Option<[f64; 4]>) -> bool {
     use std::ffi::{c_char, c_void};
     type Ref = *const c_void;
     #[repr(C)]
@@ -116,6 +121,11 @@ pub fn active() -> bool {
                 }
                 for id in displays.iter().take(count as usize) {
                     let screen = CGDisplayBounds(*id);
+                    if target.is_some_and(|t| {
+                        (t[0] - screen.origin.x).abs() > 3. || (t[1] - screen.origin.y).abs() > 3.
+                    }) {
+                        continue;
+                    }
                     if (r.origin.x - screen.origin.x).abs() < 3.0
                         && (r.origin.y - screen.origin.y).abs() < 3.0
                         && (r.size.width - screen.size.width).abs() < 3.0
@@ -138,6 +148,6 @@ pub fn active() -> bool {
     }
 }
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub fn active() -> bool {
+pub fn active(_target: Option<[f64; 4]>) -> bool {
     false
 }

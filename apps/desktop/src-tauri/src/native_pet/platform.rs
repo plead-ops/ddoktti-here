@@ -1,8 +1,67 @@
 //! Native presentation only. Pixels are premultiplied RGBA from resvg, never a WebView.
 #[cfg(target_os = "macos")]
 mod implementation {
-    use objc2::{class, msg_send, runtime::AnyObject};
+    use objc2::{class, msg_send, runtime::AnyObject, Encode, Encoding};
     use std::ffi::c_void;
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct Point {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct Size {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct Rect {
+        origin: Point,
+        size: Size,
+    }
+    unsafe impl Encode for Point {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for Size {
+        const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for Rect {
+        const ENCODING: Encoding = Encoding::Struct("CGRect", &[Point::ENCODING, Size::ENCODING]);
+    }
+    fn appkit_frame(origin: (f64, f64), pixels: (u32, u32), scale: f64, desktop_top: f64) -> Rect {
+        Rect {
+            origin: Point {
+                x: origin.0 / scale,
+                y: desktop_top - (origin.1 + pixels.1 as f64) / scale,
+            },
+            size: Size {
+                width: pixels.0 as f64 / scale,
+                height: pixels.1 as f64 / scale,
+            },
+        }
+    }
+    unsafe fn desktop_top() -> f64 {
+        // First NSScreen is the menu-bar display, matching the desktop coordinate
+        // conversion used by tao. A secondary display may have a negative origin.
+        let screens: *mut AnyObject = msg_send![class!(NSScreen), screens];
+        let primary: *mut AnyObject = msg_send![screens, objectAtIndex: 0usize];
+        let frame: Rect = msg_send![primary, frame];
+        frame.origin.y + frame.size.height
+    }
+    pub fn move_to(win: &tauri::Window, origin: (f64, f64), scale: f64) -> Result<(), String> {
+        unsafe {
+            let window = win.ns_window().map_err(|e| e.to_string())? as *mut AnyObject;
+            let current: Rect = msg_send![window, frame];
+            let point = Point {
+                x: origin.0 / scale,
+                y: desktop_top() - origin.1 / scale - current.size.height,
+            };
+            let _: () = msg_send![window, setFrameOrigin: point];
+        }
+        Ok(())
+    }
     #[link(name = "QuartzCore", kind = "framework")]
     extern "C" {}
     #[link(name = "CoreGraphics", kind = "framework")]
@@ -41,7 +100,12 @@ mod implementation {
         }
     }
     thread_local! {static HOSTED:std::cell::Cell<bool>=const {std::cell::Cell::new(false)};}
-    pub fn present(win: &tauri::Window, pix: &resvg::tiny_skia::Pixmap) -> Result<(), String> {
+    pub fn present(
+        win: &tauri::Window,
+        pix: &resvg::tiny_skia::Pixmap,
+        origin: (f64, f64),
+        scale: f64,
+    ) -> Result<(), String> {
         unsafe {
             let window = win.ns_window().map_err(|e| e.to_string())? as *mut AnyObject;
             let view: *mut AnyObject = msg_send![window, contentView];
@@ -84,8 +148,12 @@ mod implementation {
             if !image.is_null() {
                 let _: () = msg_send![class!(CATransaction), begin];
                 let _: () = msg_send![class!(CATransaction),setDisableActions:true];
-                let _: () =
-                    msg_send![layer,setContentsScale:win.scale_factor().map_err(|e|e.to_string())?];
+                // Keep the old image from being resized/presented separately from
+                // its replacement. These calls run synchronously on the main thread.
+                let _: () = msg_send![window, disableScreenUpdatesUntilFlush];
+                let frame = appkit_frame(origin, (pix.width(), pix.height()), scale, desktop_top());
+                let _: () = msg_send![window, setFrame: frame, display: false];
+                let _: () = msg_send![layer, setContentsScale: scale];
                 let _: () = msg_send![layer,setContents:image as *mut AnyObject];
                 let _: () = msg_send![class!(CATransaction), commit];
                 CGImageRelease(image);
@@ -97,6 +165,52 @@ mod implementation {
                 Err("Native image creation failed".into())
             } else {
                 Ok(())
+            }
+        }
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        #[test]
+        fn canvas_resize_keeps_screen_anchor_fixed_on_standard_and_retina_displays() {
+            let art = crate::native_pet::art::Art::new().unwrap();
+            for scale in [1., 2.] {
+                for facing in [-1., 1.] {
+                    let anchor = (-250. * scale, 380. * scale);
+                    let mut previous_left: Option<f64> = None;
+                    let mut old_order_would_drift = false;
+                    for mode in ["grab", "climb", "pull"] {
+                        for index in 0..8 {
+                            let pose = art.pose(mode, index as f64 * 0.1, false);
+                            let k = 180. * scale / 260.;
+                            let fx = anchor.0 - facing * 180. * 0.46 * scale;
+                            let pet_left = fx - 200. * k + facing * pose.offset * k;
+                            let pet_top = anchor.1 + 320. * scale - (250. + pose.lift) * k;
+                            let left = pet_left.min(anchor.0 - 15. * scale).floor() - 2.;
+                            let top = pet_top.min(anchor.1 - 12. * scale).floor() - 2.;
+                            let pixels = (
+                                (pet_left + 400. * k - left + 4.).ceil() as u32,
+                                (pet_top + 260. * k - top + 4.).ceil() as u32,
+                            );
+                            let frame = appkit_frame((left, top), pixels, scale, 2160.);
+                            let local_anchor =
+                                ((anchor.0 - left) / scale, (anchor.1 - top) / scale);
+                            let screen_anchor = (
+                                frame.origin.x + local_anchor.0,
+                                2160. - frame.origin.y - frame.size.height + local_anchor.1,
+                            );
+                            assert!((screen_anchor.0 - anchor.0 / scale).abs() < 1e-8);
+                            assert!((screen_anchor.1 - anchor.1 / scale).abs() < 1e-8);
+                            if let Some(old_left) = previous_left {
+                                // Old code displayed this local anchor with the old
+                                // queued window origin; actual animation exposes it.
+                                old_order_would_drift |= ((old_left - left) / scale).abs() > 1.;
+                            }
+                            previous_left = Some(left);
+                        }
+                    }
+                    assert!(old_order_would_drift);
+                }
             }
         }
     }
@@ -205,7 +319,19 @@ mod implementation {
     pub fn buttons() -> (bool, bool) {
         unsafe { (GetAsyncKeyState(1) < 0, GetAsyncKeyState(2) < 0) }
     }
-    pub fn present(win: &tauri::Window, pix: &resvg::tiny_skia::Pixmap) -> Result<(), String> {
+    pub fn move_to(win: &tauri::Window, origin: (f64, f64), _: f64) -> Result<(), String> {
+        win.set_position(tauri::PhysicalPosition::new(
+            origin.0.round() as i32,
+            origin.1.round() as i32,
+        ))
+        .map_err(|e| e.to_string())
+    }
+    pub fn present(
+        win: &tauri::Window,
+        pix: &resvg::tiny_skia::Pixmap,
+        position: (f64, f64),
+        _: f64,
+    ) -> Result<(), String> {
         unsafe {
             let hwnd = win.hwnd().map_err(|e| e.to_string())?.0 as isize;
             let ex = GetWindowLongPtrW(hwnd, -20);
@@ -255,17 +381,12 @@ mod implementation {
                 alpha: 255,
                 format: 1,
             };
-            let ok = UpdateLayeredWindow(
-                hwnd,
-                screen,
-                std::ptr::null(),
-                &size,
-                dc,
-                &origin,
-                0,
-                &blend,
-                2,
-            );
+            let destination = Point {
+                x: position.0.round() as i32,
+                y: position.1.round() as i32,
+            };
+            let ok =
+                UpdateLayeredWindow(hwnd, screen, &destination, &size, dc, &origin, 0, &blend, 2);
             SelectObject(dc, old);
             DeleteObject(bitmap);
             DeleteDC(dc);
@@ -283,7 +404,15 @@ mod implementation {
     pub fn buttons() -> (bool, bool) {
         (false, false)
     }
-    pub fn present(_: &tauri::Window, _: &resvg::tiny_skia::Pixmap) -> Result<(), String> {
+    pub fn move_to(_: &tauri::Window, _: (f64, f64), _: f64) -> Result<(), String> {
+        Err("Native pets support macOS and Windows".into())
+    }
+    pub fn present(
+        _: &tauri::Window,
+        _: &resvg::tiny_skia::Pixmap,
+        _: (f64, f64),
+        _: f64,
+    ) -> Result<(), String> {
         Err("Native pets support macOS and Windows".into())
     }
 }

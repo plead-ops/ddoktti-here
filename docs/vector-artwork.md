@@ -5,6 +5,7 @@
 ## 보정 기준
 
 - `assets/concepts/pet-frame-guides.json`: 검토한 원본 추출 좌표와 얼굴 측정값. 창 이동 시트는 열마다 실제 행 사이의 빈 구간으로 분리한다. 균등 행 분할이나 잘린 부분 삭제로 처리하지 않는다.
+- 어두운 원본 픽셀은 외곽선/정장 팔레트와의 거리로 분류하되, 원본 정장에 연결된 천 영역은 기존 정장색으로 평탄화한다. 정장의 음영까지 검은 선으로 바꾸면 드래그 프레임이 위장무늬처럼 깨지므로 머리·안경의 외곽선 정리와 분리한다. 외곽선의 회색·남색 얼룩을 방지하며 최종 외곽선은 `#081724`로 통일한다.
 - 모든 프레임은 동일한 11색 팔레트 사용. 캐릭터의 초록, 안경 파랑, 정장과 외곽선의 색을 통일하며 알림 소품의 구분 색은 유지한다.
 - 안경 렌즈의 폭·간격을 측정해 공통 크기로 정렬한다. 얼굴 중심과 발 기준선을 고정하며, 캐릭터 전체에 가로·세로 동일한 배율을 적용한다. 몸통·하체를 따로 압축하거나 늘리지 않는다. 원본 자체의 포즈별 해부학적 차이는 이 정렬 과정에서 변형하지 않는다.
 - 원본부터 안테나가 없는 창 이동 4·13·15번 프레임에는 같은 원본 시트의 안테나 경로를 가져와 얼굴과 팔 뒤에 배치한다.
@@ -13,7 +14,8 @@
 ## 파일과 재생
 
 - 보존 원본: `assets/concepts/raster-before-svg/` (앱 번들 제외)
-- 독립형 SVG: `apps/desktop/public/sprites/vector/frames/` (124개)
+- 독립형 SVG: `apps/desktop/public/sprites/vector/frames/` (129개)
+- 재현 가능한 개별 보정: `scripts/pet-art-repairs.py`. 감정 표현 20프레임의 누락된 밑단. 착지·아야·졸기는 아래 새 원화에서 추적하며 수작업 몸통/입 덧칠을 사용하지 않는다. 손·다리에 가려진 밑단을 관통해 그리지 않는다.
 - 런타임 경로: `apps/desktop/src/pet-vector-paths.json`
 - 정렬·클릭 영역: `apps/desktop/src/pet-vector-frames.json`
 - 공통 팔레트: `apps/desktop/src/pet-palette.json`
@@ -33,16 +35,17 @@
 일반 빌드는 Python을 요구하지 않는다. 아트 원본이나 보정 기준 변경 시에만 Python 3.13 venv에서 실행한다. VTracer 0.6.11은 이 작업 환경의 Python 3.14에서 매개변수 전달 중 충돌하여 3.13을 사용한다.
 
 ```sh
-python3.13 -m venv /private/tmp/ddoktti-trace-venv
-/private/tmp/ddoktti-trace-venv/bin/pip install -r scripts/vector-requirements.txt
-/private/tmp/ddoktti-trace-venv/bin/python scripts/trace-pet-svg.py
+uv venv --python 3.13 /private/tmp/ddoktti-art-venv
+uv pip install --python /private/tmp/ddoktti-art-venv/bin/python -r scripts/vector-requirements.txt
+/private/tmp/ddoktti-art-venv/bin/python scripts/trace-pet-svg.py
+/private/tmp/ddoktti-art-venv/bin/python scripts/check-art-cleanup.py
 pnpm svg
 pnpm icons
 ```
 
 `pnpm svg`는 정적 SVG 미리보기를 만들고 `pnpm icons`는 같은 미리보기와 네이티브 아이콘을 만든다. 시스템 Python에 패키지를 설치하지 않는다.
 
-검토 페이지: `/motions.html`, `/surfaces.html`, `/ui-preview.html`.
+검토 페이지: `/motions.html`, `/surfaces.html`, `/ui-preview.html`, `/playground.html`.
 
 ## 반드시 지킬 제작 규칙
 
@@ -126,3 +129,20 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
 원본 인상 변경, 다리 압축, 균등 시트 잘라내기, 알파 잡티의 불투명화, 이미지 교체에 따른 깜빡임은 이미 발생했던 회귀 사례다. 새 제작이나 최적화 시 같은 문제가 다시 생기지 않는지 우선 확인한다.
+
+
+### 정장 얼룩 회귀 방지
+
+2026-10-01 재검토에서 어두운 색상 임계값만 올리면 드래그(`interactions-v2` 4~7) 정장 음영이 검은 조각으로 바뀌는 문제가 확인됐다. `clean_pixels`는 기존 색 분류의 연결된 정장 영역을 보존하고, 안경·안테나의 외곽선은 통일된 검정으로 유지한다. 구조적인 검은 봉제선과 투명 배경은 보존한다. `check-art-cleanup.py`에 해당 구분을 회귀 검사로 남겼다. 걷기·달리기에 이미 있는 밑단 위로 수동 선을 덧그리지 않는다. 특히 `walk-0`의 기존 추가 곡선은 옷 밖으로 나왔으므로 제거했다.
+
+### 세부 선 정리 (2026-10-01 후속)
+
+감정 표현 `emotions-v2` 전체 20프레임은 자세별 밑단을 보정하고 원래 정장 채움 경로로 클리핑한다. 손이나 소품 위를 지나가거나 외곽으로 선이 삐져나오지 않도록 한다. 이후 사용자 피드백으로 수작업 착지 몸통·옷깃과 하품 입 덧칠은 폐기했다. 아래 원화 재생성 방식이 현재 구현이다. 모두 기존 균등 배율과 손발 위치를 유지한다.
+
+### 착지·아야·하품 원화 재생성
+
+사용자가 수작업 SVG 형태와 하품 입 주변의 녹색 띠를 지적하여 imagegen 스킬의 내장 도구로 다시 생성했다. [원화와 프롬프트](../assets/concepts/generated/GENERATION.md)를 보존한다. `landing-hurt-v2.png` 6프레임 중 첫 프레임은 `edge-v2-6`, 나머지는 `hurt-v1` 0~4에 배치한다. `sleep-yawn-v3.png` 4프레임은 `behaviors-v2` 8~11을 대체한다.
+
+`generated/frame-guides.json`에 실제 크기·크롭·흰 렌즈 범위·목선을 기록했다. 원본 알파를 보존하며 벡터화 시 기존 임계값과 팔레트를 적용한다. 기존과 동일하게 흰 렌즈 범위 90, 발 y=250으로 균등 확대·축소한다. `trace-pet-svg.py`가 생성 원화를 직접 추적하므로 별도 수작업 몸통/얼굴 SVG를 합성하지 않는다. 프레임 키와 총 129프레임은 유지한다. 아야 동작은 눈 감은 1·2번만 반복하고 3번 눈 뜨기→4번 진정으로 마친다.
+
+새로운 복잡한 캐릭터 자세는 기존 인상을 참고한 생성 원화를 먼저 만들고 벡터로 추적한다. 기존 머리에 각진 SVG 몸통·팔다리를 조립하거나, 입 주변을 큰 녹색 도형으로 덮어 윤곽을 숨기는 방법은 사용하지 않는다. 단순 옷자락 보정과 새 자세의 제작을 구분한다.

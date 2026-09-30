@@ -17,6 +17,7 @@ export default defineConfig({
         overlay: resolve(__dirname, "overlay.html"),
         surfaces: resolve(__dirname, "surfaces.html"),
         motions: resolve(__dirname, "motions.html"),
+        playground: resolve(__dirname, "playground.html"),
         uiPreview: resolve(__dirname, "ui-preview.html"),
       },
     },
