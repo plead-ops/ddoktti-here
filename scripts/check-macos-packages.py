@@ -15,7 +15,7 @@ def check(app):
     subprocess.run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', str(app)], check=True)
     subprocess.run(['xcrun', 'stapler', 'validate', str(app)], check=True)
     subprocess.run(['spctl', '--assess', '--type', 'execute', '--verbose=2', str(app)], check=True)
-    subprocess.run(['lipo', '-verify_arch', 'arm64', 'x86_64', str(app / 'Contents/MacOS/ddoktti-here')], check=True)
+    subprocess.run(['lipo', str(app / 'Contents/MacOS/ddoktti-here'), '-verify_arch', 'arm64', 'x86_64'], check=True)
 
 with tempfile.TemporaryDirectory(prefix='ddoktti-install-') as temporary:
     root = Path(temporary)
