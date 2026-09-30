@@ -4,9 +4,9 @@ Desktop OAuth는 사용자 PC가 Google에 직접 인증하는 방식입니다. 
 
 ## 공개 페이지
 
-게시 대상으로 제안된 주소는 아래와 같습니다. 이 문서 작성 시점에는 해당 사이트를 배포하거나 도메인 소유권을 확인하지 않았습니다.
+아래 주소에 공개 사이트를 배포하고 HTTPS 응답을 확인했습니다. 웹사이트 소스는 `plead-ops/ddoktti-here-website` 저장소에서 관리하며 Dokploy가 main 변경 시 자동 배포합니다. Google Search Console 도메인 소유권 확인과 Google 재심사는 아직 완료하지 않았습니다.
 
-| Google Auth Platform 항목 | 게시할 주소 |
+| Google Auth Platform 항목 | 게시 주소 |
 |---|---|
 | 애플리케이션 홈페이지 | `https://ddoktti-here.plead.co.kr/` |
 | 개인정보처리방침 | `https://ddoktti-here.plead.co.kr/privacy` |

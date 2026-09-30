@@ -4,7 +4,7 @@
 
 똑띠는 컴퓨터 화면과 다른 앱의 창 주변을 돌아다니다가 쉬고, 졸고, 다양한 표정으로 반응합니다. Slack의 DM·멘션, Google Calendar 일정, 타이머 완료와 스트레칭 시간을 캐릭터와 말풍선으로 알려줍니다.
 
-[개인정보처리방침](PRIVACY.md) · [이용약관](TERMS.md) · [문의·문제 신고](https://github.com/plead-ops/ddoktti-here/issues) · [릴리즈](https://github.com/plead-ops/ddoktti-here/releases)
+[공식 홈페이지](https://ddoktti-here.plead.co.kr/) · [개인정보처리방침](https://ddoktti-here.plead.co.kr/privacy) · [이용약관](https://ddoktti-here.plead.co.kr/terms) · [문의·문제 신고](https://github.com/plead-ops/ddoktti-here/issues) · [릴리즈](https://github.com/plead-ops/ddoktti-here/releases)
 
 ## 똑띠와 함께하기
 
