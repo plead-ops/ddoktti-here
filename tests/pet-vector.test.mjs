@@ -22,7 +22,7 @@ test('all traced frames are real vector paths with no embedded bitmaps',async()=
   assert.match(svg,/<path /);assert.doesNotMatch(svg,/<image|data:image|<script/i);
   assert(frame.hit.length>0);count++;
  }
- assert.equal(count,129);
+ assert.equal(count,133);
 });
 test('shared palette and measurements keep all original and recovery frames consistent',()=>{
  for(const sheet of Object.values(frames))for(const frame of sheet.frames){
@@ -100,8 +100,8 @@ test('landing, hurt and sleepy use traced imagegen sources without synthetic bod
   assert.doesNotMatch(artwork[frame.key],/hurt-head|<ellipse|<circle/);
  }
 });
-test('hurt rub loop stays squinting before easing into recovery',()=>{
- for(let t=400;t<2100;t+=50)assert([1,2].includes(vectorFrame('hurt',t).index));
- assert.equal(vectorFrame('hurt',2100).index,3);
- assert.equal(vectorFrame('hurt',2450).index,4);
+test('belly flop progresses from prone rest to standing without replaying impact',()=>{
+ const times=[0,350,1150,1750,2300,2750];
+ assert.deepEqual(times.map(t=>vectorFrame('hurt',t).index),[0,1,2,3,4,4]);
+ for(const f of frames['hurt-v1'].frames)assert(f.sourceImage.endsWith('landing-flop-v3.png'));
 });

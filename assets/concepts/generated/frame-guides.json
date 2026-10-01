@@ -13,66 +13,6 @@
         "headCenter": 297.5,
         "neck": 328,
         "headTop": 116
-      },
-      {
-        "sheet": "hurt-v1",
-        "index": 0,
-        "x": 512,
-        "y": 0,
-        "width": 512,
-        "height": 512,
-        "eyeSpan": 236,
-        "headCenter": 277.0,
-        "neck": 351,
-        "headTop": 139
-      },
-      {
-        "sheet": "hurt-v1",
-        "index": 1,
-        "x": 1024,
-        "y": 0,
-        "width": 512,
-        "height": 512,
-        "eyeSpan": 230,
-        "headCenter": 263.0,
-        "neck": 345,
-        "headTop": 139
-      },
-      {
-        "sheet": "hurt-v1",
-        "index": 2,
-        "x": 0,
-        "y": 512,
-        "width": 512,
-        "height": 512,
-        "eyeSpan": 236,
-        "headCenter": 295.0,
-        "neck": 315,
-        "headTop": 108
-      },
-      {
-        "sheet": "hurt-v1",
-        "index": 3,
-        "x": 512,
-        "y": 512,
-        "width": 512,
-        "height": 512,
-        "eyeSpan": 232,
-        "headCenter": 302.0,
-        "neck": 315,
-        "headTop": 106
-      },
-      {
-        "sheet": "hurt-v1",
-        "index": 4,
-        "x": 1024,
-        "y": 512,
-        "width": 512,
-        "height": 512,
-        "eyeSpan": 224,
-        "headCenter": 288.0,
-        "neck": 317,
-        "headTop": 107
       }
     ]
   },
@@ -126,6 +66,129 @@
         "headCenter": 312.0,
         "neck": 363,
         "headTop": 101
+      }
+    ]
+  },
+  {
+    "source": "landing-flop-v3.png",
+    "frames": [
+      {
+        "sheet": "hurt-v1",
+        "index": 0,
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 216,
+        "headCenter": 177.5,
+        "neck": 419,
+        "headTop": 205,
+        "mirror": true
+      },
+      {
+        "sheet": "hurt-v1",
+        "index": 1,
+        "x": 512,
+        "y": 0,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 217,
+        "headCenter": 177,
+        "neck": 418,
+        "headTop": 205,
+        "mirror": true
+      },
+      {
+        "sheet": "hurt-v1",
+        "index": 2,
+        "x": 1024,
+        "y": 0,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 224,
+        "headCenter": 312.5,
+        "neck": 356,
+        "headTop": 125,
+        "mirror": false
+      },
+      {
+        "sheet": "hurt-v1",
+        "index": 3,
+        "x": 0,
+        "y": 512,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 221,
+        "headCenter": 312,
+        "neck": 303,
+        "headTop": 69,
+        "mirror": false
+      },
+      {
+        "sheet": "hurt-v1",
+        "index": 4,
+        "x": 512,
+        "y": 512,
+        "width": 512,
+        "height": 512,
+        "eyeSpan": 221,
+        "headCenter": 296,
+        "neck": 295,
+        "headTop": 61,
+        "mirror": false
+      }
+    ]
+  },
+  {
+    "source": "chase-happy-v1.png",
+    "frames": [
+      {
+        "sheet": "chase-v1",
+        "index": 0,
+        "x": 0,
+        "y": 0,
+        "width": 627,
+        "height": 627,
+        "eyeSpan": 254,
+        "headCenter": 388.5,
+        "neck": 397,
+        "headTop": 140
+      },
+      {
+        "sheet": "chase-v1",
+        "index": 1,
+        "x": 627,
+        "y": 0,
+        "width": 627,
+        "height": 627,
+        "eyeSpan": 255,
+        "headCenter": 344,
+        "neck": 397,
+        "headTop": 140
+      },
+      {
+        "sheet": "chase-v1",
+        "index": 2,
+        "x": 0,
+        "y": 627,
+        "width": 627,
+        "height": 627,
+        "eyeSpan": 254,
+        "headCenter": 388.5,
+        "neck": 365,
+        "headTop": 108
+      },
+      {
+        "sheet": "chase-v1",
+        "index": 3,
+        "x": 627,
+        "y": 627,
+        "width": 627,
+        "height": 627,
+        "eyeSpan": 254,
+        "headCenter": 342.5,
+        "neck": 364,
+        "headTop": 107
       }
     ]
   }

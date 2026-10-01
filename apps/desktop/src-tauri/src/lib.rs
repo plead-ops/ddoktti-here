@@ -10,6 +10,7 @@ use tauri::{
 
 mod calendar;
 mod companion;
+mod connection;
 mod diag;
 mod foreground;
 mod fullscreen;

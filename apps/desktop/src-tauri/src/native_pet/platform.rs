@@ -273,6 +273,44 @@ mod implementation {
             flags: u32,
         ) -> i32;
     }
+    type SubclassProc = unsafe extern "system" fn(isize, u32, usize, isize, usize, usize) -> isize;
+    #[link(name = "comctl32")]
+    extern "system" {
+        fn SetWindowSubclass(hwnd: isize, proc: SubclassProc, id: usize, data: usize) -> i32;
+        fn RemoveWindowSubclass(hwnd: isize, proc: SubclassProc, id: usize) -> i32;
+        fn DefSubclassProc(hwnd: isize, msg: u32, w: usize, l: isize) -> isize;
+    }
+    unsafe extern "system" fn canvas_messages(
+        hwnd: isize,
+        msg: u32,
+        w: usize,
+        l: isize,
+        id: usize,
+        _: usize,
+    ) -> isize {
+        if msg == 0x02E0 {
+            // WM_DPICHANGED
+            // This canvas already uses destination-monitor physical pixels in
+            // UpdateLayeredWindow. Tao's logical-size preservation would scale
+            // it a second time (and crop the cached bitmap on a lower-DPI screen).
+            // Only the native canvas is subclassed; settings/popups retain Tao DPI handling.
+            return 0;
+        }
+        if msg == 0x0082 {
+            // WM_NCDESTROY
+            RemoveWindowSubclass(hwnd, canvas_messages, id);
+        }
+        DefSubclassProc(hwnd, msg, w, l)
+    }
+    unsafe fn own_canvas_dpi(hwnd: isize) -> Result<(), String> {
+        // Native presentation runs on the HWND's owning UI thread. Reinstalling
+        // the same callback/id updates it without stacking handlers.
+        if SetWindowSubclass(hwnd, canvas_messages, 0xDD01, 0) == 0 {
+            Err("Unable to install native canvas DPI handler".into())
+        } else {
+            Ok(())
+        }
+    }
     pub fn ignore_cursor(win: &tauri::Window, ignore: bool) -> Result<(), String> {
         unsafe {
             let hwnd = win.hwnd().map_err(|e| e.to_string())?.0 as isize;
@@ -334,6 +372,7 @@ mod implementation {
     ) -> Result<(), String> {
         unsafe {
             let hwnd = win.hwnd().map_err(|e| e.to_string())?.0 as isize;
+            own_canvas_dpi(hwnd)?;
             let ex = GetWindowLongPtrW(hwnd, -20);
             SetWindowLongPtrW(hwnd, -20, ex | 0x80000 | 0x08000000 | 0x80);
             let screen = GetDC(0);

@@ -14,7 +14,7 @@
 ## 파일과 재생
 
 - 보존 원본: `assets/concepts/raster-before-svg/` (앱 번들 제외)
-- 독립형 SVG: `apps/desktop/public/sprites/vector/frames/` (129개)
+- 독립형 SVG: `apps/desktop/public/sprites/vector/frames/` (133개)
 - 재현 가능한 개별 보정: `scripts/pet-art-repairs.py`. 감정 표현 20프레임의 누락된 밑단. 착지·아야·졸기는 아래 새 원화에서 추적하며 수작업 몸통/입 덧칠을 사용하지 않는다. 손·다리에 가려진 밑단을 관통해 그리지 않는다.
 - 런타임 경로: `apps/desktop/src/pet-vector-paths.json`
 - 정렬·클릭 영역: `apps/desktop/src/pet-vector-frames.json`
@@ -146,3 +146,11 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 `generated/frame-guides.json`에 실제 크기·크롭·흰 렌즈 범위·목선을 기록했다. 원본 알파를 보존하며 벡터화 시 기존 임계값과 팔레트를 적용한다. 기존과 동일하게 흰 렌즈 범위 90, 발 y=250으로 균등 확대·축소한다. `trace-pet-svg.py`가 생성 원화를 직접 추적하므로 별도 수작업 몸통/얼굴 SVG를 합성하지 않는다. 프레임 키와 총 129프레임은 유지한다. 아야 동작은 눈 감은 1·2번만 반복하고 3번 눈 뜨기→4번 진정으로 마친다.
 
 새로운 복잡한 캐릭터 자세는 기존 인상을 참고한 생성 원화를 먼저 만들고 벡터로 추적한다. 기존 머리에 각진 SVG 몸통·팔다리를 조립하거나, 입 주변을 큰 녹색 도형으로 덮어 윤곽을 숨기는 방법은 사용하지 않는다. 단순 옷자락 보정과 새 자세의 제작을 구분한다.
+
+### 철푸덕 착지 (2026-10-01)
+
+`assets/concepts/generated/landing-flop-v3.png`를 내장 image_gen으로 생성해 `hurt-v1` 5프레임을 교체했다. 엎어짐 → 잠깐 쉬기 → 고개 들기 → 무릎으로 일어나기 → 옷 털기 순서다. 옆구리를 움켜쥐며 아파하던 반복 재생을 제거하고 2.8초 동안 순서대로 한 번만 재생한다. 가벼운 착지는 기존 `edge-v2-6`을 유지한다. 처음 두 원화는 같은 시선 방향으로 보도록 좌우 반전하며, 반전한 클릭 영역과 외곽 범위도 함께 정규화한다. 전체 프롬프트와 참조는 `assets/concepts/generated/GENERATION.md`에 기록했다.
+
+### 포인터를 향해 두 손 들고 달리기 (2026-10-01)
+
+`chase-happy-v1.png`의 4개 프레임을 `chase-v1`로 벡터화했다. 두 손을 들고 웃는 표정과 짧은 다리를 유지하고, 생성 후 아래 행의 다리 순서를 수정해 좌우 발이 교대로 지지하도록 했다. 포인터를 따라가는 동안에만 `chase`를 그리며 일반 `run-v3`는 유지한다. 이동 속도와 프레임 시점은 기존 달리기의 실제 이동거리 기반 보폭 계산을 공유한다. 프롬프트·참조는 `assets/concepts/generated/chase-happy-v1-prompt.md`에 기록했다. 총 벡터 원화는 133프레임이다.

@@ -107,7 +107,7 @@ def generated_frames(atlas,manifest):
             if not bounds:raise ValueError('Empty generated frame')
             left,top,right,bottom=bounds
             scale=90/guide['eyeSpan']
-            def transform(x,y):return 200+(x-guide['headCenter'])*scale,250+(y-bottom)*scale
+            def transform(x,y):return 200+(x-guide['headCenter'])*scale*(-1 if guide.get('mirror') else 1),250+(y-bottom)*scale
             key=f'{sheet}-{index}'
             atlas[key]=paths(trace(tile,suit_from=guide['neck']),transform)
             hits=[]
@@ -115,8 +115,8 @@ def generated_frames(atlas,manifest):
                 end=min(y+16,bottom);box=alpha.crop((0,y,tile.width,end)).getbbox()
                 if box:
                     x1,y1=transform(box[0],y);x2,y2=transform(box[2],end)
-                    hits.append([round(x1,3),round(y1,3),round(x2-x1,3),round(y2-y1,3)])
-            l,t=transform(left,top);rr,bb=transform(right,bottom)
+                    hits.append([round(min(x1,x2),3),round(y1,3),round(abs(x2-x1),3),round(y2-y1,3)])
+            l,t=transform(left,top);rr,bb=transform(right,bottom);l,rr=min(l,rr),max(l,rr)
             frame=dict(source=guide,sourceImage='assets/concepts/generated/'+source['source'],width=400,height=260,left=l,top=t,right=rr,bottom=bb,hit=hits,url=f'/sprites/vector/frames/{key}.svg',key=key,eyeSpan=90,bodyHeight=round((bottom-guide['neck'])*scale,3),uniformScale=scale,sourceBounds=list(bounds),antennaRepaired=False)
             target=manifest.setdefault(sheet,dict(referenceHeight=170,frames=[]))['frames']
             if index<len(target):target[index]=frame

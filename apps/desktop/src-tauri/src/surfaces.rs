@@ -67,6 +67,12 @@ pub fn pet_world(app: AppHandle) -> Result<World, String> {
             .ok_or("no monitor")?;
         (m, pos.x as f64 + anchor.0, pos.y as f64 + anchor.1)
     };
+    world_at(&app, &m, x, y)
+}
+
+/// Read geometry for an explicitly owned monitor/foot position. Scripted routes
+/// must not select a monitor from an asynchronously moved overlay window.
+pub(crate) fn world_at(app: &AppHandle, m: &Monitor, x: f64, y: f64) -> Result<World, String> {
     let wa = m.work_area();
     let sf = m.scale_factor();
     let ox = wa.position.x as f64 / sf;

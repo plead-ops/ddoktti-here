@@ -117,13 +117,15 @@ pub struct Physics {
     seed: u64,
     fall_origin: f64,
     deliberate_jump: bool,
+    wander_side: f64,
+    wander_streak: u8,
 }
 impl Physics {
     pub fn new(world: World) -> Self {
         let mut p = Self {
             x: world.x,
             y: world.y,
-            direction: 1.,
+            direction: if world.x > world.width / 2. { -1. } else { 1. },
             motion: Motion::Fall,
             age: 0.,
             ledges: ledges(&world),
@@ -140,6 +142,8 @@ impl Physics {
             seed: 0x927fd,
             fall_origin: 0.,
             deliberate_jump: false,
+            wander_side: 0.,
+            wander_streak: 0,
         };
         p.reset(p.x, p.y);
         p
@@ -147,6 +151,36 @@ impl Physics {
     fn random(&mut self) -> f64 {
         self.seed = self.seed.wrapping_mul(6364136223846793005).wrapping_add(1);
         (self.seed >> 11) as f64 / (1u64 << 53) as f64
+    }
+    /// Choose only at the start of an autonomous stroll, never mid-route.
+    pub fn begin_wander(&mut self, sample: f64) {
+        if self.motion != Motion::Grounded || self.approaching() {
+            return;
+        }
+        let mut side = if sample < 0.5 { -1. } else { 1. };
+        if self.wander_streak >= 2 && side == self.wander_side {
+            side = -side;
+        }
+        let support = self.at(self.x, self.y, self.support.as_deref());
+        let left = support
+            .as_ref()
+            .map_or(self.half(), |p| p.left + self.foot());
+        let right = support
+            .as_ref()
+            .map_or(self.world.width - self.half(), |p| p.right - self.foot());
+        let margin = (self.world.size * 0.5).min((right - left).max(0.) * 0.25);
+        if self.x <= left + margin {
+            side = 1.;
+        } else if self.x >= right - margin {
+            side = -1.;
+        }
+        self.wander_streak = if side == self.wander_side {
+            self.wander_streak.saturating_add(1)
+        } else {
+            1
+        };
+        self.wander_side = side;
+        self.direction = side;
     }
     pub fn half(&self) -> f64 {
         self.world.size * 0.46
@@ -273,6 +307,22 @@ impl Physics {
                     && v.y < self.y
                     && v.y + v.height > w.y.min(self.y - self.height())
             })
+    }
+    /// A scripted route owns position until it finishes. Do not acquire a
+    /// nearby window as support, clamp across the display seam, or keep a stale rope.
+    pub fn guide(&mut self, world: World) {
+        self.x = world.x;
+        self.y = world.y;
+        self.world = world;
+        self.ledges = ledges(&self.world);
+        self.attached = None;
+        self.support = None;
+        self.plan = None;
+        self.approach = None;
+        self.vx = 0.;
+        self.vy = 0.;
+        self.motion = Motion::Fall;
+        self.age = 0.;
     }
     pub fn update(&mut self, world: World) {
         if world.monitor != self.world.monitor || world.size != self.world.size {
@@ -723,6 +773,41 @@ mod tests {
         for _ in 0..(seconds * 60.).ceil() as usize {
             p.step(1. / 60., walk, auto, false);
         }
+    }
+    #[test]
+    fn new_strolls_do_not_keep_one_direction_or_override_routes() {
+        let mut p = Physics::new(world(vec![], 500., 700.));
+        advance(&mut p, 1., 0., false);
+        for sample in [0.9, 0.1] {
+            let mut previous = 0.;
+            let mut streak = 0;
+            let mut sides = [0; 2];
+            for _ in 0..60 {
+                p.begin_wander(sample);
+                sides[usize::from(p.direction > 0.)] += 1;
+                streak = if p.direction == previous {
+                    streak + 1
+                } else {
+                    1
+                };
+                assert!(streak <= 2);
+                previous = p.direction;
+            }
+            assert!(sides.iter().all(|n| *n >= 20));
+        }
+        p.x = 950.;
+        p.begin_wander(0.9);
+        assert_eq!(p.direction, -1.);
+        p.x = 50.;
+        p.begin_wander(0.1);
+        assert_eq!(p.direction, 1.);
+        p.approach = Some(("window".into(), 1.));
+        p.begin_wander(0.1);
+        assert_eq!(p.direction, 1.);
+        p.approach = None;
+        p.motion = Motion::Fall;
+        p.begin_wander(0.1);
+        assert_eq!(p.direction, 1.);
     }
     #[test]
     fn floating_window_is_approached_from_either_side_then_climbed() {

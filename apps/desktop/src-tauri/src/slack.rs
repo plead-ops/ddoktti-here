@@ -1,4 +1,5 @@
 //! Device client for the OAuth/event relay. No Slack app secret in the binary.
+use crate::connection::{Problem, Service};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -15,6 +16,7 @@ const RELAY: &str = match option_env!("SLACK_RELAY_URL") {
 #[derive(Default)]
 struct State {
     connected: bool,
+    problem: Option<Problem>,
     busy: bool,
     generation: u64,
     account: String,
@@ -57,7 +59,7 @@ pub fn init(app: &AppHandle) {
 pub fn slack_status(app: AppHandle) -> Value {
     let state = app.state::<Slack>();
     let s = state.0.lock().unwrap();
-    json!({"configured":endpoint("").is_ok(),"connected":s.connected,"busy":s.busy,"account":s.account,"status":s.status,"filters":s.filters})
+    json!({"configured":endpoint("").is_ok(),"connected":s.connected,"reconnecting":s.problem==Some(Problem::Reconnecting),"busy":s.busy,"account":s.account,"status":s.status,"filters":s.filters})
 }
 fn connect(app: &AppHandle, generation: u64) -> Result<(), String> {
     let http = client()?;
@@ -142,9 +144,11 @@ pub async fn slack_connect(app: AppHandle) -> Result<(), String> {
         }
         s.generation += 1;
         s.busy = true;
+        s.problem = None;
         s.status = "브라우저에서 연결을 완료해 주세요".into();
         s.generation
     };
+    crate::native_pet::connection_status(&app, Service::Slack, None);
     publish(&app);
     let worker = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || connect(&worker, generation))
@@ -200,6 +204,7 @@ pub async fn slack_disconnect(app: AppHandle) -> Result<(), String> {
             s.generation += 1;
             s.busy = false;
             s.connected = false;
+            s.problem = None;
             s.account.clear();
             s.status = "연결 안 됨".into();
         }
@@ -212,6 +217,7 @@ pub async fn slack_disconnect(app: AppHandle) -> Result<(), String> {
                 .alerts
                 .retain(|a| a["source"] != "slack");
         }
+        crate::native_pet::connection_status(&worker, Service::Slack, None);
         crate::companion::emit(&worker);
         publish(&worker);
         Ok(())
@@ -249,7 +255,9 @@ pub fn start(app: AppHandle) {
         }
         let mut ack = Vec::<String>::new();
         let mut generation = 0;
+        let mut failures = 0u32;
         loop {
+            let mut attempted = false;
             let result = (|| -> Result<(), String> {
                 let token = match credential()?.get_password() {
                     Ok(t) => t,
@@ -258,7 +266,7 @@ pub fn start(app: AppHandle) {
                 let g = {
                     let state = app.state::<Slack>();
                     let s = state.0.lock().unwrap();
-                    if s.busy {
+                    if s.busy || s.problem == Some(Problem::Authorization) {
                         return Ok(());
                     }
                     s.generation
@@ -266,7 +274,9 @@ pub fn start(app: AppHandle) {
                 if generation != g {
                     ack.clear();
                     generation = g;
+                    failures = 0;
                 }
+                attempted = true;
                 let http = client()?;
                 let r = http
                     .get(endpoint("/v1/status")?)
@@ -302,9 +312,11 @@ pub fn start(app: AppHandle) {
                     return Ok(());
                 }
                 s.connected = true;
+                s.problem = None;
                 s.status = "연결됨".into();
                 s.account = info["account"].as_str().unwrap_or("Slack").into();
                 s.filters = info["filters"].clone();
+                drop(s);
                 ack.clear();
                 if let Some(alerts) = data["alerts"].as_array() {
                     for alert in alerts.iter().take(50) {
@@ -320,12 +332,38 @@ pub fn start(app: AppHandle) {
                 }
                 Ok(())
             })();
-            if let Err(e) = result {
+            let mut notice = None;
+            if attempted {
                 let state = app.state::<Slack>();
-                state.0.lock().unwrap().status = e;
+                let mut s = state.0.lock().unwrap();
+                if s.generation == generation && !s.busy {
+                    let problem = result.err().map(|e| Problem::from_error(&e));
+                    s.problem = problem;
+                    if let Some(p) = problem {
+                        s.status = p.status(Service::Slack).into();
+                        failures = (failures + 1).min(5);
+                    } else {
+                        failures = 0;
+                    }
+                    notice = Some(problem);
+                }
+            }
+            if let Some(problem) = notice {
+                crate::native_pet::connection_status(&app, Service::Slack, problem);
             }
             publish(&app);
-            std::thread::sleep(Duration::from_secs(3));
+            // Sleep in short intervals so reconnect/disconnect changes are respected.
+            let delay = if failures == 0 {
+                3
+            } else {
+                (3u64 << failures).min(60)
+            };
+            for _ in 0..delay {
+                std::thread::sleep(Duration::from_secs(1));
+                if app.state::<Slack>().0.lock().unwrap().generation != generation {
+                    break;
+                }
+            }
         }
     });
 }

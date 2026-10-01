@@ -56,6 +56,8 @@ pub fn duration(mode: &str) -> f64 {
         "surprised" => 1.8,
         "relieved" => 2.3,
         "tickle" => 2.2,
+        "petted" => 2.4,
+        "connection" => 4.,
         "enough" => 3.0,
         "ack" => 2.2,
         _ => 7.,
@@ -98,9 +100,13 @@ impl Art {
             "relieved" => Some(("emotions-v2", 4, 0.45, false)),
             _ => None,
         };
-        if mode == "run" {
-            p.sheet = "run-v3";
-            p.index = super::gait::frame(mode, t, reduced);
+        if mode == "run" || mode == "chase" {
+            p.sheet = if mode == "chase" {
+                "chase-v1"
+            } else {
+                "run-v3"
+            };
+            p.index = super::gait::frame("run", t, reduced);
             return p;
         }
         if let Some((sheet, row, ms, looped)) = behavior {
@@ -123,7 +129,7 @@ impl Art {
             return p;
         }
         match mode {
-            "idle" => {
+            "idle" | "connection" => {
                 // Use the existing relaxed standing drawing, without stretching limbs.
                 p.sheet = "emotions-v2";
                 p.index = 18;
@@ -138,6 +144,13 @@ impl Art {
                     + if mode == "drag" { 4 } else { 0 };
                 if mode == "drag" {
                     p.lift = 12.;
+                }
+            }
+            "petted" => {
+                p.sheet = "emotions-v1";
+                p.index = if t < 0.25 || t >= 2.1 { 8 } else { 9 };
+                if !reduced {
+                    p.offset = (t * std::f64::consts::TAU).sin() * 2.;
                 }
             }
             "enough" => {
@@ -159,11 +172,13 @@ impl Art {
             }
             "hurt" => {
                 p.sheet = "hurt-v1";
-                p.index = if t < 0.4 {
+                p.index = if t < 0.35 {
                     0
-                } else if t < 2.1 {
-                    1 + ((t - 0.4) / 0.18).floor() as usize % 2
-                } else if t < 2.45 {
+                } else if t < 1.15 {
+                    1
+                } else if t < 1.75 {
+                    2
+                } else if t < 2.3 {
                     3
                 } else {
                     4
@@ -362,7 +377,7 @@ mod tests {
     fn every_original_frame_rasterizes_transparently_and_cache_is_bounded() {
         let mut art = Art::new().unwrap();
         let keys: Vec<_> = art.paths.keys().cloned().collect();
-        assert_eq!(keys.len(), 129);
+        assert_eq!(keys.len(), 133);
         for key in keys {
             let bitmap = art.bitmap(&key, 260).unwrap();
             assert!(

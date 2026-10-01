@@ -271,6 +271,74 @@ mod tests {
         assert!(changed && x > 1000.);
     }
     #[test]
+    fn route_keeps_ownership_when_windows_move_across_the_monitor_seam() {
+        use super::super::physics::Physics;
+        use crate::surfaces::{WindowRect, World};
+        let a = screen("main", 0., 1.);
+        let mut b = screen("sub", -1000., 2.);
+        b.h = 600.;
+        b.wh = 600.;
+        for (from, to, direction) in [(&a, &b, -1.), (&b, &a, 1.)] {
+            let size = 180.;
+            let start = (
+                if direction > 0. {
+                    from.wx + from.ww - size * from.factor * 0.46
+                } else {
+                    from.wx + size * from.factor * 0.46
+                },
+                from.wy + from.wh,
+            );
+            let mut c =
+                Crossing::new(from, &[a.clone(), b.clone()], start, direction, size, 90.).unwrap();
+            let make_world = |s: &Sample, index: usize| {
+                let screen = if s.screen == a.id { &a } else { &b };
+                let x = (s.x - screen.wx) / screen.factor;
+                let y = (s.y - screen.wy) / screen.factor;
+                // A foreground window top sits exactly beneath the route. The
+                // next geometry scan moves/reorders it across the boundary.
+                World {
+                    monitor: s.screen.clone(),
+                    x,
+                    y,
+                    width: screen.ww / screen.factor,
+                    height: screen.wh / screen.factor,
+                    size,
+                    windows: vec![WindowRect {
+                        id: format!("window-{}", index % 2),
+                        x: x - 80.,
+                        y,
+                        width: 160.,
+                        height: 300.,
+                    }],
+                }
+            };
+            let first = c.step(0.);
+            let mut p = Physics::new(make_world(&first, 0));
+            let mut handoffs = 0;
+            let mut monitor = from.id.clone();
+            for i in 0..2400 {
+                let f = c.step(1. / 60.);
+                p.guide(make_world(&f, i));
+                assert!(p.rope_anchor().is_none());
+                assert!(!p.on_floor(), "normal surface physics must not own a route");
+                let screen = if f.screen == a.id { &a } else { &b };
+                assert!((screen.wx + p.x * screen.factor - f.x).abs() < 1e-8);
+                assert!((screen.wy + p.y * screen.factor - f.y).abs() < 1e-8);
+                if p.world.monitor != monitor {
+                    handoffs += 1;
+                    monitor = p.world.monitor.clone();
+                }
+                if f.done {
+                    p.reset(p.x, p.y);
+                    assert_eq!(handoffs, 1);
+                    assert_eq!(monitor, to.id);
+                    break;
+                }
+                assert!(i < 2399, "route did not finish");
+            }
+        }
+    }
+    #[test]
     fn disconnected_or_non_touching_screen_is_not_a_bridge() {
         let a = screen("a", 0., 1.);
         assert!(

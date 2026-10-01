@@ -3,6 +3,7 @@ mod activity;
 mod art;
 mod crossing;
 mod gait;
+mod petting;
 mod physics;
 mod platform;
 #[cfg(debug_assertions)]
@@ -40,6 +41,8 @@ struct Runtime {
     play_side: f64,
     follow_age: f64,
     tickle: tickle::Tickle,
+    petting: petting::Petting,
+    connections: crate::connection::Notices,
     follow_rest: f64,
     last: Instant,
     sense: Instant,
@@ -120,6 +123,12 @@ impl Runtime {
             &calm
         };
         let m = pool[(self.random() * pool.len() as f64) as usize];
+        if matches!(m, "walk" | "run") {
+            let sample = self.random();
+            if let Some(p) = self.physics.as_mut() {
+                p.begin_wander(sample);
+            }
+        }
         self.set_mode(m);
     }
 }
@@ -135,6 +144,19 @@ pub fn acknowledge_timer(app: &AppHandle) {
             r.pending_ack = true;
             r.menu = false;
             r.pending_menu = false;
+        }
+    }
+}
+/// Service workers call this only after releasing their own state locks.
+pub fn connection_status(
+    app: &AppHandle,
+    service: crate::connection::Service,
+    problem: Option<crate::connection::Problem>,
+) {
+    if let Some(state) = app.try_state::<Native>() {
+        if let Ok(mut r) = state.runtime.lock() {
+            let now = r.started.elapsed().as_secs();
+            r.connections.observe(service, problem, now);
         }
     }
 }
@@ -190,6 +212,8 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
             play_side: 1.,
             follow_age: 0.,
             tickle: tickle::Tickle::default(),
+            petting: petting::Petting::default(),
+            connections: crate::connection::Notices::default(),
             follow_rest: 0.,
             last: Instant::now(),
             sense: Instant::now() - Duration::from_secs(1),
@@ -305,12 +329,16 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             s.fullscreen,
         )
     };
+    let notice_time = r.started.elapsed().as_secs();
+    let notice_allowed =
+        preferences.onboarded && preferences.quiet_until <= crate::companion::now();
     let visible = ready
         && !(fullscreen && preferences.hide_fullscreen)
         && ((preferences.onboarded && preferences.resident)
             || !alerts.is_empty()
             || r.press.is_some()
             || r.pending_ack
+            || (notice_allowed && r.connections.pending(notice_time))
             || r.reaction.is_some());
     let pet = app.get_window("pet-native").ok_or("No native window")?;
     let popup = app.get_webview_window("overlay").ok_or("No popup window")?;
@@ -369,8 +397,13 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     }
     if r.physics.is_none() || r.sense.elapsed() >= Duration::from_millis(150) {
         let world = crate::surfaces::pet_world(app.clone())?;
+        let guided = r.crossing.is_some() || r.activity.is_some();
         if let Some(p) = &mut r.physics {
-            p.update(world);
+            if guided {
+                p.guide(world);
+            } else {
+                p.update(world);
+            }
         } else {
             r.physics = Some(Physics::new(world));
         }
@@ -562,10 +595,30 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             r.tickle();
         }
     }
+    let can_pet = hit
+        && !left
+        && !right
+        && !r.hover
+        && !r.menu
+        && selected.is_none()
+        && r.reaction.is_none()
+        && !r.pending_ack
+        && !r.pending_tickle
+        && !r.pending_menu
+        && r.activity.is_none()
+        && r.crossing.is_none()
+        && !r.physics.as_ref().unwrap().busy();
+    if r.petting.sample(
+        (cursor.x, cursor.y),
+        dt,
+        crate::pet_size(&cfg) * sf / screen_unit(sf),
+        can_pet,
+    ) {
+        r.set_mode("petted");
+        r.reaction = Some("헤헤, 좋아요.");
+    }
     r.crossing_wait = (r.crossing_wait - dt).max(0.);
     let can_cross = resident
-        && !hit
-        && !r.hover
         && cfg.activity_scope == "all"
         && !cfg.reduce_motion
         && selected.is_none()
@@ -575,15 +628,20 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         && !r.pending_tickle
         && !r.pending_ack
         && r.reaction.is_none();
-    if r.crossing
-        .as_ref()
-        .is_some_and(|c| !can_cross || !monitors.iter().any(|m| crate::surfaces::key(m) == c.to))
-    {
+    if r.crossing.as_ref().is_some_and(|c| {
+        !can_cross
+            || [&c.from, &c.to]
+                .iter()
+                .any(|id| !monitors.iter().any(|m| crate::surfaces::key(m) == **id))
+    }) {
         r.crossing = None;
         let p = r.physics.as_mut().unwrap();
         p.reset(p.x, p.y);
     }
     if can_cross
+        && !hit
+        && !r.hover
+        && r.physics.as_ref().unwrap().on_floor()
         && r.crossing.is_none()
         && r.activity.is_none()
         && r.crossing_wait == 0.
@@ -636,21 +694,17 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             .iter()
             .find(|m| crate::surfaces::key(m) == f.screen)
         {
-            crate::place_pet(
+            // Route coordinates are authoritative. Reading back the popup and
+            // constructing normal physics here could acquire neighboring windows.
+            let world = crate::surfaces::world_at(
                 app,
-                &popup,
                 m,
                 f.x * screen_unit(m.scale_factor()),
                 f.y * screen_unit(m.scale_factor()),
-                &cfg,
-            )
-            .map_err(|e| e.to_string())?;
-            let world = crate::surfaces::pet_world(app.clone())?;
+            )?;
             let (x, y, size) = (world.x, world.y, world.size);
-            r.physics = Some(Physics::new(world));
             let p = r.physics.as_mut().unwrap();
-            p.x = x;
-            p.y = y;
+            p.guide(world);
             p.direction = f.direction;
             monitor = m.clone();
             cross_frame = Some(activity::Frame {
@@ -798,6 +852,8 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             && !reduced
             && !p.busy()
             && r.activity.is_none()
+            && r.crossing.is_none()
+            && activity_frame.is_none()
             && near
             && r.follow_rest == 0.;
         cursor_following = following;
@@ -871,11 +927,29 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             r.tickle();
         }
     }
+    if notice_allowed
+        && selected.is_none()
+        && r.reaction.is_none()
+        && !r.menu
+        && !dragging
+        && !left
+        && !right
+        && activity_frame.is_none()
+        && (!resident || !r.physics.as_ref().unwrap().busy())
+    {
+        if let Some(message) = r.connections.take(notice_time) {
+            r.set_mode("connection");
+            r.reaction = Some(message);
+        }
+    }
     let busy = resident && (r.physics.as_ref().unwrap().busy() || activity_frame.is_some());
     if !busy && !dragging && !r.menu {
         if r.reaction.is_some() {
             r.age += dt
-                * if matches!(r.mode.as_str(), "ack" | "enough" | "tickle") {
+                * if matches!(
+                    r.mode.as_str(),
+                    "ack" | "enough" | "tickle" | "petted" | "connection"
+                ) {
                     1.
                 } else {
                     cfg.speed
@@ -946,11 +1020,15 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         r.mode.clone()
     } else if let Some(a) = selected {
         a["source"].as_str().unwrap_or("slack").into()
+    } else if cursor_following && r.mode == "run" {
+        "chase".into()
     } else {
         r.mode.clone()
     };
     let age = if let Some(f) = activity_frame {
         f.age
+    } else if mode == "chase" {
+        gait::elapsed("run", r.gait_distance, crate::pet_size(&cfg))
     } else if matches!(mode.as_str(), "walk" | "run") {
         gait::elapsed(&mode, r.gait_distance, crate::pet_size(&cfg))
     } else if dragging {
@@ -964,7 +1042,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     };
     let facing = if let Some(f) = activity_frame {
         f.direction
-    } else if busy || matches!(mode.as_str(), "walk" | "run" | "curious") {
+    } else if busy || matches!(mode.as_str(), "walk" | "run" | "chase" | "curious") {
         direction
     } else {
         1.

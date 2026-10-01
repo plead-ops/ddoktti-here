@@ -1,4 +1,5 @@
 //! Read-only automatic multi-calendar integration. Tokens never leave the native process.
+use crate::connection::{Problem, Service};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -34,6 +35,7 @@ pub struct Event {
 #[derive(Default)]
 pub struct State {
     connected: bool,
+    problem: Option<Problem>,
     busy: bool,
     generation: u64,
     status: String,
@@ -82,7 +84,7 @@ fn publish(app: &AppHandle) {
 pub fn calendar_status(app: AppHandle) -> Value {
     let state = app.state::<Calendar>();
     let s = state.0.lock().unwrap();
-    json!({"configured":!CLIENT_ID.is_empty(),"connected":s.connected,"busy":s.busy,"status":s.status,"last_sync":s.last_sync,"events":s.events})
+    json!({"configured":!CLIENT_ID.is_empty(),"connected":s.connected,"reconnecting":s.problem==Some(Problem::Reconnecting),"busy":s.busy,"status":s.status,"last_sync":s.last_sync,"events":s.events})
 }
 pub fn in_meeting(app: &AppHandle, t: u64) -> bool {
     let state = app.state::<Calendar>();
@@ -232,9 +234,11 @@ pub async fn calendar_connect(app: AppHandle) -> Result<(), String> {
         }
         s.generation += 1;
         s.busy = true;
+        s.problem = None;
         s.status = "브라우저에서 Google 연결을 완료해 주세요".into();
         s.generation
     };
+    crate::native_pet::connection_status(&app, Service::Calendar, None);
     publish(&app);
     let worker = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || oauth(&worker, generation))
@@ -266,6 +270,7 @@ pub fn calendar_disconnect(app: AppHandle) -> Result<(), String> {
         s.generation += 1;
         s.busy = false;
         s.connected = false;
+        s.problem = None;
         s.events.clear();
         s.fired.clear();
         s.known.clear();
@@ -276,6 +281,7 @@ pub fn calendar_disconnect(app: AppHandle) -> Result<(), String> {
             let _ = std::fs::remove_file(dir.join("calendar-occurrences.json"));
         }
     }
+    crate::native_pet::connection_status(&app, Service::Calendar, None);
     {
         let state = app.state::<crate::companion::Companion>();
         let mut s = state.0.lock().unwrap();
@@ -502,7 +508,14 @@ fn fetch(mut known: HashMap<String, String>) -> Result<Fetched, String> {
         .send()
         .map_err(|_| "오프라인 · 연결을 기다리고 있어요")?;
     if !response.status().is_success() {
-        return Err("인증 갱신 실패 · Google에 다시 연결해 주세요".into());
+        let unauthorized = response.status() == reqwest::StatusCode::UNAUTHORIZED;
+        let error: Value = response.json().unwrap_or_default();
+        return Err(if unauthorized || error["error"] == "invalid_grant" {
+            "인증 갱신 실패 · Google에 다시 연결해 주세요"
+        } else {
+            "Google 인증 서버에 잠시 연결하지 못했어요"
+        }
+        .into());
     }
     let token: Value = response.json().map_err(|_| "Google 인증 응답 오류")?;
     let access = token["access_token"]
@@ -632,7 +645,12 @@ pub fn start(app: AppHandle) {
             let (connected, busy, generation, last_sync) = {
                 let state = app.state::<Calendar>();
                 let s = state.0.lock().unwrap();
-                (s.connected, s.busy, s.generation, s.last_sync)
+                (
+                    s.connected && s.problem != Some(Problem::Authorization),
+                    s.busy,
+                    s.generation,
+                    s.last_sync,
+                )
             };
             if generation != last_generation {
                 last_generation = generation;
@@ -646,12 +664,15 @@ pub fn start(app: AppHandle) {
             {
                 let known = app.state::<Calendar>().0.lock().unwrap().known.clone();
                 let result = fetch(known);
+                let mut notice = None;
                 {
                     let state = app.state::<Calendar>();
                     let mut s = state.0.lock().unwrap();
                     if s.generation == generation {
                         match result {
                             Ok(fetched) => {
+                                s.problem = None;
+                                notice = Some(None);
                                 s.events = fetched.events;
                                 s.known = fetched.known;
                                 if let Ok(dir) = app.path().app_config_dir() {
@@ -673,11 +694,17 @@ pub fn start(app: AppHandle) {
                                 failures = 0;
                             }
                             Err(e) => {
-                                s.status = e;
+                                let problem = Problem::from_error(&e);
+                                s.problem = Some(problem);
+                                s.status = problem.status(Service::Calendar).into();
+                                notice = Some(Some(problem));
                                 failures = (failures + 1).min(5);
                             }
                         }
                     }
+                }
+                if let Some(problem) = notice {
+                    crate::native_pet::connection_status(&app, Service::Calendar, problem);
                 }
                 next_attempt = t + if failures == 0 {
                     5
