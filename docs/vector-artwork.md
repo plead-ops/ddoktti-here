@@ -14,7 +14,7 @@
 ## 파일과 재생
 
 - 보존 원본: `assets/concepts/raster-before-svg/` (앱 번들 제외)
-- 독립형 SVG: `apps/desktop/public/sprites/vector/frames/` (141개)
+- 독립형 SVG: `apps/desktop/public/sprites/vector/frames/` (149개)
 - 재현 가능한 개별 보정: `scripts/pet-art-repairs.py`. 감정 표현 20프레임의 누락된 밑단. 착지·아야·졸기는 아래 새 원화에서 추적하며 수작업 몸통/입 덧칠을 사용하지 않는다. 손·다리에 가려진 밑단을 관통해 그리지 않는다.
 - 런타임 경로: `apps/desktop/src/pet-vector-paths.json`
 - 정렬·클릭 영역: `apps/desktop/src/pet-vector-frames.json`
@@ -166,3 +166,11 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ### 쓰다듬기 홍조 표정 (2026-10-01)
 
 `petted-blush-v1.png`(Codex image_gen, 1254×1254 2×2)의 4프레임을 `petted-v1`로 벡터화해 쓰다듬기 반응에 사용한다. 기존 `emotions-v1` 8·9번은 아틀라스에 남아 있고 `petted-v1`이 없을 때의 대체로만 쓴다. 생성 시트는 머리를 기울인 칸에서 안경 폭이 좁게 측정되어 프레임마다 배율이 달라지므로, `dizzy-v1`·`petted-v1`은 시트 안 네 칸의 측정값 평균을 공통 `eyeSpan`으로 쓴다(각각 224, 251). 2번 칸의 `neck`은 볼에 올린 소매 때문에 자동 검출값(360)을 그대로 두어도 코트 평탄화 결과에 문제가 없음을 확인했다. 총 벡터 원화는 141프레임이다.
+
+## 이불 덮고 자기 (sleep-v1, 2026-10-02)
+
+`sleep-blanket-v1.png`(Codex image_gen, 1254×1254 2×2)의 4프레임을 `sleep-v1`로 벡터화했다. 30분 이상 입력이 없을 때(`asleep`) 1.3초 간격 루프로 재생하며, 10분 졸기(`sleepy`) 다음 단계다. 누운 포즈라 행 기준 렌즈 폭이 기울기 때문에 과소 측정되어, 두 렌즈 흰 영역의 중심 거리 + 평균 렌즈 지름으로 안경 폭을 쟀다(네 칸 192.8~195.3, 공통 193.5; 같은 방법이 `dizzy-v1` 등록값 224를 217~231로 재현한다). `headCenter`는 두 렌즈 중심의 평균 x, `neck`은 옷깃 행(남색 25px 이상 첫 행)이다. 이불(#9ED4FF)과 베개(#FFF0B8)는 팔레트에 `sky`·`cream`으로 추가했고, `frame-guides.json`의 `palette: "bed"` 칸에서만 분류·스냅하므로 다른 프레임은 바뀌지 않는다(트레이스 재실행 결과 기존 141개 경로 동일). 프롬프트·참조는 `assets/concepts/generated/sleep-blanket-v1-prompt.md`. 총 벡터 원화는 145프레임이다.
+
+## 대기: 고개 갸웃 (idle-v1, 2026-10-02)
+
+`idle-tilt-v1.png`(Codex image_gen, 1254×1254 2×2)의 4프레임을 `idle-v1`로 벡터화했다. 가만히 서 있을 때(`idle`) 정면 → 왼쪽 갸웃 → 정면 → 오른쪽 갸웃 → 정면을 7.2초 주기로 돌고, 정면일 때 4.1초마다 0.15초 눈 감은 칸(3)으로 깜빡인다. 숨쉬기 오르내림은 코드가 더한다. 몸은 안도감 시트의 기본 자세(emotions-v2-18)와 같고 머리만 기울인 원화라, 안경 폭은 두 렌즈 중심 거리 + 평균 지름 방식으로 네 칸 평균 248.9에 기본 자세와의 안경 폭 비(0.963)를 곱한 239.7을 공통으로 썼다. `neck`은 옷깃 행 자동 검출값이다. 시트가 아틀라스에 없으면 기존 emotions-v2-18/17 깜빡임으로 대체한다. 프롬프트·참조는 `assets/concepts/generated/idle-tilt-v1-prompt.md`. 총 벡터 원화는 149프레임이다.

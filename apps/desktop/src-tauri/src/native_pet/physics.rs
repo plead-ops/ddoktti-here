@@ -134,16 +134,26 @@ pub struct Physics {
     /// Side of our own support whose corner we walk to before roping down.
     descent: Option<f64>,
     /// Seconds spent on windows since last standing on the desktop floor.
-    perch: f64,
+    pub perch: f64,
     pull_start: (f64, f64),
     seed: u64,
     fall_origin: f64,
     deliberate_jump: bool,
     wander_side: f64,
     wander_streak: u8,
-    /// The last fall was caused by losing our support (closed, shrunk, covered).
+    /// Just arrived by rope (pulled onto a window top, or rappelled down to a
+    /// landing); the caller shows a proud moment instead of a braced landing.
+    pub climbed: bool,
+    /// Why the last autonomous choice went the way it did (field diagnosis only).
+    pub last_choice: &'static str,
+    /// Seconds spent restless on a window with no rope or hop down available.
+    stuck: f64,
+    /// Where we have been lately: -1 all left, +1 all right, averaged over
+    /// roughly the last ten minutes. Strolls from the floor lean the other way.
+    pub balance: f64,
+    /// The last fall was caused by our support window closing or minimising.
     /// Stays set through the landing for the caller to consume; any other way
-    /// back to the ground clears it.
+    /// back to the ground clears it. Being covered or resized away is silent.
     pub lost_support: bool,
 }
 impl Physics {
@@ -173,6 +183,10 @@ impl Physics {
             wander_side: 0.,
             wander_streak: 0,
             lost_support: false,
+            climbed: false,
+            last_choice: "",
+            stuck: 0.,
+            balance: 0.,
         };
         p.reset(p.x, p.y);
         p
@@ -189,6 +203,12 @@ impl Physics {
         let mut side = if sample < 0.5 { -1. } else { 1. };
         if self.wander_streak >= 2 && side == self.wander_side {
             side = -side;
+        }
+        // Windows worth climbing tend to sit on one side of the desk and keep
+        // pulling us there; from the floor, three strolls in four head the other
+        // way (the streak limit yields to this, the edge margin below does not).
+        if self.support.is_none() && self.balance.abs() > 0.3 && (sample * 4.).fract() < 0.75 {
+            side = -self.balance.signum();
         }
         let support = self.at(self.x, self.y, self.support.as_deref());
         let left = support
@@ -332,6 +352,9 @@ impl Physics {
     }
     /// Restlessness on windows: grows with time away from the floor and with
     /// altitude, so a long perch high up ends with a deliberate way down.
+    pub fn support_id(&self) -> Option<&str> {
+        self.support.as_deref()
+    }
     pub fn descent_urge(&self) -> f64 {
         if self.support.is_none() {
             return 0.;
@@ -427,7 +450,12 @@ impl Physics {
                     self.y += next.y - old.y;
                 }
                 self.attached = Some(next.clone());
-                let moved = (next.x - old.x).abs() + (next.y - old.y).abs();
+                // A drag moves both edges together; an edge resize moves only one.
+                let step = self.world.size * 0.15;
+                let (dl, dr) = (next.x - old.x, next.x + next.width - old.x - old.width);
+                let (dt, db) = (next.y - old.y, next.y + next.height - old.y - old.height);
+                let dragged = (dl.abs() >= step && (dr - dl).abs() < 2.)
+                    || (dt.abs() >= step && (db - dt).abs() < 2.);
                 if (!self.climbing() && self.at(self.x, self.y, Some(&next.id)).is_none())
                     || (self.climbing() && !self.climb_visible(&next))
                     || self.x < self.half()
@@ -436,8 +464,7 @@ impl Physics {
                     || self.y > self.world.height
                 {
                     self.falling();
-                    self.lost_support = true;
-                } else if grounded && moved >= self.world.size * 0.15 {
+                } else if grounded && dragged {
                     nudge = Nudge::Ride;
                 }
             } else {
@@ -453,13 +480,18 @@ impl Physics {
             nudge
         }
     }
-    // A window other than our support that moved a noticeable step and now
-    // overlaps the space around our body.
+    // A window other than our support, in front of it, that moved a noticeable
+    // step and now overlaps the space around our body.
     fn brushed(&self, world: &World) -> bool {
         let reach = self.world.size * 0.5;
         let (l, t) = (self.x - self.half() - reach, self.y - self.height() - reach);
         let (r, b) = (self.x + self.half() + reach, self.y + reach);
-        world.windows.iter().any(|w| {
+        let behind = self
+            .support
+            .as_ref()
+            .and_then(|id| world.windows.iter().position(|w| &w.id == id))
+            .unwrap_or(world.windows.len());
+        world.windows.iter().take(behind).any(|w| {
             Some(&w.id) != self.support.as_ref()
                 && self.world.windows.iter().any(|old| {
                     old.id == w.id && (w.x - old.x).abs() + (w.y - old.y).abs() >= self.world.size * 0.15
@@ -655,10 +687,15 @@ impl Physics {
             id,
         })
     }
-    fn jump_plans(&self) -> Vec<Plan> {
+    /// Trapped on a window with no way down for this long, a far hop is allowed.
+    const STUCK_AFTER: f64 = 45.;
+    /// `far` lifts the 220px range for destinations below us: the escape route
+    /// when every rope and short hop is blocked. Deliberate, so never a hurt.
+    fn jump_plans(&self, far: bool) -> Vec<Plan> {
         let mut plans = Vec::new();
         for p in &self.ledges {
-            if Some(&p.id) == self.support.as_ref() || (p.y - self.y).abs() >= 220. {
+            let dy = p.y - self.y;
+            if Some(&p.id) == self.support.as_ref() || dy <= -220. || (dy >= 220. && !far) {
                 continue;
             }
             let margin = 8_f64.min(((p.right - p.left) / 2. - self.foot()).max(0.));
@@ -670,7 +707,7 @@ impl Physics {
             plans.extend(self.arc(x, p.y, Some(p.id.clone())));
         }
         // A short hop from a corner of our window straight down to the floor.
-        if self.support.is_some() && self.world.height - self.y < 220. {
+        if self.support.is_some() && (self.world.height - self.y < 220. || far) {
             if let Some(p) = self.at(self.x, self.y, self.support.as_deref()) {
                 for side in [1., -1.] {
                     let x = clamp(
@@ -691,14 +728,14 @@ impl Physics {
         plans
     }
     fn jump_plan(&mut self) -> Option<Plan> {
-        let plans = self.jump_plans();
+        let plans = self.jump_plans(false);
         let i = (self.random() * plans.len() as f64) as usize;
         plans.get(i).cloned()
     }
     /// Only destinations below us: a hop beats a rope when the drop is short.
     fn drop_plan(&mut self) -> Option<Plan> {
         let plans: Vec<_> = self
-            .jump_plans()
+            .jump_plans(self.stuck >= Self::STUCK_AFTER)
             .into_iter()
             .filter(|p| p.y > self.y + 1.)
             .collect();
@@ -737,9 +774,15 @@ impl Physics {
         self.cooldown = (self.cooldown - dt).max(0.);
         if self.support.is_some() {
             self.perch += dt;
+            if self.last_choice == "no-way-down" {
+                self.stuck += dt;
+            }
         } else if matches!(self.motion, Motion::Grounded | Motion::Land | Motion::Hurt) {
             self.perch = 0.;
+            self.stuck = 0.;
         }
+        let here = ((self.x - self.world.width / 2.) / (self.world.width / 2.)).clamp(-1., 1.);
+        self.balance += (here - self.balance) * (dt / 300.).min(1.);
         if reduced {
             self.approach = None;
             self.descent = None;
@@ -809,8 +852,10 @@ impl Physics {
                     self.y = self.pull_start.1 + (w.y - self.pull_start.1) * t;
                     if t >= 1. {
                         if let Some(p) = self.at(self.x, self.y, Some(&w.id)) {
+                            // Arriving on top is an achievement, not a landing to brace for.
                             self.attach(Some(p));
-                            self.entering(Motion::Land);
+                            self.entering(Motion::Grounded);
+                            self.climbed = true;
                             self.cooldown = 6.;
                         } else {
                             self.falling();
@@ -851,11 +896,13 @@ impl Physics {
                         - climb_distance(old_age, self.world.size)))
                 .min(landing);
                 if self.y >= landing - 0.1 {
+                    // Stepping off the rope is deliberate: no bracing, no relief.
                     self.y = landing;
                     self.attach(p);
                     self.vx = 0.;
                     self.vy = 0.;
-                    self.entering(Motion::Land);
+                    self.entering(Motion::Grounded);
+                    self.climbed = true;
                     self.cooldown = 5.;
                 }
                 return;
@@ -977,29 +1024,48 @@ impl Physics {
             if self.random() < self.descent_urge() {
                 if let Some(p) = self.drop_plan() {
                     self.plan = Some(p);
+                    self.last_choice = "hop-down";
+                    self.stuck = 0.;
                     self.entering(Motion::Prepare);
                     return;
                 }
                 self.seek_descent();
                 if self.approach_descent(walk.abs() * dt) {
+                    self.last_choice = "rope-down";
+                    self.stuck = 0.;
                     return;
                 }
+                self.last_choice = if self.descent_target(1.).is_none()
+                    && self.descent_target(-1.).is_none()
+                {
+                    "no-way-down"
+                } else {
+                    "descent-blocked"
+                };
             } else {
                 self.seek_rope();
                 if self.approach_rope(walk.abs() * dt) {
+                    self.last_choice = "rope-up";
                     return;
                 }
+                self.last_choice = "no-rope";
             }
             if let Some(p) = self.jump_plan() {
                 if self.random() < 0.55 {
                     self.plan = Some(p);
+                    self.last_choice = "jump";
                     self.entering(Motion::Prepare);
                     return;
                 }
             }
         }
         let dx = walk * self.direction * dt;
-        if dx == 0. || self.start_climb(dx) {
+        if dx == 0. {
+            return;
+        }
+        // Bumping into a wall starts a climb only while we are content up here;
+        // a restless character would otherwise re-climb the window it just left.
+        if self.descent_urge() < 0.5 && self.start_climb(dx) {
             return;
         }
         let p = self.at(self.x, self.y, self.support.as_deref());
@@ -1081,6 +1147,30 @@ mod tests {
         assert_eq!(p.direction, 1.);
     }
     #[test]
+    fn strolls_from_the_floor_lean_away_from_where_we_have_been() {
+        let mut p = Physics::new(world(vec![], 900., 700.));
+        advance(&mut p, 1., 0., false);
+        assert!(p.balance.abs() < 0.1, "fresh start is unbiased");
+        // Ten minutes parked on the far right: the balance follows.
+        advance(&mut p, 600., 0., false);
+        assert!(p.balance > 0.6, "{}", p.balance);
+        p.x = 500.;
+        let mut left = 0;
+        for i in 0..40 {
+            p.begin_wander((i as f64 * 0.37) % 1.);
+            left += usize::from(p.direction < 0.);
+        }
+        assert!(left >= 27, "{left} of 40 strolls head left");
+        // On a window the bias does not apply (ropes and corners decide there).
+        let mut w = Physics::new(world(vec![rect("a", 100., 400., 800., 300.)], 800., 400.));
+        advance(&mut w, 2., 0., false);
+        assert_eq!(w.support.as_deref(), Some("a"));
+        w.balance = 0.9;
+        w.x = 500.;
+        w.begin_wander(0.9);
+        assert_eq!(w.direction, 1.);
+    }
+    #[test]
     fn floating_window_is_approached_from_either_side_then_climbed() {
         for x in [70., 920.] {
             let mut p = Physics::new(world(
@@ -1101,13 +1191,15 @@ mod tests {
                     climbed = true;
                     assert!(p.rope_anchor().is_some());
                 }
-                if p.motion == Motion::Land && p.support.as_deref() == Some("floating") {
+                if p.motion == Motion::Grounded && p.support.as_deref() == Some("floating") {
                     break;
                 }
             }
             assert!(climbed);
             assert_eq!(p.y, 180.);
-            assert_eq!(p.motion, Motion::Land);
+            assert_eq!(p.motion, Motion::Grounded);
+            assert!(std::mem::take(&mut p.climbed), "arrival is reported once");
+            assert!(!p.climbed);
             assert!(p.rope_anchor().is_none());
         }
     }
@@ -1268,11 +1360,12 @@ mod tests {
                 Motion::Grab,
                 Motion::Climb,
                 Motion::Pull,
-                Motion::Land,
                 Motion::Grounded,
             ] {
                 assert!(states.contains(&m), "missing {m:?}");
             }
+            assert!(!states.contains(&Motion::Land), "no bracing after a climb");
+            assert!(p.climbed);
             assert_eq!(p.y, 250.);
             assert_eq!(p.rope_anchor(), None);
         }
@@ -1404,17 +1497,17 @@ mod tests {
         p.approach = Some(("inactive".into(), 1.));
         for _ in 0..1600 {
             p.step(1. / 60., 80., true, false);
-            if p.motion == Motion::Land {
+            if p.climbed {
                 break;
             }
         }
         assert_eq!(p.support.as_deref(), Some("inactive"));
         assert_eq!((p.x, p.y), (309., 250.));
-        assert_eq!(p.motion, Motion::Land);
+        assert_eq!(p.motion, Motion::Grounded);
         // Changing focus/Z order cannot detach an otherwise exposed support.
         p.update(world(windows.into_iter().rev().collect(), p.x, p.y));
         assert_eq!(p.support.as_deref(), Some("inactive"));
-        assert_eq!(p.motion, Motion::Land);
+        assert_eq!(p.motion, Motion::Grounded);
         let mut p = Physics::new(world(
             vec![
                 rect("small-front", 350., 200., 40., 100.),
@@ -1494,15 +1587,17 @@ mod tests {
                     assert_eq!(p.side, side);
                     assert_eq!(p.x, edge - side * p.half());
                 }
-                if p.motion == Motion::Land {
+                if p.climbed {
                     break;
                 }
             }
-            for m in [Motion::Lower, Motion::Descend, Motion::Land] {
+            for m in [Motion::Lower, Motion::Descend, Motion::Grounded] {
                 assert!(states.contains(&m), "missing {m:?}");
             }
+            assert!(!states.contains(&Motion::Land), "stepping off the rope is not a landing");
             assert!(!states.contains(&Motion::Hurt));
             assert!(!states.contains(&Motion::Fall));
+            assert!(std::mem::take(&mut p.climbed));
             assert_eq!(p.y, 700.);
             assert!(p.support.is_none());
             assert_eq!(p.rope_anchor(), None);
@@ -1605,7 +1700,7 @@ mod tests {
         assert_eq!(p.rope_anchor(), Some((280., 170.)));
         // Alerts cannot interrupt a rope descent; it still completes on its own.
         advance(&mut p, 1., 0., false);
-        assert!(matches!(p.motion, Motion::Descend | Motion::Land));
+        assert!(matches!(p.motion, Motion::Descend | Motion::Grounded));
         p.update(world(vec![], p.x, p.y));
         assert_eq!(p.motion, Motion::Fall);
         assert_eq!(p.rope_anchor(), None);
@@ -1652,9 +1747,11 @@ mod tests {
         let mut p = Physics::new(world(vec![rect("a", 200., 300., 400., 400.)], 400., 300.));
         advance(&mut p, 2., 0., false);
         assert_eq!(p.support.as_deref(), Some("a"));
-        // Small jitter is not a ride; a drag step is.
+        // Small jitter is not a ride; a drag step is; resizing one edge is not.
         assert_eq!(p.update(world(vec![rect("a", 205., 300., 400., 400.)], p.x, p.y)), Nudge::None);
         assert_eq!(p.update(world(vec![rect("a", 240., 290., 400., 400.)], p.x, p.y)), Nudge::Ride);
+        assert_eq!(p.update(world(vec![rect("a", 200., 290., 440., 400.)], p.x, p.y)), Nudge::None);
+        assert_eq!(p.update(world(vec![rect("a", 240., 290., 440., 400.)], p.x, p.y)), Nudge::Ride);
         assert_eq!(p.support.as_deref(), Some("a"));
         assert!(!p.lost_support);
         // Another window dragged into our space brushes us; far away it does not.
@@ -1665,6 +1762,19 @@ mod tests {
         assert_eq!(w, Nudge::None, "moving far away is not a brush");
         let w = p.update(world(vec![rect("b", p.x + p.half() + 20., 150., 80., 80.), a.clone()], p.x, p.y));
         assert_eq!(w, Nudge::Brush);
+        // The same movement by a window behind our support is invisible to us.
+        let w = p.update(world(vec![a.clone(), rect("b", 880., 120., 80., 80.)], p.x, p.y));
+        assert_eq!(w, Nudge::None);
+        let w = p.update(world(vec![a.clone(), rect("b", p.x + p.half() + 20., 150., 80., 80.)], p.x, p.y));
+        assert_eq!(w, Nudge::None);
+        // Being covered by a front window drops us quietly: no sulking for alt-tab.
+        let cover = rect("front", a.x, a.y - 60., a.width, 200.);
+        assert_eq!(p.update(world(vec![cover, a.clone()], p.x, p.y)), Nudge::None);
+        assert_eq!(p.motion, Motion::Fall);
+        assert!(!p.lost_support);
+        p.update(world(vec![a.clone()], p.x, p.y));
+        p.reset(p.x, 290.);
+        assert_eq!(p.support.as_deref(), Some("a"));
         // Closing the support is a loss, remembered until the caller clears it.
         assert_eq!(p.update(world(vec![], p.x, p.y)), Nudge::None);
         assert!(p.lost_support);
@@ -1725,5 +1835,58 @@ mod tests {
         assert_eq!(p.edge_departure(), Some(-1.));
         p.x = 500.;
         assert_eq!(p.edge_departure(), None);
+    }
+}
+#[cfg(test)]
+mod field_layout {
+    use super::*;
+    use crate::surfaces::{WindowRect, World};
+    /// A real desktop snapshot: a big front window whose left corner ropes down
+    /// onto a small window that has no way down of its own (left corner is off
+    /// screen, right wall is behind the big window). The character used to rope
+    /// down and immediately re-climb the big window, forever.
+    #[test]
+    fn restless_character_escapes_a_window_pocket_to_the_floor() {
+        let spec = "289,194,2321,1522 728,286,2110,1580 1689,573,1693,1278 245,368,1427,904 1330,646,1716,1394 17,439,559,966 1998,177,1567,1023 423,950,1189,904 473,342,1919,1205 458,561,1716,1394 59,19,1665,1450 956,57,1716,1394 927,28,1716,1394 1986,404,1854,1112 1122,0,1496,1200 831,613,1716,1394 210,755,1496,1222";
+        let windows: Vec<WindowRect> = spec
+            .split(' ')
+            .enumerate()
+            .map(|(i, s)| {
+                let v: Vec<f64> = s.split(',').map(|n| n.parse().unwrap()).collect();
+                WindowRect { id: format!("w{i}"), x: v[0], y: v[1], width: v[2], height: v[3] }
+            })
+            .collect();
+        let world = World { monitor: "m".into(), width: 3840., height: 2040., size: 204., x: 1500., y: 194., windows };
+        let mut p = Physics::new(world);
+        advance(&mut p, 2., 0., false);
+        assert_eq!(p.support.as_deref(), Some("w0"));
+        p.perch = 200.;
+        p.cooldown = 0.;
+        let mut climbs_after_descent = 0;
+        let mut descended = false;
+        let mut floor_at = None;
+        for i in 0..(600 * 60) {
+            p.step(1. / 60., 65., true, false);
+            if p.motion == Motion::Descend {
+                descended = true;
+            }
+            if descended && p.motion == Motion::Grab {
+                climbs_after_descent += 1;
+            }
+            if p.on_floor() {
+                floor_at = Some(i / 60);
+                break;
+            }
+        }
+        assert!(descended, "ropes down off the big window first");
+        assert_eq!(climbs_after_descent, 0, "never re-climbs the window it just left");
+        let t = floor_at.expect("reaches the floor within ten minutes");
+        assert!(t < 300, "took {t}s");
+        assert_ne!(p.motion, Motion::Hurt);
+    }
+    fn advance(p: &mut Physics, seconds: f64, walk: f64, auto: bool) {
+        for _ in 0..(seconds * 60.).ceil() as usize {
+            p.step(1. / 60., walk, auto, false);
+        }
     }
 }

@@ -44,3 +44,11 @@ Use case: stylized-concept. Production transparent desktop mascot sprite sheet. 
 ## 쓰다듬기 반응 (petted-blush-v1.png)
 
 2026-10-01, Codex 내장 image_gen 도구. 참조는 `raster-before-svg/companion/emotions-v1.png`와 `interactions-v2.png`(윗줄의 눈 감은 웃음). 1254×1254 2×2. 기존 `emotions-v1` 8·9번 재사용(허리에 손)을 대체하며, 두 볼의 홍조(#FF829C)와 감은 눈 호, 모은 손이 특징이다. 프롬프트 전문은 `petted-blush-v1-prompt.md`.
+
+## 이불 덮고 자기 (sleep-blanket-v1.png)
+
+2026-10-02, Codex 내장 image_gen 도구(`codex exec -i … --`). 참조는 `raster-before-svg/companion/emotions-v1.png`와 `behaviors-v2.png`(셋째 줄 졸기). 1254×1254 2×2, 627 칸으로 등록해 `sleep-v1` 0~3에 배치한다. 30분 이상 자리를 비웠을 때의 깊은 잠 루프이며, 머리 왼쪽·발 오른쪽으로 눕고 하늘색 이불과 연노랑 베개를 쓴다. 프롬프트 전문은 `sleep-blanket-v1-prompt.md`.
+
+## 대기: 고개 갸웃 (idle-tilt-v1.png)
+
+2026-10-02, Codex 내장 image_gen 도구. 참조는 `raster-before-svg/companion/emotions-v1.png`와 `emotions-v2.png`(마지막 줄 기본 자세). 1254×1254 2×2, 627 칸으로 등록해 `idle-v1` 0~3(정면, 왼쪽 기울임, 오른쪽 기울임, 눈 감음)에 배치한다. 몸은 그대로 두고 머리만 기울인 대기 루프다. 프롬프트 전문은 `idle-tilt-v1-prompt.md`.

@@ -20,7 +20,7 @@ export function syncOnboardingConnections(slackConnected:boolean,calendarConnect
 const error=(e:unknown)=>{get('companion-status').textContent=String(e);get('onboard-status').textContent=String(e);};
 function run(task:()=>Promise<unknown>){void task().catch(error);}
 function patch(value:Partial<Preferences>){saving=saving.then(()=>invoke('set_preferences',{patch:value})).then(()=>undefined).catch(error);}
-function render(s:Snapshot){state=s; for(const key of ['resident','hide_fullscreen','hide_presenting','private_content','stretch','timer_during_quiet'] as const)get<HTMLInputElement>('pref-'+key).checked=s.preferences[key];
+function render(s:Snapshot){state=s; const ps=document.getElementById('presenting-status');if(ps)ps.textContent=s.presenting?'지금 발표 중으로 감지되어 숨겨져 있어요.':''; for(const key of ['resident','hide_fullscreen','hide_presenting','private_content','stretch','timer_during_quiet'] as const)get<HTMLInputElement>('pref-'+key).checked=s.preferences[key];
  for(const key of ['stretch_minutes'] as const)get<HTMLInputElement>('pref-'+key).value=String(s.preferences[key]);
  reminders.render(s.preferences.calendar_reminders?.length?s.preferences.calendar_reminders:[s.preferences.calendar_minutes]);
  get('quiet-status').textContent=s.preferences.quiet_until>Date.now()/1000?'쉬는 중 · '+new Date(s.preferences.quiet_until*1000).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'알림을 받고 있어요';

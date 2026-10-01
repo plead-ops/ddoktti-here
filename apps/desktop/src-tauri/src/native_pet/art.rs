@@ -45,6 +45,32 @@ pub fn hanging_reach() -> f64 {
             .fold(f64::INFINITY, f64::min)
     })
 }
+/// Idle loop on the head-tilt sheet (front, tilt left, tilt right, blink):
+/// front → left → front → right → front over 7.2 s, a 0.15 s blink while facing
+/// front every 4.1 s. Keep in sync with `idlePose` in pet-behaviors.ts.
+pub fn idle_pose(t: f64) -> usize {
+    let cycle = t % 7.2;
+    let frame = if (1.4..2.8).contains(&cycle) {
+        1
+    } else if (4.0..5.4).contains(&cycle) {
+        2
+    } else {
+        0
+    };
+    let blink = t % 4.1;
+    if frame == 0 && (3.55..3.7).contains(&blink) {
+        3
+    } else {
+        frame
+    }
+}
+/// Dozing loop shared by the end of `sleepy` and the fallback of `asleep`: nod
+/// between the two eyes-closed drawings (offset within the row) and breathe slowly.
+/// Keep in sync with `napPose` in pet-behaviors.ts.
+pub fn nap_pose(nap: f64) -> (usize, f64) {
+    let frame = if ((nap / 1.4).floor() as usize) % 2 == 0 { 2 } else { 3 };
+    (frame, (nap * std::f64::consts::TAU / 3.6).sin() * 1.2)
+}
 pub fn duration(mode: &str) -> f64 {
     match mode {
         "run" => 2.5,
@@ -63,6 +89,7 @@ pub fn duration(mode: &str) -> f64 {
         "connection" => 4.,
         "enough" => 3.0,
         "ack" => 2.2,
+        "asleep" => 60.,
         _ => 7.,
     }
 }
@@ -156,13 +183,30 @@ impl Art {
                 p.lift = ((phase - 0.25) * std::f64::consts::TAU).sin()
                     * if mode == "excited" { 38. } else { 25. };
             }
+            if mode == "sleepy" && !reduced && t >= ms * 4. {
+                // After the yawn, keep dozing: nod between the two eyes-closed
+                // drawings and breathe slowly for as long as the nap lasts.
+                let (frame, lift) = nap_pose(t - ms * 4.);
+                p.index = row * 4 + frame;
+                p.lift = lift;
+            }
             return p;
         }
         match mode {
             "idle" | "connection" => {
-                // Use the existing relaxed standing drawing, without stretching limbs.
-                p.sheet = "emotions-v2";
-                p.index = 18;
+                // Standing still: gentle breathing, a slow head tilt left and right
+                // and a blink every few seconds. The relaxed relieved drawing stands
+                // in until the tilt artwork is part of the atlas.
+                if self.sheets.contains_key("idle-v1") {
+                    p.sheet = "idle-v1";
+                    p.index = if reduced { 0 } else { idle_pose(t) };
+                } else {
+                    p.sheet = "emotions-v2";
+                    p.index = if !reduced && idle_pose(t) == 3 { 17 } else { 18 };
+                }
+                if !reduced {
+                    p.lift = (t * std::f64::consts::TAU / 3.4).sin() * 1.4;
+                }
             }
             "walk" => {
                 p.sheet = "walk";
@@ -187,6 +231,21 @@ impl Art {
                     p.index = 4 + ((t / 0.23).floor() as usize) % 4;
                 }
                 p.lift = 12.;
+            }
+            "asleep" => {
+                // In bed under the blanket after a long absence; the dozing drawings
+                // stand in until the sleep artwork is part of the atlas.
+                let (frame, lift) = nap_pose(t);
+                if self.sheets.contains_key("sleep-v1") {
+                    p.sheet = "sleep-v1";
+                    p.index = if reduced { 0 } else { ((t / 1.3).floor() as usize) % 4 };
+                } else {
+                    p.sheet = "behaviors-v2";
+                    p.index = if reduced { 10 } else { 8 + frame };
+                }
+                if !reduced {
+                    p.lift = lift;
+                }
             }
             "petted" => {
                 // Blushing, eyes-closed loop; the older hands-on-hips drawings remain the
@@ -484,6 +543,28 @@ mod tests {
                 assert_eq!(out.pixel(x, y), p.pixel(399 - x, y));
             }
         }
+    }
+    #[test]
+    fn idle_breathes_tilts_and_blinks_while_dozing_keeps_moving() {
+        assert_eq!([0.5, 2.0, 3.0, 4.5, 6.0, 3.6, 4.1 + 3.6].map(idle_pose), [0, 1, 0, 2, 0, 3, 3]);
+        assert_eq!(idle_pose(7.2 + 2.0), 1, "tilts again next cycle");
+        let art = Art::new().unwrap();
+        let tilt = art.sheets.contains_key("idle-v1");
+        let still = art.pose("idle", 0.3, true);
+        assert_eq!((still.index, still.lift), (if tilt { 0 } else { 18 }, 0.));
+        let open = art.pose("idle", 1.0, false);
+        assert_eq!(open.index, if tilt { 0 } else { 18 });
+        assert!(open.lift.abs() <= 1.4 && open.lift != 0.);
+        assert_eq!(art.pose("idle", 2.0, false).index, if tilt { 1 } else { 18 });
+        assert_eq!(art.pose("idle", 3.6, false).index, if tilt { 3 } else { 17 }, "blink uses the eyes-closed drawing");
+        assert_eq!(art.pose("idle", 3.8, false).index, if tilt { 0 } else { 18 });
+        // Sleepy: yawn frames first, then an endless nod between the two sleeping drawings.
+        assert_eq!(art.pose("sleepy", 0.2, false).index, 8);
+        let (a, b) = (art.pose("sleepy", 7.0, false), art.pose("sleepy", 8.5, false));
+        assert_eq!((a.index, b.index), (10, 11));
+        assert_ne!(a.lift, b.lift);
+        assert_eq!(art.pose("sleepy", 60.0, false).index, 10);
+        assert_eq!(art.pose("sleepy", 60.0, true).index, 11, "reduced motion holds the last frame");
     }
     #[test]
     fn rope_has_alpha_retracts_and_never_changes_pet_art() {

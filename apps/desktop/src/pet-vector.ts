@@ -5,8 +5,8 @@ import {climbFrame,descendFrame} from './pet-climb';
  */
 import frames from './pet-vector-frames.json';
 import artwork from './pet-vector-paths.json';
-import { behaviors, behaviorPose } from './pet-behaviors';
-export const VECTOR_POSES=['chase','petted','hurt','hang','peek','enough','ack','idle','walk','run','bored','sleepy','jump','excited','greeting','proud','shy','curious','surprised','playful','sulking','cheering','relieved','tickle','drag','dizzy','wobble','fall','land','grab','climb','pull','lower','descend','prepare','travel-jump','slack','calendar','timer','stretch'] as const;
+import { behaviors, behaviorPose, napPose, idlePose } from './pet-behaviors';
+export const VECTOR_POSES=['chase','petted','asleep','hurt','hang','peek','enough','ack','idle','walk','run','bored','sleepy','jump','excited','greeting','proud','shy','curious','surprised','playful','sulking','cheering','relieved','tickle','drag','dizzy','wobble','fall','land','grab','climb','pull','lower','descend','prepare','travel-jump','slack','calendar','timer','stretch'] as const;
 export type VectorPose=typeof VECTOR_POSES[number];
 export interface VectorOptions {direction?:number;reduced?:boolean;x?:number;y?:number;scale?:number}
 type Sheet=keyof typeof frames;
@@ -17,15 +17,17 @@ export function vectorFrame(pose:string,elapsed=0,reduced=false){
  let sheet:Sheet='edge',index=3,lift=0,offset=0;
  const b=behaviors[pose],registered=behaviorSheets[pose];
  if(pose==='run'||pose==='chase'){sheet=pose==='chase'?'chase-v1':'run-v3';index=gaitFrame('run',t,reduced);}
- else if(b&&registered){const p=behaviorPose(b,t,reduced);sheet=registered[0];index=registered[1]*4+p.frame;lift=p.lift;}
+ else if(b&&registered){const p=behaviorPose(b,t,reduced);sheet=registered[0];index=registered[1]*4+p.frame;lift=p.lift;
+  if(pose==='sleepy'&&!reduced&&t>=b.frameMs*4){const n=napPose((t-b.frameMs*4)/1000);index=registered[1]*4+n.frame;lift=n.lift;}}
  else switch(pose){
   case 'hurt':sheet='hurt-v1';index=t<350?0:t<1150?1:t<1750?2:t<2300?3:4;break;
   case 'petted':sheet='petted-v1';index=Math.floor(t/450)%4;offset=reduced?0:Math.sin(t/1000*Math.PI*2)*2;break;
+  case 'asleep':{const n=napPose(t/1000);if('sleep-v1' in frames){sheet='sleep-v1' as Sheet;index=reduced?0:Math.floor(t/1300)%4;}else{sheet='behaviors-v2';index=reduced?10:8+n.frame;}if(!reduced)lift=n.lift;break;}
   case 'hang':sheet='surfaces-v2';index=Math.floor(t/600)%2===0?13:15;lift=index===15?3.8:0;break;
   case 'peek':sheet='surfaces-v2';index=12;break;
   case 'enough':sheet='emotions-v2';index=8+Math.min(2,Math.floor(t/200));break;
   case 'ack':sheet='emotions-v1';index=8+Math.min(3,Math.floor(t/400));break;
-  case 'idle':sheet='emotions-v2';index=18;break;
+  case 'idle':{const f=reduced?0:idlePose(t/1000);if('idle-v1' in frames){sheet='idle-v1' as Sheet;index=f;}else{sheet='emotions-v2';index=f===3?17:18;}if(!reduced)lift=Math.sin(t/1000*Math.PI*2/3.4)*1.4;break;}
   case 'walk':sheet='walk';index=gaitFrame('walk',t,reduced);break;
   case 'tickle':sheet='interactions-v2';index=Math.floor(t/160)%4;break;
   case 'drag':sheet='interactions-v2';index=4+Math.floor(t/230)%4;lift=12;break;

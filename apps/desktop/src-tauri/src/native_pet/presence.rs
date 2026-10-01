@@ -3,12 +3,15 @@
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
     Doze,
+    /// Still away after `LONG_AWAY`: tuck in under the blanket.
+    DeepSleep,
     /// The person is back after this many seconds away.
     Return(f64),
 }
 #[derive(Default)]
 pub struct Presence {
     asleep: bool,
+    deep: bool,
     away: f64,
 }
 /// Seconds without any input before the character dozes off.
@@ -18,6 +21,10 @@ pub const LONG_AWAY: f64 = 30. * 60.;
 impl Presence {
     pub fn asleep(&self) -> bool {
         self.asleep
+    }
+    /// Asleep for long enough to be in bed rather than nodding off.
+    pub fn deep(&self) -> bool {
+        self.deep
     }
     /// `idle` is the platform's seconds-since-last-input; `None` means unknown and
     /// never changes state.
@@ -30,9 +37,14 @@ impl Presence {
             self.away = self.away.max(idle);
             if idle < 1.5 {
                 self.asleep = false;
+                self.deep = false;
                 let away = self.away;
                 self.away = 0.;
                 return Some(Event::Return(away));
+            }
+            if !self.deep && idle >= LONG_AWAY {
+                self.deep = true;
+                return Some(Event::DeepSleep);
             }
             return None;
         }
@@ -46,6 +58,7 @@ impl Presence {
     /// A click or drag on the character counts as the person being back.
     pub fn wake(&mut self) {
         self.asleep = false;
+        self.deep = false;
         self.away = 0.;
     }
 }
@@ -68,9 +81,25 @@ mod tests {
         assert_eq!(p.observe(Some(DOZE_AFTER)), Some(Event::Doze));
         assert!(p.asleep());
         assert_eq!(p.observe(Some(DOZE_AFTER + 60.)), None, "stays asleep");
+        assert!(!p.deep());
         assert_eq!(p.observe(Some(0.2)), Some(Event::Return(DOZE_AFTER + 60.)));
         assert!(!p.asleep());
         assert_eq!(p.observe(Some(0.4)), None, "a second input is not another return");
+    }
+    #[test]
+    fn long_absences_go_to_bed_and_wake_as_a_reunion() {
+        let mut p = Presence::default();
+        assert_eq!(p.observe(Some(DOZE_AFTER)), Some(Event::Doze));
+        assert_eq!(p.observe(Some(LONG_AWAY - 1.)), None);
+        assert_eq!(p.observe(Some(LONG_AWAY)), Some(Event::DeepSleep));
+        assert!(p.asleep() && p.deep());
+        assert_eq!(p.observe(Some(LONG_AWAY + 600.)), None, "reported once");
+        assert_eq!(p.observe(Some(0.)), Some(Event::Return(LONG_AWAY + 600.)));
+        assert!(!p.deep());
+        p.observe(Some(DOZE_AFTER));
+        p.observe(Some(LONG_AWAY));
+        p.wake();
+        assert!(!p.asleep() && !p.deep());
     }
     #[test]
     fn unknown_or_invalid_idle_never_changes_state_and_manual_wake_is_silent() {

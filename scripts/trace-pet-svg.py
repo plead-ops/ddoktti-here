@@ -17,13 +17,17 @@ OUT=ROOT/'apps/desktop/public/sprites/vector'
 FRAMES=OUT/'frames'
 FRAMES.mkdir(parents=True,exist_ok=True)
 guides=json.loads((ROOT/'assets/concepts/pet-frame-guides.json').read_text())
-PALETTE={'ink':'#081724','suit':'#26374F','green':'#00D66B','blue':'#075BD8','white':'#FFFEFA','red':'#F32643','mouth':'#8C1831','yellow':'#F4C637','orange':'#FF941C','cyan':'#24B5ED','pink':'#FF829C'}
+PALETTE={'ink':'#081724','suit':'#26374F','green':'#00D66B','blue':'#075BD8','white':'#FFFEFA','red':'#F32643','mouth':'#8C1831','yellow':'#F4C637','orange':'#FF941C','cyan':'#24B5ED','pink':'#FF829C','sky':'#9ED4FF','cream':'#FFF0B8'}
+# Bedding colours only exist on the sleep sheet; other frames never snap to them.
+BED_KEYS=('sky','cream')
 @lru_cache(maxsize=200000)
-def colour(r,g,b,outline=True):
+def colour(r,g,b,outline=True,bed=False):
     h,s,v=colorsys.rgb_to_hsv(r/255,g/255,b/255);h*=360
     ink_distance=sum((a-b)**2 for a,b in zip((r,g,b),(8,23,36)))
     suit_distance=sum((a-b)**2 for a,b in zip((r,g,b),(38,55,79)))
     if v<.145 or (outline and v<.4 and (172<=h<270 or s<.3) and ink_distance<suit_distance):key='ink'
+    elif bed and 172<=h<240 and .24<=s<.6 and v>.7:key='sky'
+    elif bed and 35<h<=75 and .24<=s<.5 and v>.85:key='cream'
     elif s<.24:key='white' if v>.62 else ('ink' if v<.22 else 'suit')
     elif 75<h<172:key='green' if v>.3 else 'ink'
     elif 172<=h<270:key='suit' if v<.4 else ('cyan' if h<204 else 'blue')
@@ -33,16 +37,16 @@ def colour(r,g,b,outline=True):
     else:key='pink' if s<.65 else 'red'
     return tuple(bytes.fromhex(PALETTE[key][1:]))
 
-def clean_pixels(im,suit_from=None,keep_dark=False):
+def clean_pixels(im,suit_from=None,keep_dark=False,bed=False):
     rgba=im.convert('RGBA');rgb=rgba.convert('RGB').filter(ImageFilter.MedianFilter(3))
     pixels=list(rgb.get_flattened_data());alpha=list(rgba.getchannel('A').get_flattened_data())
-    colours=[colour(*c) for c in pixels]
+    colours=[colour(*c,bed=bed) for c in pixels]
     if suit_from is not None:
         # The source coat has dark AI shading close to the outline colour. Raising
         # the global black threshold makes camouflage-shaped holes in that coat.
         # Keep the original connected cloth regions flat, but apply the improved
         # ink classification to the face/glasses/antenna and external outlines.
-        legacy=[colour(*c,False) for c in pixels]
+        legacy=[colour(*c,False,bed) for c in pixels]
         suit=tuple(bytes.fromhex(PALETTE['suit'][1:]));width,height=im.size
         remaining=bytearray(int(c==suit and a>=128) for c,a in zip(legacy,alpha))
         minimum=max(24,round(width*height*.00015))
@@ -68,11 +72,12 @@ def clean_pixels(im,suit_from=None,keep_dark=False):
     clean.putdata([(*c,255 if a>=128 else 0) for c,a in zip(colours,alpha)])
     return clean
 
-def trace(im,suit_from=None,keep_dark=False):
-    clean=clean_pixels(im,suit_from,keep_dark)
+def trace(im,suit_from=None,keep_dark=False,bed=False):
+    clean=clean_pixels(im,suit_from,keep_dark,bed)
     svg=vtracer.convert_pixels_to_svg(list(clean.get_flattened_data()),clean.size,colormode='color',hierarchical='stacked',mode='spline',filter_speckle=4,color_precision=8,layer_difference=0,corner_threshold=60,length_threshold=4.0,max_iterations=10,splice_threshold=45,path_precision=2)
     # Tracer averages edge clusters: snap output fills to the exact shared colours.
-    svg=re.sub(r'fill="#[0-9A-Fa-f]{6}"',lambda m:'fill="'+min(PALETTE.values(),key=lambda c:sum((a-b)**2 for a,b in zip(bytes.fromhex(c[1:]),bytes.fromhex(m[0][7:13]))))+'"',svg)
+    allowed=[v for k,v in PALETTE.items() if bed or k not in BED_KEYS]
+    svg=re.sub(r'fill="#[0-9A-Fa-f]{6}"',lambda m:'fill="'+min(allowed,key=lambda c:sum((a-b)**2 for a,b in zip(bytes.fromhex(c[1:]),bytes.fromhex(m[0][7:13]))))+'"',svg)
     return ET.fromstring(svg)
 
 def paths(root,transform=lambda x,y:(x,y)):
@@ -113,7 +118,7 @@ def generated_frames(atlas,manifest):
             scale=90/guide['eyeSpan']
             def transform(x,y):return 200+(x-guide['headCenter'])*scale*(-1 if guide.get('mirror') else 1),250+(y-bottom)*scale
             key=f'{sheet}-{index}'
-            atlas[key]=paths(trace(tile,suit_from=guide['neck'],keep_dark=True),transform)
+            atlas[key]=paths(trace(tile,suit_from=guide['neck'],keep_dark=True,bed=guide.get('palette')=='bed'),transform)
             hits=[]
             for y in range(top,bottom,16):
                 end=min(y+16,bottom);box=alpha.crop((0,y,tile.width,end)).getbbox()

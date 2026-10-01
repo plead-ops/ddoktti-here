@@ -71,10 +71,13 @@ struct Runtime {
     petting: petting::Petting,
     connections: crate::connection::Notices,
     presence: presence::Presence,
-    /// A welcome back (seconds away) waiting for a calm moment to play.
-    pending_return: Option<f64>,
+    /// A welcome back (seconds away, seconds left to play it) waiting for a calm moment.
+    pending_return: Option<(f64, f64)>,
+    /// A lost-support landing waiting for a calm moment to sulk about.
+    pending_sulk: bool,
     /// Seconds before another window-nudge reaction may play.
     nudge_wait: f64,
+    world_logged: Instant,
     follow_rest: f64,
     last: Instant,
     sense: Instant,
@@ -255,7 +258,9 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
             connections: crate::connection::Notices::default(),
             presence: presence::Presence::default(),
             pending_return: None,
+            pending_sulk: false,
             nudge_wait: 0.,
+            world_logged: Instant::now() - Duration::from_secs(60),
             follow_rest: 0.,
             last: Instant::now(),
             sense: Instant::now() - Duration::from_secs(1),
@@ -416,6 +421,8 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         r.reaction = None;
         r.pending_menu = false;
         r.pending_tickle = false;
+        r.pending_return = None;
+        r.pending_sulk = false;
         (r.left, r.right) = platform::buttons();
         return Ok(());
     }
@@ -471,6 +478,26 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             .presence
             .observe((idle != u64::MAX).then_some(idle as f64));
         r.sense = Instant::now();
+        if trace_enabled() && r.world_logged.elapsed() >= Duration::from_secs(10) {
+            r.world_logged = Instant::now();
+            let p = r.physics.as_ref().unwrap();
+            let windows: Vec<String> = p
+                .world
+                .windows
+                .iter()
+                .map(|w| format!("{}:{:.0},{:.0},{:.0},{:.0}", w.id, w.x, w.y, w.width, w.height))
+                .collect();
+            trace(|| {
+                format!(
+                    "world support={:?} perch={:.0} urge={:.2} choice={} windows=[{}]",
+                    p.support_id(),
+                    p.perch,
+                    p.descent_urge(),
+                    p.last_choice,
+                    windows.join(" ")
+                )
+            });
+        }
     }
     let mut alerts = alerts;
     alerts.sort_by(|a, b| {
@@ -633,7 +660,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
                 if r.physics.as_ref().unwrap().busy() {
                     r.pending_tickle = true;
                 } else {
-                    let sleepy = r.mode == "sleepy" && selected.is_none();
+                    let sleepy = matches!(r.mode.as_str(), "sleepy" | "asleep") && selected.is_none();
                     if sleepy {
                         r.set_mode("surprised");
                         r.reaction = Some("앗, 깼어요!");
@@ -1022,6 +1049,13 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     if landed && selected.is_none() && r.reaction.is_none() {
         r.set_mode("relieved");
     }
+    if std::mem::take(&mut r.physics.as_mut().unwrap().climbed)
+        && selected.is_none()
+        && r.reaction.is_none()
+        && !dragging
+    {
+        r.set_mode("proud");
+    }
     // Reactions to what the person does around us: dragging our window, brushing
     // past with another one, closing the one under our feet, leaving and returning.
     r.nudge_wait = (r.nudge_wait - dt).max(0.);
@@ -1034,12 +1068,16 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         && activity_frame.is_none()
         && r.crossing.is_none()
         && !cursor_following;
-    let lost = landed && std::mem::take(&mut r.physics.as_mut().unwrap().lost_support);
-    if calm && lost {
+    if landed && std::mem::take(&mut r.physics.as_mut().unwrap().lost_support) {
+        r.pending_sulk = true;
+    }
+    if calm && r.pending_sulk && r.nudge_wait == 0. {
+        r.pending_sulk = false;
         r.set_mode("sulking");
         if notice_allowed {
             r.reaction = Some("앗, 발판이 없어졌어요…");
         }
+        r.nudge_wait = 20.;
     } else if calm && !r.presence.asleep() && r.nudge_wait == 0. {
         match nudge {
             Nudge::Ride => {
@@ -1055,12 +1093,13 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     }
     match presence_event {
         Some(presence::Event::Doze) if calm => r.set_mode("sleepy"),
-        Some(presence::Event::Return(away)) => r.pending_return = Some(away),
+        Some(presence::Event::DeepSleep) if calm => r.set_mode("asleep"),
+        Some(presence::Event::Return(away)) => r.pending_return = Some((away, 20.)),
         _ => {}
     }
     // The welcome waits for a calm moment (an alert may be up when the person
     // returns) but not forever: a reunion is only convincing right after it.
-    if let Some(away) = r.pending_return {
+    if let Some((away, left_s)) = r.pending_return {
         if calm {
             r.pending_return = None;
             r.set_mode(if away >= presence::LONG_AWAY {
@@ -1071,8 +1110,11 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             if notice_allowed {
                 r.reaction = Some(presence::welcome(away));
             }
-        } else if r.presence.asleep() {
+        } else if left_s <= dt || r.presence.asleep() {
             r.pending_return = None;
+            r.pending_sulk = false;
+        } else {
+            r.pending_return = Some((away, left_s - dt));
         }
     }
     if (!resident || !r.physics.as_ref().unwrap().busy()) && !dragging && activity_frame.is_none() {
@@ -1127,10 +1169,12 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         } else if selected.is_none() && !cfg.reduce_motion && !cursor_following {
             r.age += dt * cfg.speed;
             let asleep = r.presence.asleep();
-            if asleep && !hit {
-                // Nobody is here: keep dozing instead of picking new behaviours.
-                if r.mode != "sleepy" && (r.age >= art::duration(&r.mode) || r.mode == "walk") {
-                    r.set_mode("sleepy");
+            if asleep {
+                // Nobody is here (a parked pointer over us is not a person): keep
+                // dozing, or sleeping under the blanket after a long absence.
+                let bed = if r.presence.deep() { "asleep" } else { "sleepy" };
+                if r.mode != bed && (r.age >= art::duration(&r.mode) || r.mode == "walk") {
+                    r.set_mode(bed);
                 }
             } else if r.physics.as_ref().unwrap().approaching() {
                 if !matches!(r.mode.as_str(), "walk" | "run") {
@@ -1472,27 +1516,25 @@ fn geometry(
     let (mut left, mut top) = (left, top);
     let mut rotation = None;
     if let Some((angle, pivot)) = f.swing {
-        // Bounding box of the frame rotated about the pivot (the pointer).
+        // A square around the pivot (the pointer) that holds the frame at every
+        // angle, so a fast swing never changes the canvas size between frames:
+        // on Windows a per-frame resize lagged the pixels and clipped the body.
         let (px, py) = (pivot.0 * u, pivot.1 * u);
-        let (sin, cos) = angle.sin_cos();
-        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-        for (cx, cy) in [
+        let reach = [
             (pet_left, pet_top),
             (pet_left + 400. * k, pet_top),
             (pet_left, pet_top + 260. * k),
             (pet_left + 400. * k, pet_top + 260. * k),
-        ] {
-            let (dx, dy) = (cx - px, cy - py);
-            let (rx, ry) = (px + dx * cos - dy * sin, py + dx * sin + dy * cos);
-            x0 = x0.min(rx);
-            y0 = y0.min(ry);
-            x1 = x1.max(rx);
-            y1 = y1.max(ry);
-        }
-        left = x0.floor() - 2.;
-        top = y0.floor() - 2.;
-        width = (x1 - left + 4.).ceil();
-        height = (y1 - top + 4.).ceil();
+        ]
+        .iter()
+        .map(|(cx, cy)| (cx - px).hypot(cy - py))
+        .fold(0., f64::max)
+        .ceil()
+            + 2.;
+        left = (px - reach).floor();
+        top = (py - reach).floor();
+        width = (reach * 2. + 2.).ceil();
+        height = width;
         rotation = Some((angle.to_degrees() as f32, px, py));
     }
     let (left, top, width, height) = if crop {

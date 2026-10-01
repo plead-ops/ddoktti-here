@@ -5,7 +5,7 @@ import {renderVectorPet} from './pet-vector';
 const $=<T extends Element=HTMLElement>(id:string)=>document.getElementById(id) as unknown as T;
 const canvas=$<SVGSVGElement>('pet-canvas'),desktop=$('desktop');
 let gaitDistance=0;
-let windows:SurfaceWindow[]=[],motion:SurfaceMotion,last=0,elapsed=0,notification=false;
+let windows:SurfaceWindow[]=[],motion:SurfaceMotion,last=0,elapsed=0,notification=false,proudUntil=0;
 const names:Record<string,string>={grounded:'창과 바닥을 산책해요',fall:'아래 발판으로 떨어져요',land:'사뿐히 착지해요',prepare:'다음 창으로 갈 준비',jump:'폴짝, 창 사이를 건너요',grab:'가장자리를 붙잡아요',climb:'한 발씩 올라가요',pull:'몸을 끌어올려요',lower:'모서리에서 줄을 타요',descend:'줄 타고 내려와요',wobble:'아슬아슬, 균형을 잡아요'};
 function world():SurfaceWorld{return {monitor:'preview',x:130,y:700,width:1000,height:700,size:150,windows:windows.map(w=>({...w}))};}
 function paintWindows(){windows.forEach((w,i)=>{Object.assign($(w.id).style,{left:`${w.x}px`,top:`${w.y}px`,width:`${w.width}px`,height:`${w.height}px`,zIndex:String(10+windows.length-i)});});for(const id of ['window-a','window-b'])$(id).hidden=!windows.some(w=>w.id===id);motion.updateWorld(world());}
@@ -35,10 +35,12 @@ function frame(t:number){requestAnimationFrame(frame);if(!last){last=t;return;}c
  if(drag?.kind!=='pet')motion.step(dt,{walk:gaitSpeed('walk',150),autonomous:!notification,reduced,paused:document.hidden});
  if(wasGrounded&&motion.motion==='grounded'&&!notification&&!reduced&&drag?.kind!=='pet')gaitDistance+=Math.abs(motion.x-beforeX);
  if(!wasGrounded&&motion.motion==='grounded')gaitDistance=0;
- const pose=drag?.kind==='pet'?'drag':motion.motion==='grounded'?(notification||reduced?'idle':'walk'):motion.motion==='jump'?'travel-jump':motion.motion;
- renderVectorPet(canvas,pose,motion.motion==='grounded'?gaitElapsed('walk',gaitDistance,150):motion.age*1000,{direction:motion.direction,x:motion.x,y:motion.y,scale:150/260,reduced});
+ if(motion.climbed){motion.climbed=false;proudUntil=elapsed+2.8;}
+ const proud=motion.motion==='grounded'&&elapsed<proudUntil&&!notification&&!reduced;
+ const pose=drag?.kind==='pet'?'drag':motion.motion==='grounded'?(proud?'proud':notification||reduced?'idle':'walk'):motion.motion==='jump'?'travel-jump':motion.motion;
+ renderVectorPet(canvas,pose,proud?(elapsed-proudUntil+2.8)*1000:motion.motion==='grounded'?gaitElapsed('walk',gaitDistance,150):motion.age*1000,{direction:motion.direction,x:motion.x,y:motion.y,scale:150/260,reduced});
  renderPetRope(canvas,pose,motion.age*1000,{x:motion.x,y:motion.y,scale:150/260,direction:motion.direction,reduced,anchor:drag?.kind==='pet'?null:motion.ropeAnchor});
- $('state').textContent=drag?.kind==='pet'?'놓으면 가까운 발판에 착지해요':names[motion.motion]!;
+ $('state').textContent=drag?.kind==='pet'?'놓으면 가까운 발판에 착지해요':proud?'올라왔다! 뿌듯해요':names[motion.motion]!;
  const notice=$('notice');notice.hidden=!notification||motion.busy||drag?.kind==='pet';notice.style.left=`${Math.max(8,Math.min(747,motion.x-122))}px`;notice.style.top=`${Math.max(8,motion.y-motion.height-130)}px`;
 }
 requestAnimationFrame(frame);

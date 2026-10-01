@@ -364,6 +364,8 @@ pub(crate) fn idle_seconds() -> u64 {
     u64::MAX
 }
 pub fn start(app: AppHandle) {
+    // Know whether we are mirroring before the first visibility decision.
+    crate::presenting::schedule(&app);
     std::thread::spawn(move || {
         let mut last = now();
         let mut last_passthrough = None;

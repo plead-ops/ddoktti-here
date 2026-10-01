@@ -1,1 +1,411 @@
-[{"source": "landing-hurt-v2.png", "frames": [{"sheet": "edge-v2", "index": 6, "x": 0, "y": 0, "width": 512, "height": 512, "eyeSpan": 231, "headCenter": 297.5, "neck": 328, "headTop": 116}]}, {"source": "sleep-yawn-v3.png", "frames": [{"sheet": "behaviors-v2", "index": 8, "x": 0, "y": 0, "width": 627, "height": 627, "eyeSpan": 288, "headCenter": 378.0, "neck": 419, "headTop": 160}, {"sheet": "behaviors-v2", "index": 9, "x": 627, "y": 0, "width": 627, "height": 627, "eyeSpan": 294, "headCenter": 310.0, "neck": 423, "headTop": 161}, {"sheet": "behaviors-v2", "index": 10, "x": 0, "y": 627, "width": 627, "height": 627, "eyeSpan": 285, "headCenter": 352.5, "neck": 357, "headTop": 101}, {"sheet": "behaviors-v2", "index": 11, "x": 627, "y": 627, "width": 627, "height": 627, "eyeSpan": 274, "headCenter": 312.0, "neck": 363, "headTop": 101}]}, {"source": "landing-flop-v3.png", "frames": [{"sheet": "hurt-v1", "index": 0, "x": 0, "y": 0, "width": 512, "height": 512, "eyeSpan": 216, "headCenter": 177.5, "neck": 419, "headTop": 205, "mirror": true}, {"sheet": "hurt-v1", "index": 1, "x": 512, "y": 0, "width": 512, "height": 512, "eyeSpan": 217, "headCenter": 177, "neck": 418, "headTop": 205, "mirror": true}, {"sheet": "hurt-v1", "index": 2, "x": 1024, "y": 0, "width": 512, "height": 512, "eyeSpan": 224, "headCenter": 312.5, "neck": 356, "headTop": 125, "mirror": false}, {"sheet": "hurt-v1", "index": 3, "x": 0, "y": 512, "width": 512, "height": 512, "eyeSpan": 221, "headCenter": 312, "neck": 303, "headTop": 69, "mirror": false}, {"sheet": "hurt-v1", "index": 4, "x": 512, "y": 512, "width": 512, "height": 512, "eyeSpan": 221, "headCenter": 296, "neck": 295, "headTop": 61, "mirror": false}]}, {"source": "chase-happy-v1.png", "frames": [{"sheet": "chase-v1", "index": 0, "x": 0, "y": 0, "width": 627, "height": 627, "eyeSpan": 254, "headCenter": 388.5, "neck": 397, "headTop": 140}, {"sheet": "chase-v1", "index": 1, "x": 627, "y": 0, "width": 627, "height": 627, "eyeSpan": 255, "headCenter": 344, "neck": 397, "headTop": 140}, {"sheet": "chase-v1", "index": 2, "x": 0, "y": 627, "width": 627, "height": 627, "eyeSpan": 254, "headCenter": 388.5, "neck": 365, "headTop": 108}, {"sheet": "chase-v1", "index": 3, "x": 627, "y": 627, "width": 627, "height": 627, "eyeSpan": 254, "headCenter": 342.5, "neck": 364, "headTop": 107}]}, {"source": "dizzy-hang-v1.png", "frames": [{"sheet": "dizzy-v1", "index": 0, "x": 0, "y": 0, "width": 627, "height": 627, "eyeSpan": 224, "headCenter": 364.0, "neck": 376, "headTop": 148}, {"sheet": "dizzy-v1", "index": 1, "x": 627, "y": 0, "width": 627, "height": 627, "eyeSpan": 224, "headCenter": 285.5, "neck": 379, "headTop": 157}, {"sheet": "dizzy-v1", "index": 2, "x": 0, "y": 627, "width": 627, "height": 627, "eyeSpan": 224, "headCenter": 360.5, "neck": 359, "headTop": 126}, {"sheet": "dizzy-v1", "index": 3, "x": 627, "y": 627, "width": 627, "height": 627, "eyeSpan": 224, "headCenter": 280.5, "neck": 362, "headTop": 134}]}, {"source": "petted-blush-v1.png", "frames": [{"sheet": "petted-v1", "index": 0, "x": 0, "y": 0, "width": 627, "height": 627, "eyeSpan": 251, "headCenter": 397.0, "neck": 423, "headTop": 182}, {"sheet": "petted-v1", "index": 1, "x": 627, "y": 0, "width": 627, "height": 627, "eyeSpan": 251, "headCenter": 301.5, "neck": 434, "headTop": 196}, {"sheet": "petted-v1", "index": 2, "x": 0, "y": 627, "width": 627, "height": 627, "eyeSpan": 251, "headCenter": 397.5, "neck": 360, "headTop": 129}, {"sheet": "petted-v1", "index": 3, "x": 627, "y": 627, "width": 627, "height": 627, "eyeSpan": 251, "headCenter": 295.5, "neck": 372, "headTop": 140}]}]
+[
+ {
+  "source": "landing-hurt-v2.png",
+  "frames": [
+   {
+    "sheet": "edge-v2",
+    "index": 6,
+    "x": 0,
+    "y": 0,
+    "width": 512,
+    "height": 512,
+    "eyeSpan": 231,
+    "headCenter": 297.5,
+    "neck": 328,
+    "headTop": 116
+   }
+  ]
+ },
+ {
+  "source": "sleep-yawn-v3.png",
+  "frames": [
+   {
+    "sheet": "behaviors-v2",
+    "index": 8,
+    "x": 0,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 288,
+    "headCenter": 378.0,
+    "neck": 419,
+    "headTop": 160
+   },
+   {
+    "sheet": "behaviors-v2",
+    "index": 9,
+    "x": 627,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 294,
+    "headCenter": 310.0,
+    "neck": 423,
+    "headTop": 161
+   },
+   {
+    "sheet": "behaviors-v2",
+    "index": 10,
+    "x": 0,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 285,
+    "headCenter": 352.5,
+    "neck": 357,
+    "headTop": 101
+   },
+   {
+    "sheet": "behaviors-v2",
+    "index": 11,
+    "x": 627,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 274,
+    "headCenter": 312.0,
+    "neck": 363,
+    "headTop": 101
+   }
+  ]
+ },
+ {
+  "source": "landing-flop-v3.png",
+  "frames": [
+   {
+    "sheet": "hurt-v1",
+    "index": 0,
+    "x": 0,
+    "y": 0,
+    "width": 512,
+    "height": 512,
+    "eyeSpan": 216,
+    "headCenter": 177.5,
+    "neck": 419,
+    "headTop": 205,
+    "mirror": true
+   },
+   {
+    "sheet": "hurt-v1",
+    "index": 1,
+    "x": 512,
+    "y": 0,
+    "width": 512,
+    "height": 512,
+    "eyeSpan": 217,
+    "headCenter": 177,
+    "neck": 418,
+    "headTop": 205,
+    "mirror": true
+   },
+   {
+    "sheet": "hurt-v1",
+    "index": 2,
+    "x": 1024,
+    "y": 0,
+    "width": 512,
+    "height": 512,
+    "eyeSpan": 224,
+    "headCenter": 312.5,
+    "neck": 356,
+    "headTop": 125,
+    "mirror": false
+   },
+   {
+    "sheet": "hurt-v1",
+    "index": 3,
+    "x": 0,
+    "y": 512,
+    "width": 512,
+    "height": 512,
+    "eyeSpan": 221,
+    "headCenter": 312,
+    "neck": 303,
+    "headTop": 69,
+    "mirror": false
+   },
+   {
+    "sheet": "hurt-v1",
+    "index": 4,
+    "x": 512,
+    "y": 512,
+    "width": 512,
+    "height": 512,
+    "eyeSpan": 221,
+    "headCenter": 296,
+    "neck": 295,
+    "headTop": 61,
+    "mirror": false
+   }
+  ]
+ },
+ {
+  "source": "chase-happy-v1.png",
+  "frames": [
+   {
+    "sheet": "chase-v1",
+    "index": 0,
+    "x": 0,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 254,
+    "headCenter": 388.5,
+    "neck": 397,
+    "headTop": 140
+   },
+   {
+    "sheet": "chase-v1",
+    "index": 1,
+    "x": 627,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 255,
+    "headCenter": 344,
+    "neck": 397,
+    "headTop": 140
+   },
+   {
+    "sheet": "chase-v1",
+    "index": 2,
+    "x": 0,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 254,
+    "headCenter": 388.5,
+    "neck": 365,
+    "headTop": 108
+   },
+   {
+    "sheet": "chase-v1",
+    "index": 3,
+    "x": 627,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 254,
+    "headCenter": 342.5,
+    "neck": 364,
+    "headTop": 107
+   }
+  ]
+ },
+ {
+  "source": "dizzy-hang-v1.png",
+  "frames": [
+   {
+    "sheet": "dizzy-v1",
+    "index": 0,
+    "x": 0,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 224,
+    "headCenter": 364.0,
+    "neck": 376,
+    "headTop": 148
+   },
+   {
+    "sheet": "dizzy-v1",
+    "index": 1,
+    "x": 627,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 224,
+    "headCenter": 285.5,
+    "neck": 379,
+    "headTop": 157
+   },
+   {
+    "sheet": "dizzy-v1",
+    "index": 2,
+    "x": 0,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 224,
+    "headCenter": 360.5,
+    "neck": 359,
+    "headTop": 126
+   },
+   {
+    "sheet": "dizzy-v1",
+    "index": 3,
+    "x": 627,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 224,
+    "headCenter": 280.5,
+    "neck": 362,
+    "headTop": 134
+   }
+  ]
+ },
+ {
+  "source": "petted-blush-v1.png",
+  "frames": [
+   {
+    "sheet": "petted-v1",
+    "index": 0,
+    "x": 0,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 251,
+    "headCenter": 397.0,
+    "neck": 423,
+    "headTop": 182
+   },
+   {
+    "sheet": "petted-v1",
+    "index": 1,
+    "x": 627,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 251,
+    "headCenter": 301.5,
+    "neck": 434,
+    "headTop": 196
+   },
+   {
+    "sheet": "petted-v1",
+    "index": 2,
+    "x": 0,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 251,
+    "headCenter": 397.5,
+    "neck": 360,
+    "headTop": 129
+   },
+   {
+    "sheet": "petted-v1",
+    "index": 3,
+    "x": 627,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 251,
+    "headCenter": 295.5,
+    "neck": 372,
+    "headTop": 140
+   }
+  ]
+ },
+ {
+  "source": "sleep-blanket-v1.png",
+  "frames": [
+   {
+    "sheet": "sleep-v1",
+    "index": 0,
+    "x": 0,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 193.5,
+    "headCenter": 228.2,
+    "neck": 412,
+    "headTop": 260,
+    "palette": "bed"
+   },
+   {
+    "sheet": "sleep-v1",
+    "index": 1,
+    "x": 627,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 193.5,
+    "headCenter": 209.0,
+    "neck": 404,
+    "headTop": 257,
+    "palette": "bed"
+   },
+   {
+    "sheet": "sleep-v1",
+    "index": 2,
+    "x": 0,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 193.5,
+    "headCenter": 228.2,
+    "neck": 345,
+    "headTop": 188,
+    "palette": "bed"
+   },
+   {
+    "sheet": "sleep-v1",
+    "index": 3,
+    "x": 627,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 193.5,
+    "headCenter": 226.5,
+    "neck": 336,
+    "headTop": 186,
+    "palette": "bed"
+   }
+  ]
+ },
+ {
+  "source": "idle-tilt-v1.png",
+  "frames": [
+   {
+    "sheet": "idle-v1",
+    "index": 0,
+    "x": 0,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 239.7,
+    "headCenter": 381.1,
+    "neck": 401,
+    "headTop": 165
+   },
+   {
+    "sheet": "idle-v1",
+    "index": 1,
+    "x": 627,
+    "y": 0,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 239.7,
+    "headCenter": 298.1,
+    "neck": 400,
+    "headTop": 166
+   },
+   {
+    "sheet": "idle-v1",
+    "index": 2,
+    "x": 0,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 239.7,
+    "headCenter": 373.6,
+    "neck": 362,
+    "headTop": 121
+   },
+   {
+    "sheet": "idle-v1",
+    "index": 3,
+    "x": 627,
+    "y": 627,
+    "width": 627,
+    "height": 627,
+    "eyeSpan": 239.7,
+    "headCenter": 304.4,
+    "neck": 361,
+    "headTop": 132
+   }
+  ]
+ }
+]
