@@ -1,4 +1,5 @@
 /** HTML popups only. Native Rust owns the pet, input, movement and animation. */
+import {leadTitle,timeRange} from './calendar-lead';
 import {BubbleEntrance} from './bubble-entrance';
 import {layoutPet} from './pet-layout';
 import {invoke} from '@tauri-apps/api/core';
@@ -33,7 +34,8 @@ function render(rotate=false){document.documentElement.classList.toggle('reduce-
  $('pet-root').hidden=false;$('pet-menu').hidden=!pet.menu;$('bubble').hidden=!next||pet.busy||pet.dragging||pet.menu||!!pet.reaction;
  entrance.show($('bubble'),next?.id,cfg.reduce_motion);
  $('pet-reaction').hidden=!pet.reaction||pet.busy||pet.dragging||pet.menu;$('pet-reaction').textContent=pet.reaction??'';
- if(next){$('title').textContent=state.preferences.private_content?'새 알림이 도착했어요':next.title??'새 소식이 있어요';$('body').textContent=state.preferences.private_content?'내용을 보려면 해당 앱을 열어주세요.':next.body??'';$('count').textContent=alerts.length>1?`${alerts.findIndex(a=>a.id===next.id)+1}/${alerts.length}`:'';$('next-alert').hidden=alerts.length<2;$('open').hidden=!safe(next.deepLink);$('meeting').hidden=!safe(next.meetingUrl);$('snooze').hidden=!(next.source==='stretch'||(next.source==='calendar'&&(next.startsAt??0)>Date.now()/1000+300));}
+ const calendar=next?.source==='calendar'&&typeof next.startsAt==='number';
+ if(next){$('title').textContent=calendar?leadTitle(next.startsAt!,Date.now()/1000):state.preferences.private_content?'새 알림이 도착했어요':next.title??'새 소식이 있어요';$('body').textContent=state.preferences.private_content?(calendar?timeRange(next.startsAt!,next.endsAt)+' · 내용을 보려면 캘린더를 열어주세요.':'내용을 보려면 해당 앱을 열어주세요.'):calendar?`${timeRange(next.startsAt!,next.endsAt)} · ${next.body??''}`:next.body??'';$('count').textContent=alerts.length>1?`${alerts.findIndex(a=>a.id===next.id)+1}/${alerts.length}`:'';$('next-alert').hidden=alerts.length<2;$('open').hidden=!safe(next.deepLink);$('meeting').hidden=!safe(next.meetingUrl);$('snooze').hidden=!(next.source==='stretch'||(next.source==='calendar'&&(next.startsAt??0)>Date.now()/1000+300));}
  if(reportedChoice!==choice){reportedChoice=choice;run(()=>invoke('native_pet_ui',{choice:choice??null}));}renderMenu();layout();
 }
 function menu(show:boolean){pet.menu=show;render();run(()=>invoke('native_pet_ui',{menu:show,choice:choice??null}));}
@@ -43,6 +45,8 @@ for(const [id,key] of [['open','deepLink'],['meeting','meetingUrl']] as const)$(
 function nextAlert(){if(!state)return;const list=[...state.alerts].sort((a,b)=>priority(a)-priority(b)||a.createdAt-b.createdAt);choice=list[(list.findIndex(a=>a.id===current?.id)+1)%list.length]?.id;render(true);}
 $('next-alert').onclick=nextAlert;
 setInterval(()=>{if(pet.menu)renderMenu();},1000);
+// A calendar bubble counts down: refresh its wording every half minute.
+setInterval(()=>{if(current?.source==='calendar'&&!$('bubble').hidden)render();},30000);
 setInterval(()=>{if(state&&state.alerts.length>1&&performance.now()-changedAt>12000&&!pet.dragging&&!pet.menu&&!pet.busy&&!$('bubble').matches(':hover')&&!$('bubble').contains(document.activeElement))nextAlert();},500);
 for(const id of ['bubble','pet-menu']){const el=$(id);el.onmouseenter=()=>run(()=>invoke('native_pet_ui',{hover:true,choice:choice??null}));el.onmouseleave=()=>run(()=>invoke('native_pet_ui',{hover:false,choice:choice??null}));}
 window.addEventListener('keydown',e=>{if(e.key==='Escape')menu(false);});

@@ -757,7 +757,7 @@ pub fn start(app: AppHandle) {
                             let legacy_delivered = minutes == prefs.calendar_minutes
                                 && s.fired.contains_key(&format!("calendar:{}", e.id));
                             if !s.fired.contains_key(&id) && !legacy_delivered {
-                                due.push(json!({"id":id,"source":"calendar","trigger":"calendar","title":if t<e.start{"곧 일정이 시작돼요"}else{"일정이 시작됐어요"},"body":e.title,"startsAt":e.start,"endsAt":e.end,"expiresAt":e.end,"deepLink":e.url,"meetingUrl":e.meeting_url}));
+                                due.push(json!({"id":id,"source":"calendar","trigger":"calendar","title":lead_title(e.start as i64 - t as i64),"body":e.title,"startsAt":e.start,"endsAt":e.end,"expiresAt":e.end,"deepLink":e.url,"meetingUrl":e.meeting_url}));
                             }
                         }
                     }
@@ -843,8 +843,37 @@ pub fn start(app: AppHandle) {
         }
     });
 }
+/// Reminder wording relative to the event start (seconds, negative once started).
+/// The overlay recomputes this live; this is the wording at delivery time.
+pub fn lead_title(seconds: i64) -> String {
+    if seconds.abs() <= 60 {
+        return "지금 일정이 시작돼요".into();
+    }
+    let minutes = ((seconds.abs() as f64) / 60.).round().max(1.) as i64;
+    let (h, m) = (minutes / 60, minutes % 60);
+    let span = match (h, m) {
+        (0, m) => format!("{m}분"),
+        (h, 0) => format!("{h}시간"),
+        (h, m) => format!("{h}시간 {m}분"),
+    };
+    if seconds < 0 {
+        format!("{span} 전에 일정이 시작됐어요")
+    } else {
+        format!("{span} 뒤 일정이 시작돼요")
+    }
+}
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn lead_title_states_the_exact_lead() {
+        assert_eq!(lead_title(60 * 60), "1시간 뒤 일정이 시작돼요");
+        assert_eq!(lead_title(90 * 60), "1시간 30분 뒤 일정이 시작돼요");
+        assert_eq!(lead_title(5 * 60 + 20), "5분 뒤 일정이 시작돼요");
+        assert_eq!(lead_title(30), "지금 일정이 시작돼요");
+        assert_eq!(lead_title(-30), "지금 일정이 시작돼요");
+        assert_eq!(lead_title(-10 * 60), "10분 전에 일정이 시작됐어요");
+    }
+
     use super::*;
     fn source() -> CalendarSource {
         CalendarSource {
