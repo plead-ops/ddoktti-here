@@ -6,10 +6,11 @@ mod gait;
 mod petting;
 mod physics;
 mod platform;
+mod presence;
 #[cfg(debug_assertions)]
 pub mod smoke;
 mod tickle;
-use physics::{Motion, Physics};
+use physics::{Motion, Nudge, Physics};
 use resvg::tiny_skia::Pixmap;
 use serde_json::{json, Value};
 use std::{
@@ -69,6 +70,11 @@ struct Runtime {
     tickle: tickle::Tickle,
     petting: petting::Petting,
     connections: crate::connection::Notices,
+    presence: presence::Presence,
+    /// A welcome back (seconds away) waiting for a calm moment to play.
+    pending_return: Option<f64>,
+    /// Seconds before another window-nudge reaction may play.
+    nudge_wait: f64,
     follow_rest: f64,
     last: Instant,
     sense: Instant,
@@ -247,6 +253,9 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
             tickle: tickle::Tickle::default(),
             petting: petting::Petting::default(),
             connections: crate::connection::Notices::default(),
+            presence: presence::Presence::default(),
+            pending_return: None,
+            nudge_wait: 0.,
             follow_rest: 0.,
             last: Instant::now(),
             sense: Instant::now() - Duration::from_secs(1),
@@ -357,21 +366,23 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     let dt = r.last.elapsed().as_secs_f64().min(0.1);
     r.last = Instant::now();
     r.tick_count += 1;
-    let (preferences, alerts, ready, fullscreen) = {
+    let (preferences, alerts, ready, hidden, fullscreen, presenting) = {
         let state = app.state::<crate::companion::Companion>();
         let s = state.0.lock().unwrap();
         (
             s.saved.preferences.clone(),
             s.alerts.clone(),
             s.ready,
+            s.hidden(),
             s.fullscreen,
+            s.presenting,
         )
     };
     let notice_time = r.started.elapsed().as_secs();
     let notice_allowed =
         preferences.onboarded && preferences.quiet_until <= crate::companion::now();
     let visible = ready
-        && !(fullscreen && preferences.hide_fullscreen)
+        && !hidden
         && ((preferences.onboarded && preferences.resident)
             || !alerts.is_empty()
             || r.press.is_some()
@@ -382,7 +393,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     let popup = app.get_webview_window("overlay").ok_or("No popup window")?;
     if !visible {
         if r.visible {
-            trace(|| format!("hide fullscreen={fullscreen} ready={ready}"));
+            trace(|| format!("hide fullscreen={fullscreen} presenting={presenting} ready={ready}"));
             let _ = pet.hide();
             let _ = popup.hide();
         }
@@ -441,6 +452,8 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             }
         }
     }
+    let mut nudge = Nudge::None;
+    let mut presence_event = None;
     if r.physics.is_none() || r.sense.elapsed() >= Duration::from_millis(150) {
         let world = crate::surfaces::pet_world(app.clone())?;
         let guided = r.crossing.is_some() || r.activity.is_some();
@@ -448,11 +461,15 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             if guided {
                 p.guide(world);
             } else {
-                p.update(world);
+                nudge = p.update(world);
             }
         } else {
             r.physics = Some(Physics::new(world));
         }
+        let idle = crate::companion::idle_seconds();
+        presence_event = r
+            .presence
+            .observe((idle != u64::MAX).then_some(idle as f64));
         r.sense = Instant::now();
     }
     let mut alerts = alerts;
@@ -527,6 +544,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     let sf = monitor.scale_factor();
     if left && !r.left && hit && !r.hover {
         r.drag_age = 0.;
+        r.presence.wake();
         r.press = Some(Press {
             cursor: (cursor.x, cursor.y),
             dragged: false,
@@ -1004,6 +1022,59 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     if landed && selected.is_none() && r.reaction.is_none() {
         r.set_mode("relieved");
     }
+    // Reactions to what the person does around us: dragging our window, brushing
+    // past with another one, closing the one under our feet, leaving and returning.
+    r.nudge_wait = (r.nudge_wait - dt).max(0.);
+    let calm = resident
+        && !r.physics.as_ref().unwrap().busy()
+        && !dragging
+        && !r.menu
+        && selected.is_none()
+        && r.reaction.is_none()
+        && activity_frame.is_none()
+        && r.crossing.is_none()
+        && !cursor_following;
+    let lost = landed && std::mem::take(&mut r.physics.as_mut().unwrap().lost_support);
+    if calm && lost {
+        r.set_mode("sulking");
+        if notice_allowed {
+            r.reaction = Some("앗, 발판이 없어졌어요…");
+        }
+    } else if calm && !r.presence.asleep() && r.nudge_wait == 0. {
+        match nudge {
+            Nudge::Ride => {
+                r.set_mode("surprised");
+                r.nudge_wait = 15.;
+            }
+            Nudge::Brush => {
+                r.set_mode("curious");
+                r.nudge_wait = 10.;
+            }
+            _ => {}
+        }
+    }
+    match presence_event {
+        Some(presence::Event::Doze) if calm => r.set_mode("sleepy"),
+        Some(presence::Event::Return(away)) => r.pending_return = Some(away),
+        _ => {}
+    }
+    // The welcome waits for a calm moment (an alert may be up when the person
+    // returns) but not forever: a reunion is only convincing right after it.
+    if let Some(away) = r.pending_return {
+        if calm {
+            r.pending_return = None;
+            r.set_mode(if away >= presence::LONG_AWAY {
+                "excited"
+            } else {
+                "greeting"
+            });
+            if notice_allowed {
+                r.reaction = Some(presence::welcome(away));
+            }
+        } else if r.presence.asleep() {
+            r.pending_return = None;
+        }
+    }
     if (!resident || !r.physics.as_ref().unwrap().busy()) && !dragging && activity_frame.is_none() {
         if r.pending_ack {
             r.pending_ack = false;
@@ -1055,7 +1126,13 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             }
         } else if selected.is_none() && !cfg.reduce_motion && !cursor_following {
             r.age += dt * cfg.speed;
-            if r.physics.as_ref().unwrap().approaching() {
+            let asleep = r.presence.asleep();
+            if asleep && !hit {
+                // Nobody is here: keep dozing instead of picking new behaviours.
+                if r.mode != "sleepy" && (r.age >= art::duration(&r.mode) || r.mode == "walk") {
+                    r.set_mode("sleepy");
+                }
+            } else if r.physics.as_ref().unwrap().approaching() {
                 if !matches!(r.mode.as_str(), "walk" | "run") {
                     r.set_mode("walk");
                 }

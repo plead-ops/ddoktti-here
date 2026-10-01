@@ -15,6 +15,7 @@ pub fn start(app: &AppHandle) {
         s.saved.preferences.onboarded = true;
         s.saved.preferences.resident = true;
         s.saved.preferences.hide_fullscreen = false;
+        s.saved.preferences.hide_presenting = false;
         s.ready = true;
     }
     let mut cfg = crate::effective_display(app);

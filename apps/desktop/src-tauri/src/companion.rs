@@ -22,6 +22,8 @@ pub struct Preferences {
     pub onboarded: bool,
     pub resident: bool,
     pub hide_fullscreen: bool,
+    /// Hide while a display is mirrored or a projector is connected.
+    pub hide_presenting: bool,
     pub private_content: bool,
     pub stretch: bool,
     pub stretch_minutes: u64,
@@ -37,6 +39,7 @@ impl Default for Preferences {
             onboarded: false,
             resident: false,
             hide_fullscreen: true,
+            hide_presenting: true,
             private_content: false,
             stretch: false,
             stretch_minutes: 50,
@@ -93,6 +96,14 @@ pub struct State {
     pub pet_anchor: Option<(f64, f64)>,
     pub pet_location: Option<(String, f64, f64)>,
     pub fullscreen: bool,
+    pub presenting: bool,
+}
+impl State {
+    /// The one place that decides when the character and its alerts stay off screen.
+    pub fn hidden(&self) -> bool {
+        (self.fullscreen && self.saved.preferences.hide_fullscreen)
+            || (self.presenting && self.saved.preferences.hide_presenting)
+    }
 }
 pub struct Companion(pub Mutex<State>);
 
@@ -133,7 +144,7 @@ pub fn emit(app: &AppHandle) {
 pub fn snapshot(app: AppHandle) -> Value {
     let state = app.state::<Companion>();
     let s = state.0.lock().unwrap();
-    json!({"preferences":s.saved.preferences,"timer":s.saved.timer,"alerts":s.alerts,"now":now(),"fullscreen":s.fullscreen})
+    json!({"preferences":s.saved.preferences,"timer":s.saved.timer,"alerts":s.alerts,"now":now(),"fullscreen":s.fullscreen,"presenting":s.presenting,"hidden":s.hidden()})
 }
 #[tauri::command]
 pub fn set_preferences(app: AppHandle, patch: Value) -> Result<(), String> {
@@ -320,8 +331,11 @@ pub fn open_settings(app: AppHandle) {
     crate::show_settings(&app);
 }
 
+/// Seconds since any keyboard/mouse input, or `u64::MAX` when unknown. Needs no
+/// permission and reveals nothing about which keys or where; shared by stretch
+/// reminders and the character's dozing.
 #[cfg(target_os = "windows")]
-fn idle_seconds() -> u64 {
+pub(crate) fn idle_seconds() -> u64 {
     use windows::Win32::System::SystemInformation::GetTickCount;
     use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
     let mut input = LASTINPUTINFO {
@@ -342,11 +356,11 @@ extern "C" {
     fn CGEventSourceSecondsSinceLastEventType(state: i32, event: u32) -> f64;
 }
 #[cfg(target_os = "macos")]
-fn idle_seconds() -> u64 {
+pub(crate) fn idle_seconds() -> u64 {
     unsafe { CGEventSourceSecondsSinceLastEventType(1, u32::MAX).max(0.0) as u64 }
 }
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn idle_seconds() -> u64 {
+pub(crate) fn idle_seconds() -> u64 {
     u64::MAX
 }
 pub fn start(app: AppHandle) {
@@ -411,6 +425,12 @@ pub fn start(app: AppHandle) {
                     ]
                 });
             let fullscreen = crate::fullscreen::active(target);
+            // Display probing runs on the UI thread and topology rarely changes:
+            // refresh every five seconds, read last time's answer here.
+            if ticks % 100 == 0 {
+                crate::presenting::schedule(&app);
+            }
+            let presenting = crate::presenting::current();
             let full_changed = {
                 let state = app.state::<Companion>();
                 let mut s = state.0.lock().unwrap();
@@ -418,8 +438,11 @@ pub fn start(app: AppHandle) {
                 if slack_active {
                     s.alerts.retain(|a| a["source"] != "slack");
                 }
-                let changed = s.fullscreen != fullscreen || before != s.alerts.len();
+                let changed = s.fullscreen != fullscreen
+                    || s.presenting != presenting
+                    || before != s.alerts.len();
                 s.fullscreen = fullscreen;
+                s.presenting = presenting;
                 changed
             };
             if full_changed {

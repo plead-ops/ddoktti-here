@@ -29,7 +29,7 @@ const priority=(a:NotificationPayload)=>a.source==='preview'?0:a.source==='calen
 function safe(value:string|undefined){if(!value)return false;try{return ['https:','slack:'].includes(new URL(value).protocol);}catch{return false;}}
 function render(rotate=false){document.documentElement.classList.toggle('reduce-motion',cfg.reduce_motion);if(!state)return;const alerts=state.alerts.map(a=>NotificationPayload.safeParse(a)).filter(p=>p.success).map(p=>p.data!);alerts.sort((a,b)=>priority(a)-priority(b)||a.createdAt-b.createdAt);
  const urgent=alerts[0],chosen=alerts.find(a=>a.id===choice),next=!rotate&&urgent&&chosen&&priority(urgent)<priority(chosen)?urgent:chosen??urgent;choice=next?.id;
- if(next?.id!==current?.id){changedAt=performance.now();if(next&&!seen.has(next.id)){if(!(state.fullscreen&&state.preferences.hide_fullscreen))beep();seen.add(next.id);if(seen.size>200){const alive=new Set(alerts.map(a=>a.id));for(const id of seen)if(!alive.has(id))seen.delete(id);}}}current=next;
+ if(next?.id!==current?.id){changedAt=performance.now();if(next&&!seen.has(next.id)){if(!state.hidden)beep();seen.add(next.id);if(seen.size>200){const alive=new Set(alerts.map(a=>a.id));for(const id of seen)if(!alive.has(id))seen.delete(id);}}}current=next;
  $('pet-root').hidden=false;$('pet-menu').hidden=!pet.menu;$('bubble').hidden=!next||pet.busy||pet.dragging||pet.menu||!!pet.reaction;
  entrance.show($('bubble'),next?.id,cfg.reduce_motion);
  $('pet-reaction').hidden=!pet.reaction||pet.busy||pet.dragging||pet.menu;$('pet-reaction').textContent=pet.reaction??'';

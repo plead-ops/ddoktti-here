@@ -97,6 +97,15 @@ pub fn ledges(w: &World) -> Vec<Ledge> {
     }
     out
 }
+/// What the surrounding windows just did to us, for a reaction on top of physics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Nudge {
+    None,
+    /// Our support window was dragged while we stood on it.
+    Ride,
+    /// Another window was moved into or right past our body.
+    Brush,
+}
 #[derive(Clone)]
 struct Plan {
     x: f64,
@@ -132,6 +141,10 @@ pub struct Physics {
     deliberate_jump: bool,
     wander_side: f64,
     wander_streak: u8,
+    /// The last fall was caused by losing our support (closed, shrunk, covered).
+    /// Stays set through the landing for the caller to consume; any other way
+    /// back to the ground clears it.
+    pub lost_support: bool,
 }
 impl Physics {
     pub fn new(world: World) -> Self {
@@ -159,6 +172,7 @@ impl Physics {
             deliberate_jump: false,
             wander_side: 0.,
             wander_streak: 0,
+            lost_support: false,
         };
         p.reset(p.x, p.y);
         p
@@ -282,6 +296,7 @@ impl Physics {
     pub fn reset(&mut self, x: f64, y: f64) {
         self.fall_origin = y;
         self.deliberate_jump = false;
+        self.lost_support = false;
         self.x = clamp(x, self.half(), self.world.width - self.half());
         self.y = clamp(y, self.height(), self.world.height);
         self.vx = 0.;
@@ -380,17 +395,20 @@ impl Physics {
         self.motion = Motion::Fall;
         self.age = 0.;
     }
-    pub fn update(&mut self, world: World) {
+    pub fn update(&mut self, world: World) -> Nudge {
         if world.monitor != self.world.monitor || world.size != self.world.size {
             self.world = world;
             self.ledges = ledges(&self.world);
             self.attached = None;
             self.support = None;
             self.reset(self.world.x, self.world.y);
-            return;
+            return Nudge::None;
         }
+        let brush = self.brushed(&world);
+        let grounded = self.motion == Motion::Grounded;
         self.world = world;
         self.ledges = ledges(&self.world);
+        let mut nudge = Nudge::None;
         if let Some(old) = self.attached.clone() {
             if let Some(next) = self.world.windows.iter().find(|w| w.id == old.id).cloned() {
                 if self.climbing() {
@@ -409,6 +427,7 @@ impl Physics {
                     self.y += next.y - old.y;
                 }
                 self.attached = Some(next.clone());
+                let moved = (next.x - old.x).abs() + (next.y - old.y).abs();
                 if (!self.climbing() && self.at(self.x, self.y, Some(&next.id)).is_none())
                     || (self.climbing() && !self.climb_visible(&next))
                     || self.x < self.half()
@@ -417,13 +436,39 @@ impl Physics {
                     || self.y > self.world.height
                 {
                     self.falling();
+                    self.lost_support = true;
+                } else if grounded && moved >= self.world.size * 0.15 {
+                    nudge = Nudge::Ride;
                 }
             } else {
                 self.falling();
+                self.lost_support = true;
             }
         }
         self.x = clamp(self.x, self.half(), self.world.width - self.half());
         self.y = clamp(self.y, self.height(), self.world.height);
+        if nudge == Nudge::None && grounded && brush {
+            Nudge::Brush
+        } else {
+            nudge
+        }
+    }
+    // A window other than our support that moved a noticeable step and now
+    // overlaps the space around our body.
+    fn brushed(&self, world: &World) -> bool {
+        let reach = self.world.size * 0.5;
+        let (l, t) = (self.x - self.half() - reach, self.y - self.height() - reach);
+        let (r, b) = (self.x + self.half() + reach, self.y + reach);
+        world.windows.iter().any(|w| {
+            Some(&w.id) != self.support.as_ref()
+                && self.world.windows.iter().any(|old| {
+                    old.id == w.id && (w.x - old.x).abs() + (w.y - old.y).abs() >= self.world.size * 0.15
+                })
+                && w.x < r
+                && w.x + w.width > l
+                && w.y < b
+                && w.y + w.height > t
+        })
     }
     pub fn approaching(&self) -> bool {
         (self.approach.is_some() || self.descent.is_some()) && self.motion == Motion::Grounded
@@ -714,6 +759,7 @@ impl Physics {
                 self.entering(Motion::Grounded);
                 self.vx = 0.;
                 self.vy = 0.;
+                self.lost_support = false;
             }
             return;
         }
@@ -837,6 +883,7 @@ impl Physics {
                     self.vy = p.vy;
                     self.direction = self.vx.signum();
                     self.deliberate_jump = true;
+                    self.lost_support = false;
                     self.entering(Motion::Jump);
                 }
                 return;
@@ -1599,6 +1646,48 @@ mod tests {
         assert!(urge > 0.6 && urge < 0.7, "{urge}");
         p.y = 200.;
         assert!(p.descent_urge() > urge, "higher perches are more restless");
+    }
+    #[test]
+    fn window_nudges_ride_brush_and_lost_are_reported_once_per_update() {
+        let mut p = Physics::new(world(vec![rect("a", 200., 300., 400., 400.)], 400., 300.));
+        advance(&mut p, 2., 0., false);
+        assert_eq!(p.support.as_deref(), Some("a"));
+        // Small jitter is not a ride; a drag step is.
+        assert_eq!(p.update(world(vec![rect("a", 205., 300., 400., 400.)], p.x, p.y)), Nudge::None);
+        assert_eq!(p.update(world(vec![rect("a", 240., 290., 400., 400.)], p.x, p.y)), Nudge::Ride);
+        assert_eq!(p.support.as_deref(), Some("a"));
+        assert!(!p.lost_support);
+        // Another window dragged into our space brushes us; far away it does not.
+        let a = rect("a", 240., 290., 400., 400.);
+        let w = p.update(world(vec![rect("b", 900., 100., 80., 80.), a.clone()], p.x, p.y));
+        assert_eq!(w, Nudge::None, "appearing is not a brush");
+        let w = p.update(world(vec![rect("b", 880., 120., 80., 80.), a.clone()], p.x, p.y));
+        assert_eq!(w, Nudge::None, "moving far away is not a brush");
+        let w = p.update(world(vec![rect("b", p.x + p.half() + 20., 150., 80., 80.), a.clone()], p.x, p.y));
+        assert_eq!(w, Nudge::Brush);
+        // Closing the support is a loss, remembered until the caller clears it.
+        assert_eq!(p.update(world(vec![], p.x, p.y)), Nudge::None);
+        assert!(p.lost_support);
+        assert_eq!(p.motion, Motion::Fall);
+        advance(&mut p, 5., 0., false);
+        assert_eq!(p.motion, Motion::Grounded);
+        assert!(p.lost_support, "landing keeps the cause for the reaction");
+        p.lost_support = false;
+        // A deliberate reset (drag/drop) never reports a loss, and climbing is not a ride.
+        p.reset(400., 700.);
+        assert!(!p.lost_support);
+        // Reduced motion snaps straight to the ground: no landing, so no stale loss.
+        let mut q = Physics::new(world(vec![rect("a", 200., 300., 400., 400.)], 400., 300.));
+        advance(&mut q, 2., 0., false);
+        q.update(world(vec![], q.x, q.y));
+        assert!(q.lost_support);
+        q.step(0.1, 0., true, true);
+        assert_eq!(q.motion, Motion::Grounded);
+        assert!(!q.lost_support);
+        let mut c = Physics::new(world(vec![rect("a", 250., 250., 450., 450.)], 200., 700.));
+        advance(&mut c, 0.5, 70., true);
+        assert!(matches!(c.motion, Motion::Grab | Motion::Climb));
+        assert_eq!(c.update(world(vec![rect("a", 300., 250., 450., 450.)], c.x, c.y)), Nudge::None);
     }
     #[test]
     fn edge_departure_is_available_when_walking_bumps_the_display_edge() {

@@ -198,3 +198,25 @@ Slack/Google 수신 스레드는 로컬 캐릭터·타이머 준비 상태를 �
 - **줄 하강**: `descent_target`이 지지 창의 노출된 모서리(`edge_landing`)와 그 아래 벽이 앞 창에 가려지지 않았는지(`wall_visible`), 착지점(`floor_below`: 매단 x 아래 첫 발판 또는 바닥)까지 키 이상 떨어지는지 확인한다. `approach_descent`로 모서리까지 걸어간 뒤 `Lower`(pull을 역재생, 0.7초, 줄이 고정점에서 풀려 나옴) → `Descend`(climb 프레임 3→2→0→1 역재생, `climb_distance`와 같은 박자로 하강) → `Land`로 이어진다. 창이 움직이면 등반처럼 모서리를 따라가고, 닫히거나 벽이 가려지면 낙하한다. 감소된 모션에서는 바로 아래 발판으로 해결한다.
 
 `climb_visible`은 `wall_visible(w, side, top, bottom)`의 특수형으로 바꿨다. `art.rs`와 `pet-vector.ts`에 `lower`/`descend` 포즈를 추가했으며 새 아트는 없다. 모션 갤러리와 창 위 산책 미리보기에도 두 동작을 넣었다. 휘청임 미끄러짐과 `Hurt`는 그대로 두어 의도된 하강과 대비되는 드문 사고로 남긴다.
+
+### 주변 창과 자리 비움에 반응 (2026-10-02)
+
+입력 내용이나 창 제목을 읽지 않는 범위에서, 사람이 캐릭터 주변에서 하는 일에 반응한다.
+
+- `Physics::update`가 `Nudge`를 돌려준다. 서 있는 지지 창이 한 번의 감지 간격(150ms)에 몸 크기의 15% 이상 움직이면 `Ride`, 다른 창이 그만큼 움직여 몸 주변(몸 크기의 50% 여유) 상자와 겹치면 `Brush`, 지지 창이 닫히거나 줄어들거나 가려져 떨어지면 `Lost`(`lost_support`에 남겨 착지 때 소비)다. 창이 새로 나타나는 것은 반응하지 않는다. 등반·점프 중과 사용자 드래그 리셋은 보고하지 않는다.
+- `mod.rs`는 평온한 상태(상주, 물리 바쁨 아님, 드래그·메뉴·알림·반응·놀이·경계 이동·포인터 추적 아님)에서만 반응한다. `Ride`→`surprised`(15초 간격), `Brush`→`curious`(10초 간격), `Lost` 착지→`sulking`과 "앗, 발판이 없어졌어요…" 말풍선. 말풍선은 알림 쉬기 중에는 생략한다.
+- `presence.rs`는 `companion::idle_seconds()`(스트레칭 안내와 같은 함수, macOS `CGEventSourceSecondsSinceLastEventType`, Windows `GetLastInputInfo`)만 입력으로 받는다. 10분 무입력이면 `Doze`, 그 뒤 첫 입력이면 `Return(비운 시간)`. 조는 동안은 새 행동을 고르지 않고 `sleepy`를 유지하며 줄 접근도 멈춘다. 돌아오면 30분 미만은 `greeting`+"다녀오셨어요?", 30분 이상은 `excited`+"오랜만이에요! 기다렸어요.". 캐릭터를 클릭·드래그하면 조용히 깬다(기존 "앗, 깼어요!" 경로 유지).
+
+### 발표 중 숨기기: 미러링과 프로젝터 감지 (2026-10-02)
+
+`presenting.rs`는 권한 없이 읽을 수 있는 두 신호로 "지금 화면을 남에게 보여 주는 중"을 판단한다. 참이면 전체 화면 숨기기와 같은 방식으로 캐릭터와 알림을 숨기고 타이머는 계속 간다(`hide_presenting`, 기본 켜짐).
+
+- **미러링**: macOS `CGDisplayIsInMirrorSet`, Windows `QueryDisplayConfig`의 토폴로지가 복제이거나 두 경로가 같은 소스를 쓰는 경우.
+- **프로젝터 식별**: EDID 이름(macOS `NSScreen.localizedName`, Windows `DISPLAYCONFIG_TARGET_DEVICE_NAME`), PNP 제조사 코드(macOS `CGDisplayVendorNumber`, Windows 장치 경로의 `DISPLAY#XXX….`), 물리 크기 유무(macOS `CGDisplayScreenSize`)를 본다. 규칙은 linuxhw/EDID 데이터베이스(약 3.9만 건)에서 실제 프로젝터 항목을 조사해 정했다.
+  - 이름에 단어 `PJ`(BenQ·Sony·ViewSonic·Casio·Acer "XGA PJ"), `PROJECTOR`(LG·Hitachi·MStar), `EPSON`(Epson은 PNP가 `SEC`라 이름으로 구분), `VPL`(Sony), 그리고 XGIMI·Nebula·JMGO·Dangbei·Formovie·Yaber·Wanbo·Vivitek·InFocus·CineBeam·Freestyle. 단어 경계를 보므로 LG 모니터 `22MP55PJ`는 제외된다.
+  - 모델 접두사 `NP-`(NEC), `PT-`(Panasonic), `VPL`, `EB-`/`EH-`/`EF-`(Epson). LG 코드 `GSM` + `HU`/`PF`/`HF`/`BU`+숫자.
+  - 프로젝터 전용 제조사 코드 `EPS`/`EHJ`, `OTM`/`OPT`(Optoma는 이름이 "1080P"·"WXGA"뿐), `GMI`(XGIMI), `HTC`(Hitachi 프로젝터, 모니터는 `HEC`/`HIT`), `CAS`, `VIT`, `IFS`, `CHR`.
+  - 해상도만 있는 이름(`XGA`, `WUXGA`, `1080P`…)은 물리 크기가 없거나 `GRU`(Grundig)일 때만. "크기 없음" 단독은 TV(`SONY TV`, `LG TV`), AV 리시버(`AVR`), `SyncMaster`에도 해당해 쓰지 않는다.
+  - 내장 디스플레이는 항상 제외한다. 새 디스플레이 연결 이벤트 자체는 신호로 쓰지 않는다(새 모니터일 수 있음).
+- NSScreen은 UI 스레드에서만 다루므로 워커가 `run_on_main_thread`로 조회를 예약하고 다음 틱에 `AtomicBool` 결과를 읽는다. 디스플레이 구성은 드물게 바뀌므로 5초마다 갱신한다. 이름·코드는 메모리에서 비교만 하고 저장·전송하지 않는다. 숨김 여부는 `State::hidden()` 한 곳(전체 화면·발표 중)에서 정하고 네이티브 틱과 overlay의 알림음이 같은 값을 쓴다. Windows 조회는 `windows` 크레이트의 `Win32_Devices_Display` 타입을 쓴다.
+- 한계: 확장 모드에서 규칙에 없는 프로젝터는 놓친다. Zoom·Meet 화면 공유는 OS가 알려 주지 않는다. Windows 구현은 CI의 Windows 검사로 컴파일을 확인하며 실기 검증은 별도다.

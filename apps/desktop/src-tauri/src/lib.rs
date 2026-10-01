@@ -14,6 +14,7 @@ mod connection;
 mod diag;
 mod foreground;
 mod fullscreen;
+mod presenting;
 mod native_pet;
 mod slack;
 mod surfaces;

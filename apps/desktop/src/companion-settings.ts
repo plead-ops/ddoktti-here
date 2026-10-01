@@ -2,8 +2,8 @@ import {ReminderEditor} from './calendar-reminders';
 export function syncPlacementLabels(resident:boolean,doc:Document=document){for(const id of ['alert-position-row','alert-monitor-row']){const el=doc.getElementById(id);if(el)el.hidden=resident;}for(const id of ['activity-scope-row','follow-cursor-row']){const el=doc.getElementById(id);if(el)el.hidden=!resident;}}
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-export interface Preferences { onboarded:boolean; resident:boolean; hide_fullscreen:boolean; private_content:boolean; stretch:boolean; stretch_minutes:number; quiet_until:number; timer_during_quiet:boolean; calendar_minutes:number; calendar_reminders?:number[]; }
-export interface Snapshot { preferences:Preferences; timer:{duration:number;deadline:number|null;remaining:number;completed:boolean}; fullscreen?:boolean; alerts:import('@ddoktti/shared').NotificationPayload[]; now:number }
+export interface Preferences { onboarded:boolean; resident:boolean; hide_fullscreen:boolean; hide_presenting:boolean; private_content:boolean; stretch:boolean; stretch_minutes:number; quiet_until:number; timer_during_quiet:boolean; calendar_minutes:number; calendar_reminders?:number[]; }
+export interface Snapshot { preferences:Preferences; timer:{duration:number;deadline:number|null;remaining:number;completed:boolean}; fullscreen?:boolean; presenting?:boolean; hidden?:boolean; alerts:import('@ddoktti/shared').NotificationPayload[]; now:number }
 const native='__TAURI_INTERNALS__' in window;
 const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 let state:Snapshot;
@@ -20,7 +20,7 @@ export function syncOnboardingConnections(slackConnected:boolean,calendarConnect
 const error=(e:unknown)=>{get('companion-status').textContent=String(e);get('onboard-status').textContent=String(e);};
 function run(task:()=>Promise<unknown>){void task().catch(error);}
 function patch(value:Partial<Preferences>){saving=saving.then(()=>invoke('set_preferences',{patch:value})).then(()=>undefined).catch(error);}
-function render(s:Snapshot){state=s; for(const key of ['resident','hide_fullscreen','private_content','stretch','timer_during_quiet'] as const)get<HTMLInputElement>('pref-'+key).checked=s.preferences[key];
+function render(s:Snapshot){state=s; for(const key of ['resident','hide_fullscreen','hide_presenting','private_content','stretch','timer_during_quiet'] as const)get<HTMLInputElement>('pref-'+key).checked=s.preferences[key];
  for(const key of ['stretch_minutes'] as const)get<HTMLInputElement>('pref-'+key).value=String(s.preferences[key]);
  reminders.render(s.preferences.calendar_reminders?.length?s.preferences.calendar_reminders:[s.preferences.calendar_minutes]);
  get('quiet-status').textContent=s.preferences.quiet_until>Date.now()/1000?'쉬는 중 · '+new Date(s.preferences.quiet_until*1000).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'알림을 받고 있어요';
@@ -41,7 +41,7 @@ export async function setupCompanion(){
  await listen<SlackState>('slack-state',e=>slack(e.payload));slack(await invoke<SlackState>('slack_status'));
  await listen<Snapshot>('companion-state',e=>render(e.payload));await listen<CalendarState>('calendar-state',e=>calendar(e.payload));
  render(await invoke<Snapshot>('snapshot'));calendar(await invoke<CalendarState>('calendar_status'));
- for(const key of ['resident','hide_fullscreen','private_content','stretch','timer_during_quiet'] as const)get<HTMLInputElement>('pref-'+key).addEventListener('change',e=>patch({[key]:(e.target as HTMLInputElement).checked}));
+ for(const key of ['resident','hide_fullscreen','hide_presenting','private_content','stretch','timer_during_quiet'] as const)get<HTMLInputElement>('pref-'+key).addEventListener('change',e=>patch({[key]:(e.target as HTMLInputElement).checked}));
  for(const key of ['stretch_minutes'] as const)get<HTMLInputElement>('pref-'+key).addEventListener('change',e=>patch({[key]:Number((e.target as HTMLInputElement).value)}));
  for(const min of [0,30,60])get('quiet-'+min).onclick=()=>patch({quiet_until:min?Math.floor(Date.now()/1000)+min*60:0});
  get('timer-start').onclick=()=>run(()=>invoke('timer_action',{action:'start',minutes:Number(get<HTMLInputElement>('timer-minutes').value)}));
