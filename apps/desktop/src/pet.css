@@ -27,3 +27,5 @@
 #pet-reaction{inset:auto;position:absolute;width:max-content;max-width:calc(100vw - 16px);padding:11px 16px;border:2px solid #344c3a;border-radius:18px;background:#fffdf3;color:#263c31;font-size:14px;line-height:1.55;font-weight:700;text-align:center;text-shadow:none;box-shadow:0 4px 0 #344c3a22;overflow-wrap:anywhere;pointer-events:none}
 #pet-reaction:after{content:'';position:absolute;left:var(--tail-x,50%);bottom:-8px;width:12px;height:12px;background:#fffdf3;border-right:2px solid #344c3a;border-bottom:2px solid #344c3a;transform:translateX(-50%) rotate(45deg)}
 #pet-reaction.below:after{top:-8px;bottom:auto;transform:translateX(-50%) rotate(225deg)}
+#pet-menu b{padding-right:34px}#pet-menu-close{position:absolute;top:9px;right:9px;width:28px;height:28px;padding:0;border-radius:50%;background:transparent;color:#6c7969;justify-content:center}#pet-menu-close:hover{background:#e8eee0}#pet-menu-close svg{width:16px;height:16px}
+#pet-timer-running{display:flex;align-items:center;gap:7px;font-size:12px}#pet-timer-left{flex:1;font-variant-numeric:tabular-nums;color:#365139}#pet-timer-running button{padding:6px 9px}

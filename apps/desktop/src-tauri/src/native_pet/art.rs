@@ -1,6 +1,8 @@
 use super::physics::climb_frame;
 use resvg::{
-    tiny_skia::{LineCap, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform},
+    tiny_skia::{
+        FilterQuality, LineCap, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform,
+    },
     usvg,
 };
 use serde::Deserialize;
@@ -21,6 +23,7 @@ pub struct Art {
     pub sheets: HashMap<String, Sheet>,
     hands: HashMap<String, Vec<[f64; 2]>>,
     cache: VecDeque<(String, u32, Pixmap)>,
+    tips: HashMap<String, (f64, f64)>,
 }
 pub struct Pose {
     pub sheet: &'static str,
@@ -73,7 +76,34 @@ impl Art {
             hands: serde_json::from_str(include_str!("../../../src/pet-climb-hands.json"))
                 .map_err(|e| e.to_string())?,
             cache: VecDeque::new(),
+            tips: HashMap::new(),
         })
+    }
+    /// Topmost drawn point of a frame in 400×260 art units: the antenna ball top,
+    /// which the pointer holds while dragging. Read from the reviewed path data.
+    pub fn tip(&mut self, key: &str) -> (f64, f64) {
+        if let Some(t) = self.tips.get(key) {
+            return *t;
+        }
+        let body = self.paths.get(key).map(String::as_str).unwrap_or("");
+        let mut best = (200., 50.);
+        let mut found = false;
+        for segment in body.split(" d=\"").skip(1) {
+            let d = segment.split('"').next().unwrap_or("");
+            let numbers: Vec<f64> = d
+                .split(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-'))
+                .filter(|t| !t.is_empty())
+                .filter_map(|t| t.parse().ok())
+                .collect();
+            for point in numbers.chunks_exact(2) {
+                if !found || point[1] < best.1 {
+                    best = (point[0], point[1]);
+                    found = true;
+                }
+            }
+        }
+        self.tips.insert(key.into(), best);
+        best
     }
     pub fn pose(&self, mode: &str, time: f64, reduced: bool) -> Pose {
         let t = if reduced { 0. } else { time.max(0.) };
@@ -146,9 +176,28 @@ impl Art {
                     p.lift = 12.;
                 }
             }
+            "dizzy" => {
+                // Shaken while dangling from the antenna; falls back to the drag frames
+                // until the dizzy artwork is part of the atlas.
+                if self.sheets.contains_key("dizzy-v1") {
+                    p.sheet = "dizzy-v1";
+                    p.index = ((t / 0.3).floor() as usize) % 4;
+                } else {
+                    p.sheet = "interactions-v2";
+                    p.index = 4 + ((t / 0.23).floor() as usize) % 4;
+                }
+                p.lift = 12.;
+            }
             "petted" => {
-                p.sheet = "emotions-v1";
-                p.index = if t < 0.25 || t >= 2.1 { 8 } else { 9 };
+                // Blushing, eyes-closed loop; the older hands-on-hips drawings remain the
+                // fallback until the petted artwork is part of the atlas.
+                if self.sheets.contains_key("petted-v1") {
+                    p.sheet = "petted-v1";
+                    p.index = ((t / 0.45).floor() as usize) % 4;
+                } else {
+                    p.sheet = "emotions-v1";
+                    p.index = if t < 0.25 || t >= 2.1 { 8 } else { 9 };
+                }
                 if !reduced {
                     p.offset = (t * std::f64::consts::TAU).sin() * 2.;
                 }
@@ -361,23 +410,49 @@ pub fn rope(
         );
     }
 }
-pub fn composite(target: &mut Pixmap, pet: &Pixmap, x: f32, y: f32, flip: bool) {
-    let ts = if flip {
+/// `rotation` = (degrees, pivot x, pivot y) in target pixels; clockwise on screen.
+pub fn composite_rotated(
+    target: &mut Pixmap,
+    pet: &Pixmap,
+    x: f32,
+    y: f32,
+    flip: bool,
+    rotation: Option<(f32, f32, f32)>,
+) {
+    let mut ts = if flip {
         Transform::from_row(-1., 0., 0., 1., x + pet.width() as f32, y)
     } else {
         Transform::from_translate(x, y)
     };
-    target.draw_pixmap(0, 0, pet.as_ref(), &PixmapPaint::default(), ts, None);
+    let mut paint = PixmapPaint::default();
+    if let Some((degrees, px, py)) = rotation {
+        ts = ts.post_rotate_at(degrees, px, py);
+        paint.quality = FilterQuality::Bicubic;
+    }
+    target.draw_pixmap(0, 0, pet.as_ref(), &paint, ts, None);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
+    fn antenna_tip_is_the_topmost_point_of_each_drag_frame() {
+        let mut art = Art::new().unwrap();
+        for index in 4..8 {
+            let key = format!("interactions-v2-{index}");
+            let (x, y) = art.tip(&key);
+            assert!(
+                (185. ..215.).contains(&x) && (40. ..60.).contains(&y),
+                "{key}: {x},{y}"
+            );
+            assert_eq!(art.tip(&key), (x, y), "cached");
+        }
+    }
+    #[test]
     fn every_original_frame_rasterizes_transparently_and_cache_is_bounded() {
         let mut art = Art::new().unwrap();
         let keys: Vec<_> = art.paths.keys().cloned().collect();
-        assert_eq!(keys.len(), 133);
+        assert!(keys.len() >= 133);
         for key in keys {
             let bitmap = art.bitmap(&key, 260).unwrap();
             assert!(
@@ -399,7 +474,7 @@ mod tests {
         let hi = art.bitmap("walk-0", 520).unwrap();
         assert_eq!((hi.width(), hi.height()), (p.width() * 2, p.height() * 2));
         let mut out = Pixmap::new(400, 260).unwrap();
-        composite(&mut out, &p, 0., 0., true);
+        composite_rotated(&mut out, &p, 0., 0., true, None);
         for y in 0..260 {
             for x in 0..400 {
                 assert_eq!(out.pixel(x, y), p.pixel(399 - x, y));

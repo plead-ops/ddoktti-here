@@ -33,7 +33,7 @@ def colour(r,g,b,outline=True):
     else:key='pink' if s<.65 else 'red'
     return tuple(bytes.fromhex(PALETTE[key][1:]))
 
-def clean_pixels(im,suit_from=None):
+def clean_pixels(im,suit_from=None,keep_dark=False):
     rgba=im.convert('RGBA');rgb=rgba.convert('RGB').filter(ImageFilter.MedianFilter(3))
     pixels=list(rgb.get_flattened_data());alpha=list(rgba.getchannel('A').get_flattened_data())
     colours=[colour(*c) for c in pixels]
@@ -58,14 +58,18 @@ def clean_pixels(im,suit_from=None):
                 if y+1<height:adjacent.append(index+width)
                 for other in adjacent:
                     if remaining[other]:remaining[other]=0;component.append(other)
-            if bottom>=suit_from and len(component)>=minimum:
+            # Shoes are drawn almost black (value ~0.15) while coat shading stays
+            # lighter; a near-black region keeps the outline/shoe colour instead of
+            # being flattened into the coat (chase sheet shoes).
+            darkness=sum(max(pixels[index])/255 for index in component)/len(component) if keep_dark else 1
+            if bottom>=suit_from and len(component)>=minimum and darkness>=.19:
                 for index in component:colours[index]=suit
     clean=Image.new('RGBA',im.size)
     clean.putdata([(*c,255 if a>=128 else 0) for c,a in zip(colours,alpha)])
     return clean
 
-def trace(im,suit_from=None):
-    clean=clean_pixels(im,suit_from)
+def trace(im,suit_from=None,keep_dark=False):
+    clean=clean_pixels(im,suit_from,keep_dark)
     svg=vtracer.convert_pixels_to_svg(list(clean.get_flattened_data()),clean.size,colormode='color',hierarchical='stacked',mode='spline',filter_speckle=4,color_precision=8,layer_difference=0,corner_threshold=60,length_threshold=4.0,max_iterations=10,splice_threshold=45,path_precision=2)
     # Tracer averages edge clusters: snap output fills to the exact shared colours.
     svg=re.sub(r'fill="#[0-9A-Fa-f]{6}"',lambda m:'fill="'+min(PALETTE.values(),key=lambda c:sum((a-b)**2 for a,b in zip(bytes.fromhex(c[1:]),bytes.fromhex(m[0][7:13]))))+'"',svg)
@@ -109,7 +113,7 @@ def generated_frames(atlas,manifest):
             scale=90/guide['eyeSpan']
             def transform(x,y):return 200+(x-guide['headCenter'])*scale*(-1 if guide.get('mirror') else 1),250+(y-bottom)*scale
             key=f'{sheet}-{index}'
-            atlas[key]=paths(trace(tile,suit_from=guide['neck']),transform)
+            atlas[key]=paths(trace(tile,suit_from=guide['neck'],keep_dark=True),transform)
             hits=[]
             for y in range(top,bottom,16):
                 end=min(y+16,bottom);box=alpha.crop((0,y,tile.width,end)).getbbox()

@@ -14,7 +14,7 @@
 ## 파일과 재생
 
 - 보존 원본: `assets/concepts/raster-before-svg/` (앱 번들 제외)
-- 독립형 SVG: `apps/desktop/public/sprites/vector/frames/` (133개)
+- 독립형 SVG: `apps/desktop/public/sprites/vector/frames/` (141개)
 - 재현 가능한 개별 보정: `scripts/pet-art-repairs.py`. 감정 표현 20프레임의 누락된 밑단. 착지·아야·졸기는 아래 새 원화에서 추적하며 수작업 몸통/입 덧칠을 사용하지 않는다. 손·다리에 가려진 밑단을 관통해 그리지 않는다.
 - 런타임 경로: `apps/desktop/src/pet-vector-paths.json`
 - 정렬·클릭 영역: `apps/desktop/src/pet-vector-frames.json`
@@ -154,3 +154,15 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ### 포인터를 향해 두 손 들고 달리기 (2026-10-01)
 
 `chase-happy-v1.png`의 4개 프레임을 `chase-v1`로 벡터화했다. 두 손을 들고 웃는 표정과 짧은 다리를 유지하고, 생성 후 아래 행의 다리 순서를 수정해 좌우 발이 교대로 지지하도록 했다. 포인터를 따라가는 동안에만 `chase`를 그리며 일반 `run-v3`는 유지한다. 이동 속도와 프레임 시점은 기존 달리기의 실제 이동거리 기반 보폭 계산을 공유한다. 프롬프트·참조는 `assets/concepts/generated/chase-happy-v1-prompt.md`에 기록했다. 총 벡터 원화는 133프레임이다.
+
+### 어지러워하기 (2026-10-01)
+
+`dizzy-hang-v1.png`(Codex 내장 image_gen, 1254×1254 2×2)의 4프레임을 `dizzy-v1`로 벡터화했다. 마우스에 잡힌 채 세게 흔들린 뒤 재생하며, 안테나가 곧게 서 있고 몸은 기울이지 않은 원화다. 좌우 흔들림·회전은 코드가 안테나 끝을 축으로 처리한다. 안경 측정 폭은 흰 렌즈 영역의 최대 가로 폭×1.03(기존 등록 프레임으로 보정)을 사용했고, 얼굴 중심 x는 렌즈 중심이다. 4번 칸은 올린 소매가 옷깃보다 높이 시작하므로 `neck`을 옷깃 행(362)으로 직접 지정했다. 프롬프트·참조는 `assets/concepts/generated/dizzy-hang-v1-prompt.md`. 총 벡터 원화는 137프레임이다.
+
+### 생성 원화의 신발 색 (2026-10-01)
+
+`chase-v1`의 신발이 바지와 같은 남색으로 평탄화되던 문제를 수정했다. 생성 원화의 신발은 명도 약 0.15의 거의 검은색이고 정장 음영은 그보다 밝은데, 코트 평탄화가 연결된 어두운 영역을 모두 정장색으로 덮었다. 생성 원화 추적(`generated_frames`)에만 `keep_dark`를 적용해 평균 명도 0.19 미만의 영역은 외곽선/신발 색을 유지한다. 보존 원본 시트의 결과는 변하지 않으며, 재생성 시 `chase-v1` 4프레임과 `hurt-v1` 1~3번만 달라진다.
+
+### 쓰다듬기 홍조 표정 (2026-10-01)
+
+`petted-blush-v1.png`(Codex image_gen, 1254×1254 2×2)의 4프레임을 `petted-v1`로 벡터화해 쓰다듬기 반응에 사용한다. 기존 `emotions-v1` 8·9번은 아틀라스에 남아 있고 `petted-v1`이 없을 때의 대체로만 쓴다. 생성 시트는 머리를 기울인 칸에서 안경 폭이 좁게 측정되어 프레임마다 배율이 달라지므로, `dizzy-v1`·`petted-v1`은 시트 안 네 칸의 측정값 평균을 공통 `eyeSpan`으로 쓴다(각각 224, 251). 2번 칸의 `neck`은 볼에 올린 소매 때문에 자동 검출값(360)을 그대로 두어도 코트 평탄화 결과에 문제가 없음을 확인했다. 총 벡터 원화는 141프레임이다.

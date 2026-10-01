@@ -62,6 +62,18 @@ mod implementation {
         }
         Ok(())
     }
+    pub fn on_top(win: &tauri::Window, top: bool) -> Result<(), String> {
+        // NSStatusWindowLevel (25). At NSFloatingWindowLevel AppKit constrains every
+        // frame below the menu bar, which displaces the canvas when the character hangs
+        // from or climbs past the physical screen top; the status level also keeps the
+        // hands visible over the menu bar as designed.
+        let level: isize = if top { 25 } else { 0 };
+        unsafe {
+            let window = win.ns_window().map_err(|e| e.to_string())? as *mut AnyObject;
+            let _: () = msg_send![window, setLevel: level];
+        }
+        Ok(())
+    }
     #[link(name = "QuartzCore", kind = "framework")]
     extern "C" {}
     #[link(name = "CoreGraphics", kind = "framework")]
@@ -462,7 +474,7 @@ pub fn ignore_cursor(win: &tauri::Window, ignore: bool) -> Result<(), String> {
     win.set_ignore_cursor_events(ignore)
         .map_err(|e| e.to_string())
 }
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn on_top(win: &tauri::Window, top: bool) -> Result<(), String> {
     win.set_always_on_top(top).map_err(|e| e.to_string())
 }

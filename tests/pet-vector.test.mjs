@@ -22,7 +22,7 @@ test('all traced frames are real vector paths with no embedded bitmaps',async()=
   assert.match(svg,/<path /);assert.doesNotMatch(svg,/<image|data:image|<script/i);
   assert(frame.hit.length>0);count++;
  }
- assert.equal(count,133);
+ assert.equal(count,141);
 });
 test('shared palette and measurements keep all original and recovery frames consistent',()=>{
  for(const sheet of Object.values(frames))for(const frame of sheet.frames){

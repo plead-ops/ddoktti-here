@@ -22,8 +22,34 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager};
 struct Press {
     cursor: (f64, f64),
-    foot: (f64, f64),
     dragged: bool,
+    // Pendulum while dangling from the antenna tip held at the pointer.
+    last: (f64, f64),
+    velocity: (f64, f64),
+    angle: f64,
+    spin: f64,
+    shake: f64,
+    dizzy: f64,
+}
+/// Advance the hanging pendulum: `angle` (radians, clockwise on screen) and `spin`
+/// under gravity and the pointer's acceleration `(ax, ay)`; `length` is the
+/// pivot-to-body distance in screen units. Returns the new (angle, spin).
+fn swing(angle: f64, spin: f64, (ax, ay): (f64, f64), length: f64, dt: f64) -> (f64, f64) {
+    const GRAVITY: f64 = 2600.;
+    const DAMPING: f64 = 1.1;
+    let length = length.max(20.);
+    let steps = 4;
+    let h = dt.clamp(0., 0.1) / steps as f64;
+    let (mut a, mut w) = (angle, spin);
+    for _ in 0..steps {
+        let accel = (ax * a.cos() - (GRAVITY - ay) * a.sin()) / length - DAMPING * w;
+        w = (w + accel * h).clamp(-30., 30.);
+        a += w * h;
+    }
+    // Whirling the pointer can carry the body over the top; keep the angle wrapped.
+    use std::f64::consts::PI;
+    a = (a + PI).rem_euclid(2. * PI) - PI;
+    (a, w)
 }
 pub struct Native {
     runtime: Mutex<Runtime>,
@@ -76,6 +102,11 @@ struct Runtime {
     position: Option<(i32, i32)>,
     ignoring: Option<bool>,
     on_top: Option<bool>,
+    // Overflow window: paints the part of the canvas lying on a neighbouring display.
+    overflow_picture: String,
+    overflow_position: Option<(i32, i32)>,
+    overflow_visible: bool,
+    overflow_on_top: Option<bool>,
 }
 impl Runtime {
     fn set_mode(&mut self, m: &str) {
@@ -186,20 +217,22 @@ pub fn native_pet_metrics(app: AppHandle) -> Value {
     json!({"renderer":"resvg-native","framesPresented":r.render_count,"uptimeSeconds":r.started.elapsed().as_secs_f64(),"spriteCacheLimit":16,"spriteCacheBytesLimit":art::CACHE_BYTES,"targetMovementFps":60,"schedulerTicks":r.tick_count,"physics":"rust","webviewAnimation":false})
 }
 pub fn init(app: &AppHandle) -> Result<(), String> {
-    let win = tauri::WindowBuilder::new(app, "pet-native")
-        .title("똑띠")
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .resizable(false)
-        .skip_taskbar(true)
-        .always_on_top(true)
-        .focusable(false)
-        .visible(false)
-        .inner_size(300., 260.)
-        .build()
-        .map_err(|e| e.to_string())?;
-    platform::ignore_cursor(&win, true)?;
+    for label in ["pet-native", "pet-native-2"] {
+        let win = tauri::WindowBuilder::new(app, label)
+            .title("똑띠")
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .resizable(false)
+            .skip_taskbar(true)
+            .always_on_top(true)
+            .focusable(false)
+            .visible(false)
+            .inner_size(300., 260.)
+            .build()
+            .map_err(|e| e.to_string())?;
+        platform::ignore_cursor(&win, true)?;
+    }
     app.manage(Native {
         runtime: Mutex::new(Runtime {
             art: art::Art::new()?,
@@ -246,6 +279,10 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
             retry_at: Instant::now(),
             position: None,
             ignoring: None,
+            overflow_picture: String::new(),
+            overflow_position: None,
+            overflow_visible: false,
+            overflow_on_top: None,
             on_top: None,
         }),
         reset: AtomicBool::new(true),
@@ -312,6 +349,7 @@ fn priority(a: &Value) -> u8 {
     }
 }
 fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
+    let tick_started = Instant::now();
     let mut r = state.runtime.lock().map_err(|_| "Native state poisoned")?;
     if Instant::now() < r.retry_at {
         return Ok(());
@@ -344,8 +382,15 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     let popup = app.get_webview_window("overlay").ok_or("No popup window")?;
     if !visible {
         if r.visible {
+            trace(|| format!("hide fullscreen={fullscreen} ready={ready}"));
             let _ = pet.hide();
             let _ = popup.hide();
+        }
+        if r.overflow_visible {
+            if let Some(w) = app.get_window("pet-native-2") {
+                let _ = w.hide();
+            }
+            r.overflow_visible = false;
         }
         r.visible = false;
         r.crossing = None;
@@ -370,6 +415,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         r.activity = None;
         r.crossing = None;
         r.last_picture.clear();
+        r.overflow_picture.clear();
         r.last_event = Value::Null;
     }
     if resident && cfg.activity_scope == "primary" {
@@ -478,19 +524,18 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         r.press = None;
         m
     };
-    let p = r.physics.as_ref().unwrap();
     let sf = monitor.scale_factor();
-    let wa = monitor.work_area();
-    let foot = (
-        (wa.position.x as f64 + p.x * sf) / screen_unit(sf),
-        (wa.position.y as f64 + p.y * sf) / screen_unit(sf),
-    );
     if left && !r.left && hit && !r.hover {
         r.drag_age = 0.;
         r.press = Some(Press {
             cursor: (cursor.x, cursor.y),
-            foot,
             dragged: false,
+            last: (cursor.x, cursor.y),
+            velocity: (0., 0.),
+            angle: 0.,
+            spin: 0.,
+            shake: 0.,
+            dizzy: 0.,
         });
     }
     if right && !r.right && hit && !r.hover {
@@ -501,6 +546,22 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         }
     }
     let mut dropped = false;
+    // Where the pointer holds the character: the antenna tip of the current drag frame.
+    let grip = if r.press.is_some() {
+        let dizzy = r.press.as_ref().is_some_and(|p| p.dizzy > 0.);
+        let pose = r.art.pose(
+            if dizzy { "dizzy" } else { "drag" },
+            r.drag_age,
+            cfg.reduce_motion,
+        );
+        let key = r.art.frame(&pose).key.clone();
+        let tip = r.art.tip(&key);
+        (tip.0 + pose.offset - 200., tip.1 - 250. - pose.lift)
+    } else {
+        (0., -200.)
+    };
+    let unit = crate::pet_size(&cfg) / 260. * sf / screen_unit(sf);
+    let mut carry_to: Option<(f64, f64)> = None;
     if let Some(press) = &mut r.press {
         if left {
             if ((cursor.x - press.cursor.0).powi(2) + (cursor.y - press.cursor.1).powi(2)).sqrt()
@@ -509,64 +570,47 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
                 press.dragged = true;
             }
             if press.dragged {
-                let x = press.foot.0 + cursor.x - press.cursor.0;
-                let y = press.foot.1 + cursor.y - press.cursor.1;
-                let m = popup
-                    .monitor_from_point(x, y - 1.)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_else(|| monitor.clone());
-                let m = if resident && cfg.activity_scope == "primary" {
-                    popup.primary_monitor().ok().flatten().unwrap_or(m)
-                } else {
-                    m
-                };
-                let work = m.work_area();
-                let unit = screen_unit(m.scale_factor());
-                let x = if resident && cfg.activity_scope == "primary" {
-                    x.clamp(
-                        work.position.x as f64 / unit
-                            + (crate::pet_half(&cfg) * m.scale_factor())
-                                .min(work.size.width as f64 / 2.)
-                                / unit,
-                        (work.position.x as f64 + work.size.width as f64) / unit
-                            - (crate::pet_half(&cfg) * m.scale_factor())
-                                .min(work.size.width as f64 / 2.)
-                                / unit,
-                    )
-                } else {
-                    x
-                };
-                let y = if resident && cfg.activity_scope == "primary" {
-                    y.clamp(
-                        work.position.y as f64 / unit
-                            + (crate::pet_height(&cfg) * m.scale_factor())
-                                .min(work.size.height as f64)
-                                / unit,
-                        (work.position.y as f64 + work.size.height as f64) / unit,
-                    )
-                } else {
-                    y
-                };
-                crate::place_pet(
-                    app,
-                    &popup,
-                    &m,
-                    x * screen_unit(m.scale_factor()),
-                    y * screen_unit(m.scale_factor()),
-                    &cfg,
-                )
-                .map_err(|e| e.to_string())?;
-                let w = crate::surfaces::pet_world(app.clone())?;
-                r.physics = Some(Physics::new(w));
-                monitor = m;
-                r.menu = false;
-                r.reaction = None;
-                r.pending_menu = false;
-                r.pending_tickle = false;
+                // The pointer carries the antenna tip; the body swings below it.
+                let step = dt.clamp(0.001, 0.1);
+                let velocity = (
+                    (cursor.x - press.last.0) / step,
+                    (cursor.y - press.last.1) / step,
+                );
+                let accel = (
+                    ((velocity.0 - press.velocity.0) / step).clamp(-60000., 60000.),
+                    ((velocity.1 - press.velocity.1) / step).clamp(-60000., 60000.),
+                );
+                press.last = (cursor.x, cursor.y);
+                press.velocity = velocity;
+                let speed = velocity.0.hypot(velocity.1);
+                press.shake =
+                    (press.shake + ((speed - 1000.) * step).max(0.) - 500. * step).max(0.);
+                if press.shake > 900. {
+                    press.dizzy = 4.5;
+                    press.shake = 450.;
+                } else if press.dizzy > 0. && speed < 600. {
+                    press.dizzy = (press.dizzy - step).max(0.);
+                }
+                let hang = (-grip.0 * unit, -grip.1 * unit);
+                let length = hang.0.hypot(hang.1) * 0.6;
+                let (angle, spin) = swing(press.angle, press.spin, accel, length, step);
+                press.angle = angle;
+                press.spin = spin;
+                // The frame is drawn rotated about the pointer, so its unrotated antenna
+                // tip must sit exactly on the pointer: no rotation here.
+                carry_to = Some((cursor.x + hang.0, cursor.y + hang.1));
             }
         } else {
             dropped = press.dragged;
+            if dropped && press.angle.abs() > 0.01 {
+                // Land where the swinging body actually is, not at the unrotated foot.
+                let (sin, cos) = press.angle.sin_cos();
+                let (hx, hy) = (-grip.0 * unit, -grip.1 * unit);
+                carry_to = Some((
+                    press.last.0 + hx * cos - hy * sin,
+                    press.last.1 + hx * sin + hy * cos,
+                ));
+            }
             if !dropped {
                 if r.physics.as_ref().unwrap().busy() {
                     r.pending_tickle = true;
@@ -583,6 +627,58 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             }
             r.press = None;
         }
+    }
+    if let Some((x, y)) = carry_to {
+        let m = popup
+            .monitor_from_point(x, y - 1.)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| monitor.clone());
+        let m = if resident && cfg.activity_scope == "primary" {
+            popup.primary_monitor().ok().flatten().unwrap_or(m)
+        } else {
+            m
+        };
+        let work = m.work_area();
+        let unit = screen_unit(m.scale_factor());
+        let x = if resident && cfg.activity_scope == "primary" {
+            x.clamp(
+                work.position.x as f64 / unit
+                    + (crate::pet_half(&cfg) * m.scale_factor()).min(work.size.width as f64 / 2.)
+                        / unit,
+                (work.position.x as f64 + work.size.width as f64) / unit
+                    - (crate::pet_half(&cfg) * m.scale_factor()).min(work.size.width as f64 / 2.)
+                        / unit,
+            )
+        } else {
+            x
+        };
+        let y = if resident && cfg.activity_scope == "primary" {
+            y.clamp(
+                work.position.y as f64 / unit
+                    + (crate::pet_height(&cfg) * m.scale_factor()).min(work.size.height as f64)
+                        / unit,
+                (work.position.y as f64 + work.size.height as f64) / unit,
+            )
+        } else {
+            y
+        };
+        crate::place_pet(
+            app,
+            &popup,
+            &m,
+            x * screen_unit(m.scale_factor()),
+            y * screen_unit(m.scale_factor()),
+            &cfg,
+        )
+        .map_err(|e| e.to_string())?;
+        let w = crate::surfaces::pet_world(app.clone())?;
+        r.physics = Some(Physics::new(w));
+        monitor = m;
+        r.menu = false;
+        r.reaction = None;
+        r.pending_menu = false;
+        r.pending_tickle = false;
     }
     r.left = left;
     r.right = right;
@@ -641,20 +737,15 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     if can_cross
         && !hit
         && !r.hover
-        && r.physics.as_ref().unwrap().on_floor()
         && r.crossing.is_none()
         && r.activity.is_none()
         && r.crossing_wait == 0.
         && matches!(r.mode.as_str(), "walk" | "run")
     {
         let p = r.physics.as_ref().unwrap();
-        let at_floor = (p.y - p.world.height).abs() < 2.;
-        let at_edge = if p.direction > 0. {
-            p.x >= p.world.width - p.half() - 2.
-        } else {
-            p.x <= p.half() + 2.
-        };
-        if at_floor && at_edge {
+        // Walking into the edge wobbles and turns around within the same tick,
+        // so departures are read from the physics state, not only when grounded.
+        if let Some(direction) = p.edge_departure() {
             let screens = monitors
                 .iter()
                 .map(|m| {
@@ -679,12 +770,14 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
                     from,
                     &screens,
                     (from.wx + p.x * from.factor, from.wy + p.y * from.factor),
-                    p.direction,
+                    direction,
                     p.world.size,
                     gait::speed("walk", p.world.size, cfg.speed) * from.factor,
                 );
             }
-            r.crossing_wait = 35.;
+            // No neighbour on this side: retry soon at the other edge instead of
+            // waiting out the full post-crossing rest.
+            r.crossing_wait = if r.crossing.is_some() { 35. } else { 3. };
         }
     }
     let mut cross_frame = None;
@@ -1011,7 +1104,11 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     let mode = if let Some(f) = activity_frame {
         f.mode.to_string()
     } else if dragging {
-        "drag".to_string()
+        if r.press.as_ref().is_some_and(|p| p.dizzy > 0.) {
+            "dizzy".to_string()
+        } else {
+            "drag".to_string()
+        }
     } else if busy {
         physics_mode.pose().into()
     } else if r.menu {
@@ -1042,6 +1139,9 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     };
     let facing = if let Some(f) = activity_frame {
         f.direction
+    } else if dragging {
+        // The antenna grip is measured on the unmirrored drag frames.
+        1.
     } else if busy || matches!(mode.as_str(), "walk" | "run" | "chase" | "curious") {
         direction
     } else {
@@ -1051,115 +1151,145 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     let key = r.art.frame(&pose).key.clone();
     let hit_rects = r.art.frame(&pose).hit.clone();
     let size = crate::pet_size(&cfg);
-    let k = (size * sf).ceil() / 260.;
-    let (fx, fy) = (wa.position.x as f64 + x * sf, wa.position.y as f64 + y * sf);
-    let pet_left = fx - 200. * k + facing * pose.offset * k;
-    let pet_top = fy - (250. + pose.lift) * k;
-    let rope = if cfg.reduce_motion || dragging {
+    let u = screen_unit(sf);
+    // Foot and rope anchor in global screen units (points on macOS, pixels on Windows).
+    let gx = (wa.position.x as f64 + x * sf) / u;
+    let gy = (wa.position.y as f64 + y * sf) / u;
+    let grope = if cfg.reduce_motion || dragging {
         None
     } else {
         activity_frame
             .and_then(|f| f.anchor)
             .or(rope_anchor)
-            .map(|(x, y)| (wa.position.x as f64 + x * sf, wa.position.y as f64 + y * sf))
+            .map(|(ax, ay)| {
+                (
+                    (wa.position.x as f64 + ax * sf) / u,
+                    (wa.position.y as f64 + ay * sf) / u,
+                )
+            })
     };
-    let left = pet_left
-        .min(rope.map_or(pet_left, |a| a.0 - 15. * sf))
-        .floor()
-        - 2.;
-    let top = pet_top
-        .min(rope.map_or(pet_top, |a| a.1 - 12. * sf))
-        .floor()
-        - 2.;
-    let width = (pet_left + 400. * k - left + 4.).ceil() as u32;
-    let height = (pet_top + 260. * k - top + 4.).ceil() as u32;
-    if width == 0 || height == 0 || width > 8192 || height > 16384 {
+    let spec = FrameSpec {
+        key: &key,
+        pose: &pose,
+        facing,
+        size,
+        age,
+        mode: &mode,
+        activity: r.activity.is_some(),
+        swing: r
+            .press
+            .as_ref()
+            .filter(|p| p.dragged && p.angle.abs() > 0.002)
+            .map(|p| (p.angle, (cursor.x, cursor.y))),
+    };
+    // On macOS a canvas window spanning two displays of different backing scale is
+    // re-backed on every frame and visibly blinks, so each window stays within one
+    // display: the part beyond this one is painted by the overflow window instead.
+    let split = cfg!(target_os = "macos");
+    let geo = geometry(&monitor, gx, gy, grope, &spec, split || spec.activity);
+    if geo.width == 0 || geo.height == 0 || geo.width > 8192 || geo.height > 16384 {
         return Err("Native overlay bounds invalid".into());
     }
-    let stamp = format!(
-        "{key}:{:.2}:{:.2}:{:.2}:{:.2}:{:.2}:{width}:{height}:{facing}:{:?}:{:.2}",
-        k,
-        pose.offset,
-        pose.lift,
-        pet_top - top,
-        pet_left - left,
-        rope.map(|a| (a.0 - left, a.1 - top)),
-        if rope.is_some() { age } else { 0. }
-    );
+    let (k, fx, fy) = (geo.k, geo.fx, geo.fy);
     // Geometry and new pixels are submitted together. Tauri's macOS geometry
     // setters enqueue work, which otherwise lets a new rope frame appear at the
     // preceding canvas origin/size for one presentation.
-    let position = (left.round() as i32, top.round() as i32);
-    if stamp != r.last_picture || !r.visible {
-        let frame = r.art.bitmap(&key, (260. * k).ceil() as u32)?;
-        let mut canvas = Pixmap::new(width, height).ok_or("Native canvas allocation failed")?;
-        if let Some(anchor) = rope {
-            let hands = r
-                .art
-                .hands(&pose)
-                .into_iter()
-                .map(|h| {
-                    (
-                        (fx + facing * (h[0] - 200. + pose.offset) * k - left) as f32,
-                        (fy + (h[1] - 250. - pose.lift) * k - top) as f32,
-                    )
-                })
-                .collect::<Vec<_>>();
-            art::rope(
-                &mut canvas,
-                ((anchor.0 - left) as f32, (anchor.1 - top) as f32),
-                &hands,
-                age,
-                &mode,
-                k as f32,
-                facing as f32,
-            );
-        }
-        art::composite(
-            &mut canvas,
-            &frame,
-            (pet_left - left) as f32,
-            (pet_top - top) as f32,
-            facing < 0.,
+    let position = (geo.left.round() as i32, geo.top.round() as i32);
+    if geo.stamp != r.last_picture || !r.visible {
+        let t_paint = Instant::now();
+        let canvas = paint(&mut r.art, &geo, &spec, &monitor)?;
+        let d_paint = t_paint.elapsed();
+        let t_present = Instant::now();
+        platform::present(&pet, &canvas, (geo.left, geo.top), sf)?;
+        let d_present = t_present.elapsed();
+        r.last_picture = geo.stamp.clone();
+        r.render_count += 1;
+        trace(|| {
+            format!(
+                "present tick={:.1}ms bitmap=0.0ms compose={:.1}ms present={:.1}ms mon={} sf={sf} mode={mode} age={age:.2} facing={facing} x={x:.1} y={y:.1} left={:.0} top={:.0} w={} h={} rope={:?} activity={} crossing={} key={key}",
+                tick_started.elapsed().as_secs_f64() * 1000.,
+                d_paint.as_secs_f64() * 1000.,
+                d_present.as_secs_f64() * 1000.,
+                crate::surfaces::key(&monitor),
+                geo.left,
+                geo.top,
+                geo.width,
+                geo.height,
+                geo.rope.map(|a| (a.0.round(), a.1.round())),
+                r.activity.is_some(),
+                r.crossing.is_some(),
+            )
+        });
+    } else if r.position != Some(position) {
+        platform::move_to(&pet, (geo.left, geo.top), sf)?;
+        trace(|| format!("move left={:.0} top={:.0}", geo.left, geo.top));
+    }
+    r.position = Some(position);
+    // Overflow onto one neighbouring display. With the primary-only activity scope
+    // the character never shows on other displays, not even a peeking head.
+    let mut overflow = None;
+    if split && !(resident && cfg.activity_scope == "primary") {
+        let full = geometry(&monitor, gx, gy, grope, &spec, false);
+        let (gl, gt) = (full.left / u, full.top / u);
+        let (gr, gb) = (
+            (full.left + full.width as f64) / u,
+            (full.top + full.height as f64) / u,
         );
-        if r.activity.is_some() {
-            // Peek may intentionally cross this display edge; never paint on a forbidden neighbor.
-            let x0 = (wa.position.x as f64 - left)
-                .ceil()
-                .max(0.)
-                .min(width as f64) as usize;
-            let x1 = (wa.position.x as f64 + wa.size.width as f64 - left)
-                .floor()
-                .max(0.)
-                .min(width as f64) as usize;
-            let y0 = (wa.position.y as f64 - top)
-                .ceil()
-                .max(0.)
-                .min(height as f64) as usize;
-            let y1 = (wa.position.y as f64 + wa.size.height as f64 - top)
-                .floor()
-                .max(0.)
-                .min(height as f64) as usize;
-            for (row, pixels) in canvas
-                .data_mut()
-                .chunks_exact_mut(width as usize * 4)
-                .enumerate()
-            {
-                if row < y0 || row >= y1 {
-                    pixels.fill(0);
-                } else {
-                    pixels[..x0 * 4].fill(0);
-                    pixels[x1 * 4..].fill(0);
+        for n in monitors.iter() {
+            if crate::surfaces::key(n) == crate::surfaces::key(&monitor) {
+                continue;
+            }
+            let un = screen_unit(n.scale_factor());
+            let (np, ns) = (n.position(), n.size());
+            let (nl, nt) = (np.x as f64 / un, np.y as f64 / un);
+            let (nr, nb) = (
+                (np.x as f64 + ns.width as f64) / un,
+                (np.y as f64 + ns.height as f64) / un,
+            );
+            if gl < nr && gr > nl && gt < nb && gb > nt {
+                let g = geometry(n, gx, gy, grope, &spec, true);
+                if g.width > 0 && g.height > 0 && g.width <= 8192 && g.height <= 16384 {
+                    overflow = Some((n.clone(), g));
+                    break;
                 }
             }
         }
-        platform::present(&pet, &canvas, (left, top), sf)?;
-        r.last_picture = stamp;
-        r.render_count += 1;
-    } else if r.position != Some(position) {
-        platform::move_to(&pet, (left, top), sf)?;
     }
-    r.position = Some(position);
+    if let Some(pet2) = app.get_window("pet-native-2") {
+        if let Some((n, g)) = overflow {
+            let sfn = n.scale_factor();
+            let position = (g.left.round() as i32, g.top.round() as i32);
+            if g.stamp != r.overflow_picture || !r.overflow_visible {
+                let canvas = paint(&mut r.art, &g, &spec, &n)?;
+                platform::present(&pet2, &canvas, (g.left, g.top), sfn)?;
+                r.overflow_picture = g.stamp;
+                trace(|| {
+                    format!(
+                        "overflow mon={} sf={sfn} left={:.0} top={:.0} w={} h={}",
+                        crate::surfaces::key(&n),
+                        g.left,
+                        g.top,
+                        g.width,
+                        g.height
+                    )
+                });
+            } else if r.overflow_position != Some(position) {
+                platform::move_to(&pet2, (g.left, g.top), sfn)?;
+            }
+            r.overflow_position = Some(position);
+            if r.overflow_on_top != Some(cfg.always_on_top) {
+                platform::on_top(&pet2, cfg.always_on_top)?;
+                r.overflow_on_top = Some(cfg.always_on_top);
+            }
+            if !r.overflow_visible {
+                pet2.show().map_err(|e| e.to_string())?;
+                r.overflow_visible = true;
+            }
+        } else if r.overflow_visible {
+            let _ = pet2.hide();
+            r.overflow_visible = false;
+        }
+    }
     r.hits = hit_rects
         .into_iter()
         .map(|h| {
@@ -1199,6 +1329,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         r.on_top = Some(cfg.always_on_top);
     }
     if !r.visible {
+        trace(|| "show".to_string());
         pet.show().map_err(|e| e.to_string())?;
     }
     r.visible = true;
@@ -1208,11 +1339,271 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     Ok(())
 }
 
+/// Per-frame drawing inputs shared by the main and overflow canvases.
+struct FrameSpec<'a> {
+    key: &'a str,
+    pose: &'a art::Pose,
+    facing: f64,
+    size: f64,
+    age: f64,
+    mode: &'a str,
+    activity: bool,
+    /// Rotation while dangling: (angle in radians, pivot in global screen units).
+    swing: Option<(f64, (f64, f64))>,
+}
+/// Canvas placement on one display, in that display's physical pixels.
+struct Geo {
+    k: f64,
+    fx: f64,
+    fy: f64,
+    pet_left: f64,
+    pet_top: f64,
+    rope: Option<(f64, f64)>,
+    left: f64,
+    top: f64,
+    width: u32,
+    height: u32,
+    stamp: String,
+    /// (degrees, pivot x, pivot y) relative to the canvas origin.
+    rotation: Option<(f32, f32, f32)>,
+}
+fn geometry(
+    m: &tauri::Monitor,
+    gx: f64,
+    gy: f64,
+    grope: Option<(f64, f64)>,
+    f: &FrameSpec,
+    crop: bool,
+) -> Geo {
+    let sf = m.scale_factor();
+    let u = screen_unit(sf);
+    let k = (f.size * sf).ceil() / 260.;
+    let (fx, fy) = (gx * u, gy * u);
+    let pet_left = fx - 200. * k + f.facing * f.pose.offset * k;
+    let pet_top = fy - (250. + f.pose.lift) * k;
+    let rope = grope.map(|(ax, ay)| (ax * u, ay * u));
+    let left = pet_left
+        .min(rope.map_or(pet_left, |a| a.0 - 15. * sf))
+        .floor()
+        - 2.;
+    let top = pet_top
+        .min(rope.map_or(pet_top, |a| a.1 - 12. * sf))
+        .floor()
+        - 2.;
+    let mut width = (pet_left + 400. * k - left + 4.).ceil();
+    let mut height = (pet_top + 260. * k - top + 4.).ceil();
+    let (mut left, mut top) = (left, top);
+    let mut rotation = None;
+    if let Some((angle, pivot)) = f.swing {
+        // Bounding box of the frame rotated about the pivot (the pointer).
+        let (px, py) = (pivot.0 * u, pivot.1 * u);
+        let (sin, cos) = angle.sin_cos();
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for (cx, cy) in [
+            (pet_left, pet_top),
+            (pet_left + 400. * k, pet_top),
+            (pet_left, pet_top + 260. * k),
+            (pet_left + 400. * k, pet_top + 260. * k),
+        ] {
+            let (dx, dy) = (cx - px, cy - py);
+            let (rx, ry) = (px + dx * cos - dy * sin, py + dx * sin + dy * cos);
+            x0 = x0.min(rx);
+            y0 = y0.min(ry);
+            x1 = x1.max(rx);
+            y1 = y1.max(ry);
+        }
+        left = x0.floor() - 2.;
+        top = y0.floor() - 2.;
+        width = (x1 - left + 4.).ceil();
+        height = (y1 - top + 4.).ceil();
+        rotation = Some((angle.to_degrees() as f32, px, py));
+    }
+    let (left, top, width, height) = if crop {
+        let (mp, ms) = (m.position(), m.size());
+        crop_to_display(
+            (left, top, width, height),
+            (mp.x as f64, mp.y as f64, ms.width as f64, ms.height as f64),
+        )
+    } else {
+        (left, top, width, height)
+    };
+    let rotation = rotation.map(|(deg, px, py)| (deg, (px - left) as f32, (py - top) as f32));
+    let stamp = format!(
+        "{}:{:.2}:{:.2}:{:.2}:{:.2}:{:.2}:{width}:{height}:{}:{:?}:{:.2}:{:?}",
+        f.key,
+        k,
+        f.pose.offset,
+        f.pose.lift,
+        pet_top - top,
+        pet_left - left,
+        f.facing,
+        rope.map(|a| (a.0 - left, a.1 - top)),
+        if rope.is_some() { f.age } else { 0. },
+        rotation.map(|(d, x, y)| ((d * 100.).round(), x.round(), y.round()))
+    );
+    Geo {
+        k,
+        fx,
+        fy,
+        pet_left,
+        pet_top,
+        rope,
+        left,
+        top,
+        width: width as u32,
+        height: height as u32,
+        stamp,
+        rotation,
+    }
+}
+fn paint(art: &mut art::Art, g: &Geo, f: &FrameSpec, m: &tauri::Monitor) -> Result<Pixmap, String> {
+    let frame = art.bitmap(f.key, (260. * g.k).ceil() as u32)?;
+    let mut canvas = Pixmap::new(g.width, g.height).ok_or("Native canvas allocation failed")?;
+    if let Some(anchor) = g.rope {
+        let hands = art
+            .hands(f.pose)
+            .into_iter()
+            .map(|h| {
+                (
+                    (g.fx + f.facing * (h[0] - 200. + f.pose.offset) * g.k - g.left) as f32,
+                    (g.fy + (h[1] - 250. - f.pose.lift) * g.k - g.top) as f32,
+                )
+            })
+            .collect::<Vec<_>>();
+        art::rope(
+            &mut canvas,
+            ((anchor.0 - g.left) as f32, (anchor.1 - g.top) as f32),
+            &hands,
+            f.age,
+            f.mode,
+            g.k as f32,
+            f.facing as f32,
+        );
+    }
+    art::composite_rotated(
+        &mut canvas,
+        &frame,
+        (g.pet_left - g.left) as f32,
+        (g.pet_top - g.top) as f32,
+        f.facing < 0.,
+        g.rotation,
+    );
+    if f.activity {
+        // Peek may intentionally cross this display edge; never paint on a forbidden neighbour.
+        let (mp, ms) = (m.position(), m.size());
+        clip_to_display(
+            &mut canvas,
+            (g.left, g.top),
+            (mp.x as f64, mp.y as f64, ms.width as f64, ms.height as f64),
+        );
+    }
+    Ok(canvas)
+}
+
+// Opt-in frame trace for field diagnosis: DDOKTTI_TRACE=1. Geometry only, never content.
+fn trace_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("DDOKTTI_TRACE").is_some())
+}
+fn trace(line: impl FnOnce() -> String) {
+    if trace_enabled() {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0., |d| d.as_secs_f64());
+        eprintln!("[trace {t:.3}] {}", line());
+    }
+}
+
+// Intersect a canvas rectangle with a display rectangle (physical pixels). The
+// result keeps whole pixels and is empty (zero size) when they do not overlap.
+fn crop_to_display(
+    rect: (f64, f64, f64, f64),
+    display: (f64, f64, f64, f64),
+) -> (f64, f64, f64, f64) {
+    let left = rect.0.max(display.0).floor();
+    let top = rect.1.max(display.1).floor();
+    let right = (rect.0 + rect.2).min(display.0 + display.2).ceil();
+    let bottom = (rect.1 + rect.3).min(display.1 + display.3).ceil();
+    (left, top, (right - left).max(0.), (bottom - top).max(0.))
+}
+
+// Zero every canvas pixel outside the display rectangle (physical pixels).
+fn clip_to_display(canvas: &mut Pixmap, origin: (f64, f64), display: (f64, f64, f64, f64)) {
+    let (width, height) = (canvas.width() as f64, canvas.height() as f64);
+    let bound = |v: f64, limit: f64| v.max(0.).min(limit) as usize;
+    let x0 = bound((display.0 - origin.0).ceil(), width);
+    let x1 = bound((display.0 + display.2 - origin.0).floor(), width);
+    let y0 = bound((display.1 - origin.1).ceil(), height);
+    let y1 = bound((display.1 + display.3 - origin.1).floor(), height);
+    let stride = canvas.width() as usize * 4;
+    for (row, pixels) in canvas.data_mut().chunks_exact_mut(stride).enumerate() {
+        if row < y0 || row >= y1 {
+            pixels.fill(0);
+        } else {
+            pixels[..x0 * 4].fill(0);
+            pixels[x1 * 4..].fill(0);
+        }
+    }
+}
+
 // Global screen positions use points on macOS and physical pixels on Windows.
 fn screen_unit(scale: f64) -> f64 {
     if cfg!(target_os = "macos") {
         scale
     } else {
         1.
+    }
+}
+#[cfg(test)]
+mod clip_tests {
+    use super::clip_to_display;
+    use resvg::tiny_skia::Pixmap;
+    fn filled(w: u32, h: u32) -> Pixmap {
+        let mut p = Pixmap::new(w, h).unwrap();
+        p.data_mut().fill(255);
+        p
+    }
+    fn alive(p: &Pixmap, x: u32, y: u32) -> bool {
+        p.pixel(x, y).unwrap().alpha() != 0
+    }
+    #[test]
+    fn keeps_pixels_between_physical_screen_top_and_work_area_on_macos_layout() {
+        // Display 0..200 x 0..100; menu bar occupies rows 0..30 above the work area.
+        // Canvas top sits 10px above the screen so the rope hook has room.
+        let mut c = filled(100, 80);
+        clip_to_display(&mut c, (50., -10.), (0., 0., 200., 100.));
+        assert!(!alive(&c, 10, 9), "above the screen is cleared");
+        assert!(alive(&c, 10, 10), "screen top row survives");
+        assert!(alive(&c, 10, 25), "menu bar strip (work area y<0) survives");
+        assert!(alive(&c, 10, 79));
+    }
+    #[test]
+    fn crop_keeps_canvas_inside_the_display_and_preserves_inner_rects() {
+        use super::crop_to_display;
+        // Peek window straddling the right edge of a 2x display (-3456..0, 654..4990).
+        let d = (-3456., 654., 3456., 4336.);
+        assert_eq!(
+            crop_to_display((-334., 628., 627., 1153.), d),
+            (-334., 654., 334., 1127.)
+        );
+        // Fully inside: unchanged.
+        assert_eq!(
+            crop_to_display((-1000., 700., 627., 410.), d),
+            (-1000., 700., 627., 410.)
+        );
+        // Fully outside: empty.
+        assert_eq!(crop_to_display((10., 700., 100., 100.), d).2, 0.);
+    }
+    #[test]
+    fn clears_only_the_neighbouring_display_side() {
+        let mut c = filled(100, 40);
+        clip_to_display(&mut c, (150., 20.), (0., 0., 200., 100.));
+        assert!(alive(&c, 49, 0));
+        assert!(!alive(&c, 50, 0), "right of the display is cleared");
+        assert!(!alive(&c, 99, 39));
+        let mut c = filled(100, 40);
+        clip_to_display(&mut c, (-30., 20.), (0., 0., 200., 100.));
+        assert!(!alive(&c, 29, 0));
+        assert!(alive(&c, 30, 0));
     }
 }

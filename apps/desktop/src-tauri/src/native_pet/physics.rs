@@ -199,6 +199,26 @@ impl Physics {
     pub fn busy(&self) -> bool {
         self.motion != Motion::Grounded
     }
+    /// Direction of the desktop-floor edge the character stands at, or has just
+    /// bumped into. Walking into the edge enters `Wobble` in the same tick and the
+    /// wobble turns the character around, so only the Grounded case would never
+    /// observe a display crossing opportunity.
+    pub fn edge_departure(&self) -> Option<f64> {
+        if self.support.is_some() || (self.y - self.world.height).abs() >= 2. {
+            return None;
+        }
+        let settled = match self.motion {
+            Motion::Grounded => true,
+            Motion::Wobble => self.age < 0.65,
+            _ => false,
+        };
+        let at_edge = if self.direction > 0. {
+            self.x >= self.world.width - self.half() - 2.
+        } else {
+            self.x <= self.half() + 2.
+        };
+        (settled && at_edge).then_some(self.direction)
+    }
     fn entering(&mut self, m: Motion) {
         self.motion = m;
         self.age = 0.;
@@ -1203,5 +1223,42 @@ mod tests {
             assert!((a.0 - b.0).abs() < 0.01);
             assert!((a.1 - b.1).abs() < 0.01);
         }
+    }
+    #[test]
+    fn edge_departure_is_available_when_walking_bumps_the_display_edge() {
+        let mut p = Physics::new(world(vec![], 120., 700.));
+        advance(&mut p, 1., 0., false);
+        p.direction = -1.;
+        assert_eq!(p.edge_departure(), None, "not at the edge yet");
+        let mut seen = false;
+        for _ in 0..240 {
+            // Autonomous walking; the post-landing cooldown rules out jump plans.
+            p.step(1. / 60., 150., true, false);
+            if p.edge_departure() == Some(-1.) {
+                seen = true;
+                assert!(p.x <= p.half() + 2.);
+                break;
+            }
+        }
+        assert!(seen, "reaching the floor edge must offer a departure");
+        // Keep walking into the edge: the bump wobbles but still offers the departure.
+        for _ in 0..30 {
+            p.step(1. / 60., 150., true, false);
+            if p.motion == Motion::Wobble {
+                break;
+            }
+        }
+        assert_eq!(p.motion, Motion::Wobble);
+        assert_eq!(p.edge_departure(), Some(-1.));
+        // The wobble then turns the character away; no departure in that direction.
+        advance(&mut p, 1., 0., true);
+        assert_eq!(p.motion, Motion::Grounded);
+        assert_eq!(p.direction, 1.);
+        assert_eq!(p.edge_departure(), None);
+        // Standing still at the edge while facing it also counts.
+        p.direction = -1.;
+        assert_eq!(p.edge_departure(), Some(-1.));
+        p.x = 500.;
+        assert_eq!(p.edge_departure(), None);
     }
 }

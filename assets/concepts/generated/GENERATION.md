@@ -36,3 +36,11 @@ Use case: stylized-concept. Production transparent desktop mascot sprite sheet. 
 ```
 
 쓰다듬기 반응은 기존 승인된 `emotions-v1` 8·9번 원화를 재사용해 눈을 감고 미소 짓는다. 새 이미지 생성물로 표기하지 않는다.
+
+## 어지러워하기 (dizzy-hang-v1.png)
+
+2026-10-01, Codex 내장 image_gen 도구(`codex exec -i … --`)로 생성했다. 참조는 `raster-before-svg/companion/emotions-v1.png`와 `interactions-v2.png`(아랫줄 드래그 포즈). 1024 요청에도 1254×1254로 반환되어 627 칸으로 등록했다. 프롬프트 전문은 `dizzy-hang-v1-prompt.md`.
+
+## 쓰다듬기 반응 (petted-blush-v1.png)
+
+2026-10-01, Codex 내장 image_gen 도구. 참조는 `raster-before-svg/companion/emotions-v1.png`와 `interactions-v2.png`(윗줄의 눈 감은 웃음). 1254×1254 2×2. 기존 `emotions-v1` 8·9번 재사용(허리에 손)을 대체하며, 두 볼의 홍조(#FF829C)와 감은 눈 호, 모은 손이 특징이다. 프롬프트 전문은 `petted-blush-v1-prompt.md`.
