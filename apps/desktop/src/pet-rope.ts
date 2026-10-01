@@ -6,9 +6,9 @@ export function renderPetRope(svg:SVGSVGElement,pose:string,elapsed:number,optio
  let group=svg.querySelector<SVGGElement>('[data-rope]');
  if(!group){group=svg.ownerDocument.createElementNS(NS,'g');group.dataset.rope='true';group.setAttribute('pointer-events','none');group.innerHTML='<path/><path/><path/>';svg.insertBefore(group,svg.firstChild);}
  const {anchor}=options;
- group.style.display=!anchor||options.reduced||!['grab','climb','pull'].includes(pose)?'none':'';
+ group.style.display=!anchor||options.reduced||!['grab','climb','pull','lower','descend'].includes(pose)?'none':'';
  if(group.style.display==='none'||!anchor)return;
- const phase=elapsed/1000,retract=pose==='pull'?Math.max(0,Math.min(1,(phase-.3)/.4)):0;
+ const phase=elapsed/1000,retract=pose==='pull'?Math.max(0,Math.min(1,(phase-.3)/.4)):pose==='lower'?Math.max(0,Math.min(1,1-phase/.4)):0;
  const opacity=(1-retract)*(pose==='grab'?Math.min(1,phase/.15):1);
  group.setAttribute('opacity',String(opacity));
  const f=vectorFrame(pose,elapsed),points=hands[String(f.index) as keyof typeof hands];if(!points)return;

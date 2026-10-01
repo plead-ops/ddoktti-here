@@ -6,7 +6,7 @@ const $=<T extends Element=HTMLElement>(id:string)=>document.getElementById(id) 
 const canvas=$<SVGSVGElement>('pet-canvas'),desktop=$('desktop');
 let gaitDistance=0;
 let windows:SurfaceWindow[]=[],motion:SurfaceMotion,last=0,elapsed=0,notification=false;
-const names:Record<string,string>={grounded:'창과 바닥을 산책해요',fall:'아래 발판으로 떨어져요',land:'사뿐히 착지해요',prepare:'다음 창으로 갈 준비',jump:'폴짝, 창 사이를 건너요',grab:'가장자리를 붙잡아요',climb:'한 발씩 올라가요',pull:'몸을 끌어올려요',wobble:'아슬아슬, 균형을 잡아요'};
+const names:Record<string,string>={grounded:'창과 바닥을 산책해요',fall:'아래 발판으로 떨어져요',land:'사뿐히 착지해요',prepare:'다음 창으로 갈 준비',jump:'폴짝, 창 사이를 건너요',grab:'가장자리를 붙잡아요',climb:'한 발씩 올라가요',pull:'몸을 끌어올려요',lower:'모서리에서 줄을 타요',descend:'줄 타고 내려와요',wobble:'아슬아슬, 균형을 잡아요'};
 function world():SurfaceWorld{return {monitor:'preview',x:130,y:700,width:1000,height:700,size:150,windows:windows.map(w=>({...w}))};}
 function paintWindows(){windows.forEach((w,i)=>{Object.assign($(w.id).style,{left:`${w.x}px`,top:`${w.y}px`,width:`${w.width}px`,height:`${w.height}px`,zIndex:String(10+windows.length-i)});});for(const id of ['window-a','window-b'])$(id).hidden=!windows.some(w=>w.id===id);motion.updateWorld(world());}
 function reset(){windows=[{id:'window-b',x:580,y:290,width:340,height:355},{id:'window-a',x:260,y:440,width:300,height:260}];motion=new SurfaceMotion(world());notification=false;paintWindows();}

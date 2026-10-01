@@ -9,7 +9,7 @@ const artwork=JSON.parse(await read('apps/desktop/src/pet-vector-paths.json'));
 const palette=new Set(Object.values(JSON.parse(await read('apps/desktop/src/pet-palette.json'))));
 const source=(await read('apps/desktop/src/pet-vector.ts'))
  .replace("import {gaitFrame} from './pet-gait';",(await read('apps/desktop/src/pet-gait.ts')).replace("import gaits from './pet-gaits.json';",'const gaits='+ await read('apps/desktop/src/pet-gaits.json')+';'))
- .replace("import {climbFrame} from './pet-climb';",await read('apps/desktop/src/pet-climb.ts'))
+ .replace("import {climbFrame,descendFrame} from './pet-climb';",await read('apps/desktop/src/pet-climb.ts'))
  .replace("import artwork from './pet-vector-paths.json';",`const artwork=${JSON.stringify(artwork)};`)
  .replace("import frames from './pet-vector-frames.json';",`const frames=${JSON.stringify(frames)};`)
  .replace("import { behaviors, behaviorPose } from './pet-behaviors';",await read('apps/desktop/src/pet-behaviors.ts'));

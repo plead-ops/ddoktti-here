@@ -18,6 +18,8 @@ pub enum Motion {
     Grab,
     Climb,
     Pull,
+    Lower,
+    Descend,
     Wobble,
 }
 impl Motion {
@@ -32,6 +34,8 @@ impl Motion {
             Self::Grab => "grab",
             Self::Climb => "climb",
             Self::Pull => "pull",
+            Self::Lower => "lower",
+            Self::Descend => "descend",
             Self::Wobble => "wobble",
         }
     }
@@ -49,6 +53,10 @@ pub fn climb_distance(age: f64, size: f64) -> f64 {
 }
 pub fn climb_frame(age: f64) -> usize {
     [1, 0, 2, 3][((age.max(0.) / 0.2).floor() as usize) % 4]
+}
+/// Rope descent replays the climb cycle backwards, hands lowering in the same beat.
+pub fn descend_frame(age: f64) -> usize {
+    [3, 2, 0, 1][((age.max(0.) / 0.2).floor() as usize) % 4]
 }
 pub fn ledges(w: &World) -> Vec<Ledge> {
     let mut out = Vec::new();
@@ -95,7 +103,8 @@ struct Plan {
     y: f64,
     vx: f64,
     vy: f64,
-    id: String,
+    /// Landing ledge; `None` hops down onto the desktop floor.
+    id: Option<String>,
 }
 pub struct Physics {
     pub x: f64,
@@ -113,6 +122,10 @@ pub struct Physics {
     cooldown: f64,
     plan: Option<Plan>,
     approach: Option<(String, f64)>,
+    /// Side of our own support whose corner we walk to before roping down.
+    descent: Option<f64>,
+    /// Seconds spent on windows since last standing on the desktop floor.
+    perch: f64,
     pull_start: (f64, f64),
     seed: u64,
     fall_origin: f64,
@@ -138,6 +151,8 @@ impl Physics {
             cooldown: 4.,
             plan: None,
             approach: None,
+            descent: None,
+            perch: 0.,
             pull_start: (0., 0.),
             seed: 0x927fd,
             fall_origin: 0.,
@@ -273,6 +288,7 @@ impl Physics {
         self.vy = 0.;
         self.plan = None;
         self.approach = None;
+        self.descent = None;
         self.attach(self.at(self.x, self.y, None));
         self.entering(
             if self.support.is_some() || self.y >= self.world.height - 1. {
@@ -286,6 +302,7 @@ impl Physics {
         self.fall_origin = self.y;
         self.deliberate_jump = false;
         self.approach = None;
+        self.descent = None;
         self.attach(None);
         self.plan = None;
         self.vx = 0.;
@@ -293,7 +310,20 @@ impl Physics {
         self.entering(Motion::Fall);
     }
     fn climbing(&self) -> bool {
-        matches!(self.motion, Motion::Grab | Motion::Climb | Motion::Pull)
+        matches!(
+            self.motion,
+            Motion::Grab | Motion::Climb | Motion::Pull | Motion::Lower | Motion::Descend
+        )
+    }
+    /// Restlessness on windows: grows with time away from the floor and with
+    /// altitude, so a long perch high up ends with a deliberate way down.
+    pub fn descent_urge(&self) -> f64 {
+        if self.support.is_none() {
+            return 0.;
+        }
+        let altitude = ((self.world.height - self.y) / self.world.height).clamp(0., 1.);
+        let restless = ((self.perch - 25.) / 95.).clamp(0., 1.);
+        restless * (0.5 + 0.5 * altitude)
     }
     pub fn rope_anchor(&self) -> Option<(f64, f64)> {
         if !self.climbing() {
@@ -304,14 +334,19 @@ impl Physics {
             .map(|w| (if self.side > 0. { w.x } else { w.x + w.width }, w.y))
     }
     fn climb_visible(&self, w: &WindowRect) -> bool {
-        let edge = if self.side > 0. { w.x } else { w.x + w.width };
+        self.wall_visible(w, self.side, w.y.min(self.y - self.height()), self.y)
+    }
+    /// The strip beside `w`'s edge between `top` and `bottom` is not covered by
+    /// any window in front of it, and lies far enough inside the display.
+    fn wall_visible(&self, w: &WindowRect, side: f64, top: f64, bottom: f64) -> bool {
+        let edge = if side > 0. { w.x } else { w.x + w.width };
         if w.y < self.height()
             || edge < self.half() * 2.
             || edge > self.world.width - self.half() * 2.
         {
             return false;
         }
-        let left = if self.side > 0. {
+        let left = if side > 0. {
             edge - self.half() * 2.
         } else {
             edge
@@ -324,8 +359,8 @@ impl Physics {
             .any(|v| {
                 v.x < left + self.half() * 2.
                     && v.x + v.width > left
-                    && v.y < self.y
-                    && v.y + v.height > w.y.min(self.y - self.height())
+                    && v.y < bottom
+                    && v.y + v.height > top
             })
     }
     /// A scripted route owns position until it finishes. Do not acquire a
@@ -339,6 +374,7 @@ impl Physics {
         self.support = None;
         self.plan = None;
         self.approach = None;
+        self.descent = None;
         self.vx = 0.;
         self.vy = 0.;
         self.motion = Motion::Fall;
@@ -390,7 +426,76 @@ impl Physics {
         self.y = clamp(self.y, self.height(), self.world.height);
     }
     pub fn approaching(&self) -> bool {
-        self.approach.is_some() && self.motion == Motion::Grounded
+        (self.approach.is_some() || self.descent.is_some()) && self.motion == Motion::Grounded
+    }
+    /// Highest exposed ledge under `x` at or below `y`, else the desktop floor.
+    fn floor_below(&self, x: f64, y: f64) -> (Option<Ledge>, f64) {
+        let p = self
+            .ledges
+            .iter()
+            .filter(|p| p.y >= y && x >= p.left + self.foot() && x <= p.right - self.foot())
+            .min_by(|a, b| a.y.total_cmp(&b.y))
+            .cloned();
+        let landing = p.as_ref().map_or(self.world.height, |p| p.y);
+        (p, landing)
+    }
+    // Walk along our own support to its exposed corner, then rope down that side.
+    // Returns the window, the standing x at the corner and the hanging x beside it.
+    fn descent_target(&self, side: f64) -> Option<(WindowRect, f64, f64)> {
+        let w = self.attached.clone()?;
+        if self.support.as_deref() != Some(&w.id) {
+            return None;
+        }
+        let stand = self.edge_landing(&w, side)?;
+        let here = self.at(self.x, self.y, Some(&w.id))?;
+        if stand < here.left + self.foot() || stand > here.right - self.foot() {
+            return None;
+        }
+        let edge = if side > 0. { w.x } else { w.x + w.width };
+        let hang = edge - side * self.half();
+        if hang < self.half() || hang > self.world.width - self.half() {
+            return None;
+        }
+        let (_, landing) = self.floor_below(hang, w.y + 1.);
+        if landing - w.y < self.height() || !self.wall_visible(&w, side, w.y, landing) {
+            return None;
+        }
+        Some((w, stand, hang))
+    }
+    fn seek_descent(&mut self) {
+        let mut best: Option<(f64, f64)> = None;
+        for side in [1., -1.] {
+            if let Some((_, stand, _)) = self.descent_target(side) {
+                let cost = (stand - self.x).abs();
+                if best.is_none_or(|b| cost < b.1) {
+                    best = Some((side, cost));
+                }
+            }
+        }
+        self.descent = best.map(|b| b.0);
+    }
+    fn approach_descent(&mut self, distance: f64) -> bool {
+        let Some(side) = self.descent else {
+            return false;
+        };
+        let Some((_, stand, _)) = self.descent_target(side) else {
+            self.descent = None;
+            self.cooldown = 2.;
+            return false;
+        };
+        let dx = stand - self.x;
+        if dx.abs() > 0.01 {
+            self.direction = dx.signum();
+        }
+        self.x += dx.clamp(-distance, distance);
+        if (stand - self.x).abs() < 0.01 {
+            self.side = side;
+            self.direction = side;
+            self.descent = None;
+            self.pull_start = (self.x, self.y);
+            self.entering(Motion::Lower);
+        }
+        true
     }
     // Approach a visible edge on the current support, then climb the rope even
     // when the window's bottom is above our head. Never teleport across a gap.
@@ -486,7 +591,26 @@ impl Physics {
         }
         false
     }
-    fn jump_plan(&mut self) -> Option<Plan> {
+    fn arc(&self, x: f64, y: f64, id: Option<String>) -> Option<Plan> {
+        let dx = x - self.x;
+        if dx.abs() < self.half() || dx.abs() > 300. {
+            return None;
+        }
+        let rise = (self.y - y + 55.).max(70.);
+        if self.y - rise < self.height() + 5. {
+            return None;
+        }
+        let vy = -(1800. * rise).sqrt();
+        let time = (-vy + (vy * vy + 1800. * (y - self.y)).sqrt()) / 900.;
+        (time > 0. && (dx / time).abs() <= 350.).then(|| Plan {
+            x,
+            y,
+            vx: dx / time,
+            vy,
+            id,
+        })
+    }
+    fn jump_plans(&self) -> Vec<Plan> {
         let mut plans = Vec::new();
         for p in &self.ledges {
             if Some(&p.id) == self.support.as_ref() || (p.y - self.y).abs() >= 220. {
@@ -498,26 +622,41 @@ impl Physics {
                 p.left + self.foot() + margin,
                 p.right - self.foot() - margin,
             );
-            let dx = x - self.x;
-            if dx.abs() < self.half() || dx.abs() > 300. {
-                continue;
-            }
-            let rise = (self.y - p.y + 55.).max(70.);
-            if self.y - rise < self.height() + 5. {
-                continue;
-            }
-            let vy = -(1800. * rise).sqrt();
-            let time = (-vy + (vy * vy + 1800. * (p.y - self.y)).sqrt()) / 900.;
-            if time > 0. && (dx / time).abs() <= 350. {
-                plans.push(Plan {
-                    x,
-                    y: p.y,
-                    vx: dx / time,
-                    vy,
-                    id: p.id.clone(),
-                });
+            plans.extend(self.arc(x, p.y, Some(p.id.clone())));
+        }
+        // A short hop from a corner of our window straight down to the floor.
+        if self.support.is_some() && self.world.height - self.y < 220. {
+            if let Some(p) = self.at(self.x, self.y, self.support.as_deref()) {
+                for side in [1., -1.] {
+                    let x = clamp(
+                        if side > 0. {
+                            p.right + self.half()
+                        } else {
+                            p.left - self.half()
+                        },
+                        self.half(),
+                        self.world.width - self.half(),
+                    );
+                    if (x - self.x).abs() <= self.half() * 2.5 {
+                        plans.extend(self.arc(x, self.world.height, None));
+                    }
+                }
             }
         }
+        plans
+    }
+    fn jump_plan(&mut self) -> Option<Plan> {
+        let plans = self.jump_plans();
+        let i = (self.random() * plans.len() as f64) as usize;
+        plans.get(i).cloned()
+    }
+    /// Only destinations below us: a hop beats a rope when the drop is short.
+    fn drop_plan(&mut self) -> Option<Plan> {
+        let plans: Vec<_> = self
+            .jump_plans()
+            .into_iter()
+            .filter(|p| p.y > self.y + 1.)
+            .collect();
         let i = (self.random() * plans.len() as f64) as usize;
         plans.get(i).cloned()
     }
@@ -534,6 +673,7 @@ impl Physics {
         self.x = clamp(next, left, right);
         if next < left || next > right {
             self.approach = None;
+            self.descent = None;
             self.entering(Motion::Wobble);
             return true;
         }
@@ -550,8 +690,14 @@ impl Physics {
         let old_age = self.age;
         self.age += dt;
         self.cooldown = (self.cooldown - dt).max(0.);
+        if self.support.is_some() {
+            self.perch += dt;
+        } else if matches!(self.motion, Motion::Grounded | Motion::Land | Motion::Hurt) {
+            self.perch = 0.;
+        }
         if reduced {
             self.approach = None;
+            self.descent = None;
             if self.busy() {
                 let p = self
                     .ledges
@@ -629,13 +775,54 @@ impl Physics {
                 }
                 return;
             }
+            Motion::Lower => {
+                if let Some(w) = self.attached.clone() {
+                    if self.edge_landing(&w, self.side).is_none() {
+                        self.falling();
+                        return;
+                    }
+                    let edge = if self.side > 0. { w.x } else { w.x + w.width };
+                    let hang = edge - self.side * self.half();
+                    let t = smooth(self.age / 0.7);
+                    self.x = self.pull_start.0 + (hang - self.pull_start.0) * t;
+                    self.y = self.pull_start.1 + (w.y + self.height() * 0.6 - self.pull_start.1) * t;
+                    if t >= 1. {
+                        self.entering(Motion::Descend);
+                    }
+                } else {
+                    self.falling();
+                }
+                return;
+            }
+            Motion::Descend => {
+                if self.attached.is_none() {
+                    self.falling();
+                    return;
+                }
+                let (p, landing) = self.floor_below(self.x, self.y - 1.);
+                self.y = (self.y
+                    + (climb_distance(self.age, self.world.size)
+                        - climb_distance(old_age, self.world.size)))
+                .min(landing);
+                if self.y >= landing - 0.1 {
+                    self.y = landing;
+                    self.attach(p);
+                    self.vx = 0.;
+                    self.vy = 0.;
+                    self.entering(Motion::Land);
+                    self.cooldown = 5.;
+                }
+                return;
+            }
             Motion::Prepare => {
                 let valid = self.plan.as_ref().is_some_and(|p| {
-                    self.ledges.iter().any(|l| {
-                        l.id == p.id
-                            && (l.y - p.y).abs() < 3.
-                            && p.x >= l.left + self.foot()
-                            && p.x <= l.right - self.foot()
+                    p.id.as_ref().is_none_or(|id| {
+                        self.ledges.iter().any(|l| {
+                            l.id == *id
+                                && (l.y - p.y).abs() < 3.
+                                && p.x >= l.left + self.foot()
+                                && p.x <= l.right - self.foot()
+                        })
                     })
                 });
                 if !autonomous || !valid {
@@ -728,16 +915,33 @@ impl Physics {
         }
         if !autonomous {
             self.approach = None;
+            self.descent = None;
             return;
         }
-        if self.approaching() && self.approach_rope(walk.abs() * dt) {
+        if self.approaching()
+            && (self.approach_rope(walk.abs() * dt) || self.approach_descent(walk.abs() * dt))
+        {
             return;
         }
         if self.cooldown == 0. && walk > 0. {
             self.cooldown = 8. + self.random() * 8.;
-            self.seek_rope();
-            if self.approach_rope(walk.abs() * dt) {
-                return;
+            // Restless on a window: hop down when the drop is short, otherwise rope
+            // down our own side. A settled character keeps looking for ropes up.
+            if self.random() < self.descent_urge() {
+                if let Some(p) = self.drop_plan() {
+                    self.plan = Some(p);
+                    self.entering(Motion::Prepare);
+                    return;
+                }
+                self.seek_descent();
+                if self.approach_descent(walk.abs() * dt) {
+                    return;
+                }
+            } else {
+                self.seek_rope();
+                if self.approach_rope(walk.abs() * dt) {
+                    return;
+                }
             }
             if let Some(p) = self.jump_plan() {
                 if self.random() < 0.55 {
@@ -1223,6 +1427,178 @@ mod tests {
             assert!((a.0 - b.0).abs() < 0.01);
             assert!((a.1 - b.1).abs() < 0.01);
         }
+    }
+    #[test]
+    fn restless_perch_ropes_down_its_own_window_and_lands_softly() {
+        for (x, side, edge) in [(300., 1., 250.), (650., -1., 700.)] {
+            let mut p = Physics::new(world(vec![rect("a", 250., 150., 450., 550.)], x, 150.));
+            advance(&mut p, 1., 0., false);
+            assert_eq!(p.support.as_deref(), Some("a"));
+            assert_eq!(p.descent_urge(), 0., "a fresh perch is not restless");
+            p.perch = 200.;
+            assert!(p.descent_urge() > 0.85);
+            p.cooldown = 0.;
+            let mut states = Vec::new();
+            for _ in 0..3600 {
+                p.step(1. / 60., 80., true, false);
+                states.push(p.motion);
+                if p.motion == Motion::Descend {
+                    assert_eq!(p.rope_anchor(), Some((edge, 150.)));
+                    assert_eq!(p.side, side);
+                    assert_eq!(p.x, edge - side * p.half());
+                }
+                if p.motion == Motion::Land {
+                    break;
+                }
+            }
+            for m in [Motion::Lower, Motion::Descend, Motion::Land] {
+                assert!(states.contains(&m), "missing {m:?}");
+            }
+            assert!(!states.contains(&Motion::Hurt));
+            assert!(!states.contains(&Motion::Fall));
+            assert_eq!(p.y, 700.);
+            assert!(p.support.is_none());
+            assert_eq!(p.rope_anchor(), None);
+            advance(&mut p, 1., 0., true);
+            assert_eq!(p.motion, Motion::Grounded);
+            assert_eq!(p.perch, 0., "standing on the floor resets restlessness");
+        }
+    }
+    #[test]
+    fn short_drop_hops_from_the_corner_instead_of_roping() {
+        let mut p = Physics::new(world(vec![rect("a", 300., 560., 300., 140.)], 560., 560.));
+        advance(&mut p, 1., 0., false);
+        p.perch = 200.;
+        p.cooldown = 0.;
+        let mut states = Vec::new();
+        for _ in 0..3600 {
+            p.step(1. / 60., 80., true, false);
+            states.push(p.motion);
+            if matches!(p.motion, Motion::Land | Motion::Hurt) {
+                break;
+            }
+        }
+        assert!(states.contains(&Motion::Prepare));
+        assert!(states.contains(&Motion::Jump));
+        assert!(!states.contains(&Motion::Lower));
+        assert_eq!(p.motion, Motion::Land, "a deliberate hop never hurts");
+        assert_eq!(p.y, 700.);
+        assert!(p.support.is_none());
+        assert!(p.x > 600., "lands beside the window, not back on it");
+    }
+    #[test]
+    fn descent_needs_an_exposed_corner_a_clear_wall_and_a_real_drop() {
+        let mut p = Physics::new(
+            world(vec![rect("a", 250., 150., 450., 550.)], 400., 150.),
+        );
+        advance(&mut p, 1., 0., false);
+        assert!(p.descent_target(1.).is_some());
+        assert!(p.descent_target(-1.).is_some());
+        // A narrow window in front covering the left wall (but offering no ledge
+        // under the rope) blocks that side only.
+        p.update(world(
+            vec![
+                rect("front", 60., 250., 120., 300.),
+                rect("a", 250., 150., 450., 550.),
+            ],
+            400.,
+            150.,
+        ));
+        assert!(p.descent_target(1.).is_none());
+        assert!(p.descent_target(-1.).is_some());
+        // A wider front window exposes its own top under the rope: a shorter descent.
+        p.update(world(
+            vec![
+                rect("front", 100., 300., 250., 300.),
+                rect("a", 250., 150., 450., 550.),
+            ],
+            400.,
+            150.,
+        ));
+        let (_, hang) = (p.descent_target(1.).map(|t| t.1), p.descent_target(1.).map(|t| t.2));
+        assert_eq!(p.floor_below(hang.unwrap(), 151.).1, 300.);
+        // A window in front covering the corner itself removes the standing spot.
+        p.update(world(
+            vec![
+                rect("corner", 600., 100., 200., 200.),
+                rect("a", 250., 150., 450., 550.),
+            ],
+            400.,
+            150.,
+        ));
+        assert!(p.descent_target(-1.).is_none());
+        // Too short a drop is a hop, never a rope; the floor has no descent at all.
+        let mut p = Physics::new(world(vec![rect("low", 250., 650., 450., 50.)], 400., 650.));
+        advance(&mut p, 1., 0., false);
+        assert!(p.descent_target(1.).is_none());
+        let mut p = Physics::new(world(vec![], 400., 700.));
+        advance(&mut p, 1., 0., false);
+        assert_eq!(p.descent_urge(), 0.);
+        p.perch = 500.;
+        assert_eq!(p.descent_urge(), 0.);
+        assert!(p.descent_target(1.).is_none());
+    }
+    #[test]
+    fn descent_follows_a_moving_window_and_falls_when_it_closes() {
+        let mut p = Physics::new(world(vec![rect("a", 250., 150., 450., 550.)], 300., 150.));
+        advance(&mut p, 1., 0., false);
+        p.perch = 200.;
+        p.cooldown = 0.;
+        for _ in 0..3600 {
+            p.step(1. / 60., 80., true, false);
+            if p.motion == Motion::Descend && p.age > 0.5 {
+                break;
+            }
+        }
+        assert_eq!(p.motion, Motion::Descend);
+        let (x, y) = (p.x, p.y);
+        p.update(world(vec![rect("a", 280., 170., 450., 530.)], x, y));
+        assert_eq!(p.motion, Motion::Descend);
+        assert_eq!((p.x, p.y), (x + 30., y + 20.));
+        assert_eq!(p.rope_anchor(), Some((280., 170.)));
+        // Alerts cannot interrupt a rope descent; it still completes on its own.
+        advance(&mut p, 1., 0., false);
+        assert!(matches!(p.motion, Motion::Descend | Motion::Land));
+        p.update(world(vec![], p.x, p.y));
+        assert_eq!(p.motion, Motion::Fall);
+        assert_eq!(p.rope_anchor(), None);
+        // Reduced motion resolves a descent straight onto the floor.
+        let mut p = Physics::new(world(vec![rect("a", 250., 150., 450., 550.)], 300., 150.));
+        advance(&mut p, 1., 0., false);
+        p.perch = 200.;
+        p.cooldown = 0.;
+        for _ in 0..3600 {
+            p.step(1. / 60., 80., true, false);
+            if p.motion == Motion::Descend {
+                break;
+            }
+        }
+        assert_eq!(p.motion, Motion::Descend);
+        p.step(0.1, 80., true, true);
+        assert_eq!(p.motion, Motion::Grounded);
+        assert_eq!(p.y, 700.);
+    }
+    #[test]
+    fn settled_perch_still_prefers_ropes_up_and_restlessness_accumulates() {
+        let mut p = Physics::new(world(
+            vec![
+                rect("low", 100., 500., 300., 200.),
+                rect("high", 500., 200., 300., 500.),
+            ],
+            250.,
+            500.,
+        ));
+        advance(&mut p, 1., 0., false);
+        assert_eq!(p.support.as_deref(), Some("low"));
+        let perch = p.perch;
+        advance(&mut p, 10., 0., false);
+        assert!((p.perch - perch - 10.).abs() < 1e-6);
+        assert_eq!(p.descent_urge(), 0., "urge stays zero for the first 25 seconds");
+        p.perch = 120.;
+        let urge = p.descent_urge();
+        assert!(urge > 0.6 && urge < 0.7, "{urge}");
+        p.y = 200.;
+        assert!(p.descent_urge() > urge, "higher perches are more restless");
     }
     #[test]
     fn edge_departure_is_available_when_walking_bumps_the_display_edge() {

@@ -5,7 +5,7 @@ import {climbDistance} from './pet-climb';
 export interface SurfaceWindow { id:string;x:number;y:number;width:number;height:number }
 export interface SurfaceWorld { monitor:string;x:number;y:number;width:number;height:number;size:number;windows:SurfaceWindow[] }
 export interface Ledge { id:string;left:number;right:number;y:number }
-export type Motion='grounded'|'fall'|'land'|'prepare'|'jump'|'grab'|'climb'|'pull'|'wobble'|'hurt';
+export type Motion='grounded'|'fall'|'land'|'prepare'|'jump'|'grab'|'climb'|'pull'|'lower'|'descend'|'wobble'|'hurt';
 export interface MotionInput { walk:number;autonomous:boolean;reduced:boolean;paused?:boolean }
 const clamp=(v:number,a:number,b:number)=>Math.max(a,Math.min(Math.max(a,b),v));
 const smooth=(t:number)=>t*t*(3-2*t);
@@ -35,7 +35,9 @@ export class SurfaceMotion {
   private side:1|-1=1;
   private fallOrigin=0;private deliberateJump=false;
   private vx=0;private vy=0;
-  private cooldown=4;private plan:{x:number;y:number;vx:number;vy:number;id:string}|null=null;
+  private cooldown=4;private plan:{x:number;y:number;vx:number;vy:number;id:string|null}|null=null;
+  /** Side of our own support whose corner we walk to before roping down; seconds perched on windows. */
+  private descent:1|-1|null=null;perch=0;
   private pullStart={x:0,y:0};
   private random:()=>number;
   constructor(world:SurfaceWorld,random=Math.random){this.world=world;this.x=world.x;this.y=world.y;this.random=random;this.updateWorld(world);this.reset(world.x,world.y);}
@@ -51,7 +53,7 @@ export class SurfaceMotion {
     return p?clamp((side>0?w.x:w.x+w.width)+side*(this.foot+3),p.left+this.foot,p.right-this.foot):null;
   }
   private attach(p:Ledge|null){this.support=p?.id??null;this.attached=this.world.windows.find(w=>w.id===this.support)??null;}
-  reset(x:number,y:number){this.fallOrigin=y;this.deliberateJump=false;this.x=clamp(x,this.half,this.world.width-this.half);this.y=clamp(y,this.height,this.world.height);this.vx=this.vy=0;this.plan=null;this.attach(this.ledgeAt(this.x,this.y)??null);this.enter(this.support||this.y>=this.world.height-1?'grounded':'fall');}
+  reset(x:number,y:number){this.fallOrigin=y;this.deliberateJump=false;this.x=clamp(x,this.half,this.world.width-this.half);this.y=clamp(y,this.height,this.world.height);this.vx=this.vy=0;this.plan=null;this.descent=null;this.attach(this.ledgeAt(this.x,this.y)??null);this.enter(this.support||this.y>=this.world.height-1?'grounded':'fall');}
   updateWorld(world:SurfaceWorld){
     world={...world,windows:world.windows.map(w=>({...w}))};
     if(world.monitor!==this.world.monitor||world.size!==this.world.size){this.world=world;this.ledges=exposedLedges(world);this.attached=null;this.support=null;this.reset(world.x,world.y);return;}
@@ -60,7 +62,7 @@ export class SurfaceMotion {
       const next=world.windows.find(w=>w.id===this.attached!.id);
       if(next){
         const old=this.attached;
-        if(['grab','climb','pull'].includes(this.motion)){
+        if(this.climbing()){
           const dx=(this.side===1?next.x:next.x+next.width)-(this.side===1?old.x:old.x+old.width);
           this.x+=dx;this.y+=next.y-old.y;this.pullStart.x+=dx;this.pullStart.y+=next.y-old.y;
         }else{
@@ -68,18 +70,44 @@ export class SurfaceMotion {
           this.x=next.x+(this.x-old.x)/old.width*next.width;this.y+=next.y-old.y;
         }
         this.attached=next;
-        const climbing=['grab','climb','pull'].includes(this.motion);
+        const climbing=this.climbing();
         if((!climbing&&!this.ledgeAt(this.x,this.y,next.id))||(climbing&&!this.climbVisible(next))||this.x<this.half||this.x>world.width-this.half||this.y<this.height||this.y>world.height)this.fall();
       }else this.fall();
     }
     this.x=clamp(this.x,this.half,world.width-this.half);this.y=clamp(this.y,this.height,world.height);
   }
-  private fall(){this.fallOrigin=this.y;this.deliberateJump=false;this.attach(null);this.plan=null;this.vx=this.vy=0;this.enter('fall');}
-  private climbVisible(w:SurfaceWindow){
-    const edge=this.side===1?w.x:w.x+w.width;
+  private fall(){this.fallOrigin=this.y;this.deliberateJump=false;this.attach(null);this.plan=null;this.descent=null;this.vx=this.vy=0;this.enter('fall');}
+  private climbing(){return ['grab','climb','pull','lower','descend'].includes(this.motion);}
+  private climbVisible(w:SurfaceWindow){return this.wallVisible(w,this.side,Math.min(w.y,this.y-this.height),this.y);}
+  /** The strip beside the window edge between top and bottom is not covered by a window in front. */
+  private wallVisible(w:SurfaceWindow,side:number,top:number,bottom:number){
+    const edge=side===1?w.x:w.x+w.width;
     if(w.y<this.height||edge<this.half*2||edge>this.world.width-this.half*2)return false;
-    const left=this.side===1?edge-this.half*2:edge;
-    return !this.world.windows.slice(0,this.world.windows.findIndex(v=>v.id===w.id)).some(v=>v.x<left+this.half*2&&v.x+v.width>left&&v.y<this.y&&v.y+v.height>Math.min(w.y,this.y-this.height));
+    const left=side===1?edge-this.half*2:edge;
+    return !this.world.windows.slice(0,this.world.windows.findIndex(v=>v.id===w.id)).some(v=>v.x<left+this.half*2&&v.x+v.width>left&&v.y<bottom&&v.y+v.height>top);
+  }
+  /** Restlessness on windows: grows with time away from the floor and with altitude. */
+  get descentUrge(){if(!this.support)return 0;const altitude=clamp((this.world.height-this.y)/this.world.height,0,1);return clamp((this.perch-25)/95,0,1)*(.5+.5*altitude);}
+  private floorBelow(x:number,y:number):{ledge:Ledge|null;y:number}{const p=this.ledges.filter(p=>p.y>=y&&x>=p.left+this.foot&&x<=p.right-this.foot).sort((a,b)=>a.y-b.y)[0]??null;return {ledge:p,y:p?.y??this.world.height};}
+  /** Walk along our own support to its exposed corner, then rope down that side. */
+  descentTarget(side:1|-1):{w:SurfaceWindow;stand:number;hang:number}|null{
+    const w=this.attached;if(!w||this.support!==w.id)return null;
+    const stand=this.edgeLanding(w,side);if(stand===null)return null;
+    const here=this.ledgeAt(this.x,this.y,w.id);if(!here||stand<here.left+this.foot||stand>here.right-this.foot)return null;
+    const edge=side===1?w.x:w.x+w.width,hang=edge-side*this.half;
+    if(hang<this.half||hang>this.world.width-this.half)return null;
+    const landing=this.floorBelow(hang,w.y+1).y;
+    if(landing-w.y<this.height||!this.wallVisible(w,side,w.y,landing))return null;
+    return {w,stand,hang};
+  }
+  private seekDescent(){let best:{side:1|-1;cost:number}|null=null;for(const side of [1,-1] as const){const t=this.descentTarget(side);if(t){const cost=Math.abs(t.stand-this.x);if(!best||cost<best.cost)best={side,cost};}}this.descent=best?.side??null;}
+  private approachDescent(distance:number){
+    if(this.descent===null)return false;
+    const t=this.descentTarget(this.descent);if(!t){this.descent=null;this.cooldown=2;return false;}
+    const dx=t.stand-this.x;if(Math.abs(dx)>.01)this.direction=Math.sign(dx);
+    this.x+=clamp(dx,-distance,distance);
+    if(Math.abs(t.stand-this.x)<.01){this.side=this.descent;this.direction=this.descent;this.descent=null;this.pullStart={x:this.x,y:this.y};this.enter('lower');}
+    return true;
   }
   private startClimb(dx:number){
     if(!dx)return false;
@@ -95,32 +123,42 @@ export class SurfaceMotion {
     }
     return false;
   }
-  private jumpPlan(){
-    const g=900,candidates=this.ledges.filter(p=>p.id!==this.support&&Math.abs(p.y-this.y)<220);
-    const plans=candidates.flatMap(p=>{
-      const margin=Math.min(8,Math.max(0,(p.right-p.left)/2-this.foot));
-      const targetX=clamp(this.x,p.left+this.foot+margin,p.right-this.foot-margin),dx=targetX-this.x;
-      if(Math.abs(dx)<this.half||Math.abs(dx)>300)return [];
-      const rise=Math.max(70,this.y-p.y+55),apex=this.y-rise;
-      if(apex<this.height+5)return [];
-      const vy=-Math.sqrt(2*g*rise),time=(-vy+Math.sqrt(vy*vy+2*g*(p.y-this.y)))/g;
-      if(time<=0||Math.abs(dx/time)>350)return [];
-      // No passing through higher visible ledges on the descending half of the arc.
-      return [{x:targetX,y:p.y,vx:dx/time,vy,id:p.id}];
-    });
-    return plans[Math.floor(this.random()*plans.length)]??null;
+  private arc(x:number,y:number,id:string|null){
+    const g=900,dx=x-this.x;
+    if(Math.abs(dx)<this.half||Math.abs(dx)>300)return [];
+    const rise=Math.max(70,this.y-y+55),apex=this.y-rise;
+    if(apex<this.height+5)return [];
+    const vy=-Math.sqrt(2*g*rise),time=(-vy+Math.sqrt(vy*vy+2*g*(y-this.y)))/g;
+    if(time<=0||Math.abs(dx/time)>350)return [];
+    return [{x,y,vx:dx/time,vy,id}];
   }
+  private jumpPlans(){
+    const plans=this.ledges.filter(p=>p.id!==this.support&&Math.abs(p.y-this.y)<220).flatMap(p=>{
+      const margin=Math.min(8,Math.max(0,(p.right-p.left)/2-this.foot));
+      // No passing through higher visible ledges on the descending half of the arc.
+      return this.arc(clamp(this.x,p.left+this.foot+margin,p.right-this.foot-margin),p.y,p.id);
+    });
+    // A short hop from a corner of our window straight down to the floor.
+    const p=this.support&&this.world.height-this.y<220?this.ledgeAt(this.x,this.y,this.support):null;
+    if(p)for(const side of [1,-1]){const x=clamp(side>0?p.right+this.half:p.left-this.half,this.half,this.world.width-this.half);if(Math.abs(x-this.x)<=this.half*2.5)plans.push(...this.arc(x,this.world.height,null));}
+    return plans;
+  }
+  private jumpPlan(){const plans=this.jumpPlans();return plans[Math.floor(this.random()*plans.length)]??null;}
+  /** Only destinations below us: a hop beats a rope when the drop is short. */
+  private dropPlan(){const plans=this.jumpPlans().filter(p=>p.y>this.y+1);return plans[Math.floor(this.random()*plans.length)]??null;}
   step(seconds:number,input:MotionInput){
     // Substeps prevent tunnelling through narrow ledges even after delayed frames.
     const dt=clamp(seconds,0,.1),n=Math.max(1,Math.ceil(dt/(1/60)));
     for(let i=0;i<n;i++)this.tick(dt/n,input);
     return {x:this.x,y:this.y,motion:this.motion,direction:this.direction,age:this.age};
   }
-  get ropeAnchor(){const w=this.attached;return w&&['grab','climb','pull'].includes(this.motion)?{x:this.side===1?w.x:w.x+w.width,y:w.y}:null;}
+  get ropeAnchor(){const w=this.attached;return w&&this.climbing()?{x:this.side===1?w.x:w.x+w.width,y:w.y}:null;}
   private tick(dt:number,input:MotionInput){
     if(input.paused)return;
     const oldAge=this.age;this.age+=dt;this.cooldown=Math.max(0,this.cooldown-dt);
+    if(this.support)this.perch+=dt;else if(['grounded','land','hurt'].includes(this.motion))this.perch=0;
     if(input.reduced){
+      this.descent=null;
       // Keep stable surfaces; resolve loss of support without showing a falling animation.
       if(this.motion!=='grounded'){
         const p=this.ledges.filter(p=>p.y>=this.y-3&&this.x>=p.left+this.foot&&this.x<=p.right-this.foot).sort((a,b)=>a.y-b.y)[0];
@@ -145,8 +183,20 @@ export class SurfaceMotion {
       this.x=this.pullStart.x+(targetX-this.pullStart.x)*t;this.y=this.pullStart.y+(w.y-this.pullStart.y)*t;
       if(t>=1){const p=this.ledgeAt(this.x,this.y,w.id);if(p){this.attach(p);this.enter('land');this.cooldown=6;}else this.fall();}return;
     }
+    if(this.motion==='lower'){
+      const w=this.attached;if(!w||this.edgeLanding(w,this.side)===null){this.fall();return;}
+      const edge=this.side===1?w.x:w.x+w.width,hang=edge-this.side*this.half,t=smooth(Math.min(1,this.age/.7));
+      this.x=this.pullStart.x+(hang-this.pullStart.x)*t;this.y=this.pullStart.y+(w.y+this.height*.6-this.pullStart.y)*t;
+      if(t>=1)this.enter('descend');return;
+    }
+    if(this.motion==='descend'){
+      if(!this.attached){this.fall();return;}
+      const below=this.floorBelow(this.x,this.y-1);
+      this.y=Math.min(below.y,this.y+(climbDistance(this.age,this.world.size)-climbDistance(oldAge,this.world.size)));
+      if(this.y>=below.y-.1){this.y=below.y;this.attach(below.ledge);this.vx=this.vy=0;this.enter('land');this.cooldown=5;}return;
+    }
     if(this.motion==='prepare'){
-      if(!input.autonomous||!this.plan||!this.ledges.some(p=>p.id===this.plan!.id&&Math.abs(p.y-this.plan!.y)<3&&this.plan!.x>=p.left+this.foot&&this.plan!.x<=p.right-this.foot)){this.plan=null;this.enter('grounded');return;}
+      if(!input.autonomous||!this.plan||(this.plan.id!==null&&!this.ledges.some(p=>p.id===this.plan!.id&&Math.abs(p.y-this.plan!.y)<3&&this.plan!.x>=p.left+this.foot&&this.plan!.x<=p.right-this.foot))){this.plan=null;this.enter('grounded');return;}
       if(this.age>=.28){const p=this.plan;this.attach(null);this.vx=p.vx;this.vy=p.vy;this.direction=Math.sign(this.vx)||1;this.deliberateJump=true;this.enter('jump');}return;
     }
     if(this.motion==='wobble'){
@@ -174,8 +224,17 @@ export class SurfaceMotion {
     }
     if(this.support&&!this.ledgeAt(this.x,this.y,this.support)){this.fall();return;}
     if(!this.support&&this.y<this.world.height-1){this.fall();return;}
-    if(!input.autonomous)return;
-    if(this.cooldown===0){this.cooldown=8+this.random()*8;const plan=this.jumpPlan();if(plan&&this.random()<.55){this.plan=plan;this.enter('prepare');return;}}
+    if(!input.autonomous){this.descent=null;return;}
+    if(this.descent!==null&&this.approachDescent(Math.abs(input.walk)*dt))return;
+    if(this.cooldown===0){
+      this.cooldown=8+this.random()*8;
+      // Restless on a window: hop down when the drop is short, otherwise rope down our own side.
+      if(input.walk>0&&this.random()<this.descentUrge){
+        const drop=this.dropPlan();if(drop){this.plan=drop;this.enter('prepare');return;}
+        this.seekDescent();if(this.approachDescent(Math.abs(input.walk)*dt))return;
+      }
+      const plan=this.jumpPlan();if(plan&&this.random()<.55){this.plan=plan;this.enter('prepare');return;}
+    }
     const dx=input.walk*this.direction*dt;
     if(!dx)return;
     if(this.startClimb(dx))return;

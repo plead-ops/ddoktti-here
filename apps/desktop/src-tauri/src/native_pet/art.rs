@@ -1,4 +1,4 @@
-use super::physics::climb_frame;
+use super::physics::{climb_frame, descend_frame};
 use resvg::{
     tiny_skia::{
         FilterQuality, LineCap, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform,
@@ -238,12 +238,15 @@ impl Art {
                 p.index = if mode == "fall" { 5 } else { 6 };
             }
             "wobble" => p.index = ((t / 0.25).floor() as usize).min(3),
-            "grab" | "climb" | "pull" | "prepare" | "travel-jump" => {
+            "grab" | "climb" | "pull" | "lower" | "descend" | "prepare" | "travel-jump" => {
                 p.sheet = "surfaces-v2";
                 p.index = match mode {
                     "grab" => 12 + ((t / 0.1).floor() as usize).min(3),
                     "climb" => climb_frame(t),
+                    "descend" => descend_frame(t),
                     "pull" => 4 + ((t / 0.175).floor() as usize).min(3),
+                    // Pull played backwards: swing from the ledge corner out onto the rope.
+                    "lower" => 7 - ((t / 0.175).floor() as usize).min(3),
                     "prepare" => 8,
                     _ => {
                         if t < 0.15 {
@@ -253,12 +256,12 @@ impl Art {
                         }
                     }
                 };
-                if matches!(mode, "grab" | "climb" | "pull") {
+                if matches!(mode, "grab" | "climb" | "pull" | "lower" | "descend") {
                     p.offset = (119.6 - (self.sheets[p.sheet].frames[p.index].right - 200.))
-                        * if mode == "pull" {
-                            1. - (t / 0.7).min(1.)
-                        } else {
-                            1.
+                        * match mode {
+                            "pull" => 1. - (t / 0.7).min(1.),
+                            "lower" => (t / 0.7).min(1.),
+                            _ => 1.,
                         };
                 }
             }
@@ -341,10 +344,11 @@ pub fn rope(
     if hands.len() < 2 {
         return;
     }
-    let retract = if mode == "pull" {
-        ((phase - 0.3) / 0.4).clamp(0., 1.) as f32
-    } else {
-        0.
+    let retract = match mode {
+        "pull" => ((phase - 0.3) / 0.4).clamp(0., 1.) as f32,
+        // The rope pays out from the anchor while the body swings over the corner.
+        "lower" => (1. - phase / 0.4).clamp(0., 1.) as f32,
+        _ => 0.,
     };
     let opacity = (1. - retract)
         * if mode == "grab" {
@@ -492,11 +496,25 @@ mod tests {
         rope(&mut done, (110., 20.), &hands, 0.71, "pull", 1., 1.);
         assert!(done.data().iter().all(|n| *n == 0));
         let art = Art::new().unwrap();
-        for mode in ["grab", "climb", "pull"] {
+        for mode in ["grab", "climb", "pull", "lower", "descend"] {
             for i in 0..8 {
                 let p = art.pose(mode, i as f64 * 0.1, false);
                 assert_eq!(art.hands(&p).len(), 2);
             }
         }
+        // Lowering mirrors pulling: frames reversed, body offset growing, rope paying out.
+        let pull = art.pose("pull", 0., false);
+        let lower = art.pose("lower", 0.7, false);
+        assert_eq!((pull.index, lower.index), (4, 4));
+        assert_eq!(art.pose("lower", 0., false).index, 7);
+        assert!((art.pose("lower", 0., false).offset).abs() < 1e-9);
+        assert!((lower.offset - pull.offset).abs() < 1e-9);
+        assert_eq!(art.pose("descend", 0., false).index, 3);
+        let mut start = Pixmap::new(300, 500).unwrap();
+        rope(&mut start, (110., 20.), &hands, 0., "lower", 1., 1.);
+        assert!(start.data().iter().all(|n| *n == 0));
+        let mut out = Pixmap::new(300, 500).unwrap();
+        rope(&mut out, (110., 20.), &hands, 0.5, "lower", 1., 1.);
+        assert!(out.data().chunks_exact(4).any(|p| p[3] > 0));
     }
 }

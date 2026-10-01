@@ -139,3 +139,52 @@ test('narrow exposed strip supports climbing and jumping without impossible extr
  for(let i=0;i<900&&j.motion!=='jump';i++)j.step(1/60,{...input,autonomous:true});
  assert.equal(j.motion,'jump');advance(j,2);assert.equal(j.supportId,'narrow');assert.equal(j.y,420);
 });
+
+test('restless perch ropes down its own window side and lands softly on the floor',()=>{
+ for(const [x,side,edge] of [[300,1,250],[650,-1,700]]){
+  const m=new SurfaceMotion(world([windowRect('a',250,150,450,550)],x,150),()=>.3);
+  advance(m,1);assert.equal(m.supportId,'a');assert.equal(m.descentUrge,0);
+  m.perch=200;m.cooldown=0;assert(m.descentUrge>.85);
+  const states=new Set();
+  for(let i=0;i<3600;i++){m.step(1/60,{...input,walk:80,autonomous:true});states.add(m.motion);
+   if(m.motion==='descend'){assert.deepEqual(m.ropeAnchor,{x:edge,y:150});assert.equal(m.x,edge-side*m.half);}
+   if(m.motion==='land')break;}
+  for(const s of ['lower','descend','land'])assert(states.has(s),s);
+  assert(!states.has('hurt'));assert(!states.has('fall'));
+  assert.equal(m.y,700);assert.equal(m.supportId,null);assert.equal(m.ropeAnchor,null);
+  advance(m,1,{autonomous:true});assert.equal(m.motion,'grounded');assert.equal(m.perch,0);
+ }
+});
+test('short drop hops from the corner instead of roping and never hurts',()=>{
+ const m=new SurfaceMotion(world([windowRect('a',300,560,300,140)],560,560),()=>.3);
+ advance(m,1);m.perch=200;m.cooldown=0;
+ const states=new Set();
+ for(let i=0;i<3600;i++){m.step(1/60,{...input,walk:80,autonomous:true});states.add(m.motion);if(m.motion==='land'||m.motion==='hurt')break;}
+ for(const s of ['prepare','jump'])assert(states.has(s),s);
+ assert(!states.has('lower'));assert.equal(m.motion,'land');assert.equal(m.y,700);assert.equal(m.supportId,null);assert(m.x>600);
+});
+test('descent needs an exposed corner, a clear wall and a real drop; the floor is never restless',()=>{
+ const m=new SurfaceMotion(world([windowRect('a',250,150,450,550)],400,150));advance(m,1);
+ assert(m.descentTarget(1));assert(m.descentTarget(-1));
+ m.updateWorld(world([windowRect('front',60,250,120,300),windowRect('a',250,150,450,550)],400,150));
+ assert.equal(m.descentTarget(1),null);assert(m.descentTarget(-1));
+ m.updateWorld(world([windowRect('corner',600,100,200,200),windowRect('a',250,150,450,550)],400,150));
+ assert.equal(m.descentTarget(-1),null);
+ const low=new SurfaceMotion(world([windowRect('low',250,650,450,50)],400,650));advance(low,1);assert.equal(low.descentTarget(1),null);
+ const floor=new SurfaceMotion(world([],400,700));advance(floor,1);floor.perch=500;assert.equal(floor.descentUrge,0);assert.equal(floor.descentTarget(1),null);
+});
+test('descent follows a moving window, falls when it closes and resolves under reduced motion',()=>{
+ const start=()=>{const m=new SurfaceMotion(world([windowRect('a',250,150,450,550)],300,150),()=>.3);advance(m,1);m.perch=200;m.cooldown=0;
+  for(let i=0;i<3600&&!(m.motion==='descend'&&m.age>.5);i++)m.step(1/60,{...input,walk:80,autonomous:true});assert.equal(m.motion,'descend');return m;};
+ const m=start();const {x,y}=m;
+ m.updateWorld(world([windowRect('a',280,170,450,530)],x,y));
+ assert.equal(m.motion,'descend');assert.equal(m.x,x+30);assert.equal(m.y,y+20);assert.deepEqual(m.ropeAnchor,{x:280,y:170});
+ advance(m,1);assert(['descend','land'].includes(m.motion));
+ m.updateWorld(world([]));assert.equal(m.motion,'fall');assert.equal(m.ropeAnchor,null);
+ const r=start();r.step(.1,{...input,walk:80,autonomous:true,reduced:true});assert.equal(r.motion,'grounded');assert.equal(r.y,700);
+});
+test('settled perch keeps climbing while restlessness accumulates with time and altitude',()=>{
+ const m=new SurfaceMotion(world([windowRect('low',100,500,300,200),windowRect('high',500,200,300,500)],250,500));
+ advance(m,1);assert.equal(m.supportId,'low');const perch=m.perch;advance(m,10);assert(Math.abs(m.perch-perch-10)<1e-6);assert.equal(m.descentUrge,0);
+ m.perch=120;const urge=m.descentUrge;assert(urge>.6&&urge<.7,String(urge));m.y=200;assert(m.descentUrge>urge);
+});

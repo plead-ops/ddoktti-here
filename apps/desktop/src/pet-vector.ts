@@ -1,12 +1,12 @@
 import {gaitFrame} from './pet-gait';
-import {climbFrame} from './pet-climb';
+import {climbFrame,descendFrame} from './pet-climb';
 /** SVG paths traced from the original poses, with reviewed crops, palette and proportions.
  * Preview selection and alignment follow native_pet/art.rs; locomotion uses shared gait data.
  */
 import frames from './pet-vector-frames.json';
 import artwork from './pet-vector-paths.json';
 import { behaviors, behaviorPose } from './pet-behaviors';
-export const VECTOR_POSES=['chase','petted','hurt','hang','peek','enough','ack','idle','walk','run','bored','sleepy','jump','excited','greeting','proud','shy','curious','surprised','playful','sulking','cheering','relieved','tickle','drag','dizzy','wobble','fall','land','grab','climb','pull','prepare','travel-jump','slack','calendar','timer','stretch'] as const;
+export const VECTOR_POSES=['chase','petted','hurt','hang','peek','enough','ack','idle','walk','run','bored','sleepy','jump','excited','greeting','proud','shy','curious','surprised','playful','sulking','cheering','relieved','tickle','drag','dizzy','wobble','fall','land','grab','climb','pull','lower','descend','prepare','travel-jump','slack','calendar','timer','stretch'] as const;
 export type VectorPose=typeof VECTOR_POSES[number];
 export interface VectorOptions {direction?:number;reduced?:boolean;x?:number;y?:number;scale?:number}
 type Sheet=keyof typeof frames;
@@ -33,9 +33,9 @@ export function vectorFrame(pose:string,elapsed=0,reduced=false){
   case 'wobble':index=Math.min(3,Math.floor(t/250));break;
   case 'fall':sheet='edge-v2';index=5;break;
   case 'land':sheet='edge-v2';index=6;break;
-  case 'grab':case 'climb':case 'pull':case 'prepare':case 'travel-jump':
+  case 'grab':case 'climb':case 'pull':case 'lower':case 'descend':case 'prepare':case 'travel-jump':
    sheet='surfaces-v2';
-   index=pose==='grab'?12+Math.min(3,Math.floor(t/100)):pose==='climb'?climbFrame(t/1000):pose==='pull'?4+Math.min(3,Math.floor(t/175)):pose==='prepare'?8:t<150?9:10;
+   index=pose==='grab'?12+Math.min(3,Math.floor(t/100)):pose==='climb'?climbFrame(t/1000):pose==='descend'?descendFrame(t/1000):pose==='pull'?4+Math.min(3,Math.floor(t/175)):pose==='lower'?7-Math.min(3,Math.floor(t/175)):pose==='prepare'?8:t<150?9:10;
    break;
   case 'slack':case 'calendar':case 'timer':case 'stretch':
    sheet='alerts';index=['slack','calendar','timer','stretch'].indexOf(pose)*4+(reduced?3:Math.min(3,Math.floor(t/500)));
@@ -44,7 +44,7 @@ export function vectorFrame(pose:string,elapsed=0,reduced=false){
  }
  const frame=frames[sheet].frames[index]!;
  const scale=1;
- if(['grab','climb','pull'].includes(pose))offset=(119.6-(frame.right-200))*(pose==='pull'?1-Math.min(1,t/700):1);
+ if(['grab','climb','pull','lower','descend'].includes(pose))offset=(119.6-(frame.right-200))*(pose==='pull'?1-Math.min(1,t/700):pose==='lower'?Math.min(1,t/700):1);
  return {sheet,index,frame,scale,left:-200+offset,top:-250-lift};
 }
 function content(frame:ReturnType<typeof vectorFrame>['frame']){
