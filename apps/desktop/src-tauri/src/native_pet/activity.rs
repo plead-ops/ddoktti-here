@@ -41,6 +41,10 @@ pub struct Activity {
     distance: f64,
     seam: Option<f64>,
     ceiling: f64,
+    /// Tour: the far edge we cross to along the top, chosen on arrival up there.
+    traverse: Option<f64>,
+    /// Tour: age at which we reached that edge; we rest a moment before coming down.
+    arrived: Option<f64>,
 }
 fn smooth(t: f64) -> f64 {
     let t = t.clamp(0., 1.);
@@ -109,6 +113,8 @@ impl Activity {
             distance: 0.,
             seam,
             ceiling,
+            traverse: None,
+            arrived: None,
         })
     }
     pub fn approach_from(&mut self, direction: f64) {
@@ -186,24 +192,35 @@ impl Activity {
             }
             Stage::Top => match self.kind {
                 Kind::Tour => {
+                    // Cross the whole top to the far edge, pausing to look around on
+                    // the way (4.5 s on, 2.5 s off); a nearby pointer up here draws us
+                    // along instead. Rest at the far edge, then come down.
                     mode = "hang";
                     anchor = None;
-                    let goal = cursor
+                    let margin = self.size * 0.46;
+                    let far = *self.traverse.get_or_insert(if self.x < self.width / 2. {
+                        self.width - margin
+                    } else {
+                        margin
+                    });
+                    let drawn = cursor
                         .filter(|(x, y)| (*x - self.x).abs() < self.size * 2. && *y < self.size)
-                        .map(|(x, _)| x - (x - self.x).signum() * self.size * 0.5)
-                        .unwrap_or(self.width / 2.);
-                    let dx = (goal - self.x).clamp(
-                        -self.size * 0.18 * dt * speed,
-                        self.size * 0.18 * dt * speed,
-                    );
+                        .map(|(x, _)| x - (x - self.x).signum() * self.size * 0.5);
+                    let resting = drawn.is_none() && self.age % 7. >= 4.5;
+                    let limit = self.size * 0.3 * dt * speed;
+                    let dx = if resting {
+                        0.
+                    } else {
+                        (drawn.unwrap_or(far) - self.x).clamp(-limit, limit)
+                    };
                     if dx.abs() > 0.001 {
                         self.direction = dx.signum();
                     }
-                    self.x += dx;
-                    self.x = self
-                        .x
-                        .clamp(self.size * 0.46, self.width - self.size * 0.46);
-                    if self.age > 12. {
+                    self.x = (self.x + dx).clamp(margin, self.width - margin);
+                    if drawn.is_none() && (far - self.x).abs() < 1. && self.arrived.is_none() {
+                        self.arrived = Some(self.age);
+                    }
+                    if self.arrived.is_some_and(|a| self.age - a > 2.5) || self.age > 90. {
                         self.enter(Stage::Down);
                     }
                 }
@@ -308,6 +325,37 @@ mod tests {
         }
         assert!(top && finished);
         assert_eq!(y, w.height);
+        // The tour crosses the whole top: it comes down beside the far edge, not the middle.
+        assert!(x < w.size * 0.46 + 1. || x > w.width - w.size * 0.46 - 1., "x={x}");
+    }
+    #[test]
+    fn tour_pauses_on_the_way_and_rests_at_the_far_edge_before_descending() {
+        let w = world();
+        let mut a = Activity::new(&w, Kind::Tour, 0.).unwrap();
+        a.stage = Stage::Top;
+        a.x = 200.;
+        let mut moving = 0;
+        let mut still = 0;
+        let mut top_frames = 0;
+        let mut last = a.x;
+        let mut arrived_at = None;
+        for i in 0..(120 * 60) {
+            let Some(f) = a.step(1. / 60., 1., None) else { break };
+            if a.stage != Stage::Top {
+                break;
+            }
+            top_frames += 1;
+            if (f.x - last).abs() > 1e-6 { moving += 1 } else { still += 1 }
+            if arrived_at.is_none() && (f.x - (w.width - w.size * 0.46)).abs() < 1. {
+                arrived_at = Some(i);
+            }
+            last = f.x;
+        }
+        assert!(moving > 0 && still > 0, "moves and pauses: {moving}/{still}");
+        let arrived = arrived_at.expect("reaches the far edge");
+        assert!(top_frames - arrived >= 150 - 2, "rests about 2.5 s at the edge");
+        assert!(top_frames - arrived < 200);
+        assert_eq!(a.stage, Stage::Down);
     }
     #[test]
     fn hanging_hand_touches_physical_screen_top_above_work_area() {
