@@ -50,6 +50,28 @@ fn smooth(t: f64) -> f64 {
     let t = t.clamp(0., 1.);
     t * t * (3. - 2. * t)
 }
+/// Peek profile 0..1 over the Top stage: lean out, hold, duck back, pause,
+/// then once more. Two peeks read as a game; one was easy to miss.
+pub fn peek_out(age: f64) -> f64 {
+    let cycle = |t: f64| {
+        if t < 2. {
+            smooth(t / 2.)
+        } else if t < 4. {
+            1.
+        } else if t < 5.5 {
+            1. - smooth((t - 4.) / 1.5)
+        } else {
+            0.
+        }
+    };
+    if age < 7. {
+        cycle(age)
+    } else {
+        cycle(age - 7.)
+    }
+}
+/// Seconds the Top stage of a peek lasts (two peeks and a pause).
+pub const PEEK_SECONDS: f64 = 13.5;
 pub fn layout(w: &World) -> Option<Option<f64>> {
     let tall: Vec<_> = w
         .windows
@@ -226,16 +248,10 @@ impl Activity {
                 }
                 Kind::Peek => {
                     mode = "peek";
-                    let out = if self.age < 2. {
-                        smooth(self.age / 2.)
-                    } else if self.age < 4. {
-                        1.
-                    } else {
-                        1. - smooth((self.age - 4.) / 2.)
-                    };
+                    let out = peek_out(self.age);
                     self.x = self.start_x + self.direction * self.size * 0.53 * out;
                     anchor = Some((self.goal + self.direction * self.size * 0.46, self.ceiling));
-                    if self.age > 7. {
+                    if self.age > PEEK_SECONDS {
                         self.x = self.start_x;
                         self.enter(Stage::Down);
                     }
@@ -356,6 +372,35 @@ mod tests {
         assert!(top_frames - arrived >= 150 - 2, "rests about 2.5 s at the edge");
         assert!(top_frames - arrived < 200);
         assert_eq!(a.stage, Stage::Down);
+    }
+    #[test]
+    fn peek_leans_out_twice_with_a_pause_between() {
+        assert_eq!(peek_out(0.), 0.);
+        assert_eq!(peek_out(3.), 1.);
+        assert_eq!(peek_out(6.), 0., "ducked back before the second peek");
+        assert_eq!(peek_out(10.), 1.);
+        assert_eq!(peek_out(13.), 0.);
+        let w = world();
+        let mut a = Activity::new(&w, Kind::Peek, 0.).unwrap();
+        a.stage = Stage::Top;
+        let (start, mut peaks, mut out) = (a.x, 0, false);
+        for _ in 0..(20 * 60) {
+            let Some(f) = a.step(1. / 60., 1., None) else { break };
+            if a.stage != Stage::Top {
+                break;
+            }
+            let lean = (f.x - start).abs() / (w.size * 0.53);
+            if lean > 0.98 && !out {
+                peaks += 1;
+                out = true;
+            }
+            if lean < 0.02 {
+                out = false;
+            }
+        }
+        assert_eq!(peaks, 2, "two full leans");
+        assert_eq!(a.stage, Stage::Down);
+        assert!((a.x - start).abs() < 1e-6, "descends from where it climbed");
     }
     #[test]
     fn hanging_hand_touches_physical_screen_top_above_work_area() {
