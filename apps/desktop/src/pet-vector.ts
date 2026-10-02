@@ -18,16 +18,16 @@ export function vectorFrame(pose:string,elapsed=0,reduced=false){
  const b=behaviors[pose],registered=behaviorSheets[pose];
  if(pose==='run'||pose==='chase'){sheet=pose==='chase'?'chase-v1':'run-v3';index=gaitFrame('run',t,reduced);}
  else if(b&&registered){const p=behaviorPose(b,t,reduced);sheet=registered[0];index=registered[1]*4+p.frame;lift=p.lift;
-  if(pose==='sleepy'&&!reduced&&t>=b.frameMs*4){const n=napPose((t-b.frameMs*4)/1000);index=registered[1]*4+n.frame;lift=n.lift;}}
+  if(pose==='sleepy'&&!reduced&&t>=b.frameMs*4)index=registered[1]*4+napPose((t-b.frameMs*4)/1000);}
  else switch(pose){
   case 'hurt':sheet='hurt-v1';index=t<350?0:t<1150?1:t<1750?2:t<2300?3:4;break;
   case 'petted':sheet='petted-v1';index=Math.floor(t/450)%4;offset=reduced?0:Math.sin(t/1000*Math.PI*2)*2;break;
-  case 'asleep':{const n=napPose(t/1000);if('sleep-v1' in frames){sheet='sleep-v1' as Sheet;index=reduced?0:Math.floor(t/1300)%4;}else{sheet='behaviors-v2';index=reduced?10:8+n.frame;}if(!reduced)lift=n.lift;break;}
+  case 'asleep':if('sleep-v1' in frames){sheet='sleep-v1' as Sheet;index=reduced?0:Math.floor(t/1300)%4;}else{sheet='behaviors-v2';index=reduced?10:8+napPose(t/1000);}break;
   case 'hang':sheet='surfaces-v2';index=Math.floor(t/600)%2===0?13:15;lift=index===15?3.8:0;break;
   case 'peek':sheet='surfaces-v2';index=12;break;
   case 'enough':sheet='emotions-v2';index=8+Math.min(2,Math.floor(t/200));break;
   case 'ack':sheet='emotions-v1';index=8+Math.min(3,Math.floor(t/400));break;
-  case 'idle':{const f=reduced?0:idlePose(t/1000);if('idle-v1' in frames){sheet='idle-v1' as Sheet;index=f;}else{sheet='emotions-v2';index=f===3?17:18;}if(!reduced)lift=Math.sin(t/1000*Math.PI*2/3.4)*1.4;break;}
+  case 'idle':{const f=reduced?0:idlePose(t/1000);if('idle-v1' in frames){sheet='idle-v1' as Sheet;index=f;}else{sheet='emotions-v2';index=f===3?17:18;}break;}
   case 'walk':sheet='walk';index=gaitFrame('walk',t,reduced);break;
   case 'tickle':sheet='interactions-v2';index=Math.floor(t/160)%4;break;
   case 'drag':sheet='interactions-v2';index=4+Math.floor(t/230)%4;lift=12;break;
@@ -41,7 +41,7 @@ export function vectorFrame(pose:string,elapsed=0,reduced=false){
    break;
   case 'slack':case 'calendar':case 'timer':case 'stretch':
    {const row=['slack','calendar','timer','stretch'].indexOf(pose);sheet='alerts';
-   if(!reduced&&t>=2000){const l=alertLoop(row,t/1000);index=row*4+l.frame;lift=l.lift;}else index=row*4+(reduced?3:Math.min(3,Math.floor(t/500)));
+   if(!reduced&&t>=2000)index=row*4+alertLoop(row,t/1000);else index=row*4+(reduced?3:Math.min(3,Math.floor(t/500)));
    if(!reduced&&t>800&&t<1400)lift=Math.sin((t-800)/600*Math.PI)*18;}
    break;
  }
