@@ -37,7 +37,7 @@ export class SurfaceMotion {
   private vx=0;private vy=0;
   private cooldown=4;private plan:{x:number;y:number;vx:number;vy:number;id:string|null}|null=null;
   /** Side of our own support whose corner we walk to before roping down; seconds perched on windows. */
-  private descent:1|-1|null=null;perch=0;
+  private descent:1|-1|null=null;private corner:1|-1|null=null;perch=0;
   /** Why the last autonomous choice went the way it did; seconds restless with no way down. */
   lastChoice='';private stuck=0;static readonly STUCK_AFTER=45;
   /** Where we have been lately (-1 left … +1 right, ~10 min average); strolls from the floor lean the other way. */
@@ -59,7 +59,7 @@ export class SurfaceMotion {
     return p?clamp((side>0?w.x:w.x+w.width)+side*(this.foot+3),p.left+this.foot,p.right-this.foot):null;
   }
   private attach(p:Ledge|null){this.support=p?.id??null;this.attached=this.world.windows.find(w=>w.id===this.support)??null;}
-  reset(x:number,y:number){this.fallOrigin=y;this.deliberateJump=false;this.x=clamp(x,this.half,this.world.width-this.half);this.y=clamp(y,this.height,this.world.height);this.vx=this.vy=0;this.plan=null;this.descent=null;this.attach(this.ledgeAt(this.x,this.y)??null);this.enter(this.support||this.y>=this.world.height-1?'grounded':'fall');}
+  reset(x:number,y:number){this.fallOrigin=y;this.deliberateJump=false;this.x=clamp(x,this.half,this.world.width-this.half);this.y=clamp(y,this.height,this.world.height);this.vx=this.vy=0;this.plan=null;this.descent=null;this.corner=null;this.attach(this.ledgeAt(this.x,this.y)??null);this.enter(this.support||this.y>=this.world.height-1?'grounded':'fall');}
   updateWorld(world:SurfaceWorld){
     world={...world,windows:world.windows.map(w=>({...w}))};
     if(world.monitor!==this.world.monitor||world.size!==this.world.size){this.world=world;this.ledges=exposedLedges(world);this.attached=null;this.support=null;this.reset(world.x,world.y);return;}
@@ -82,7 +82,18 @@ export class SurfaceMotion {
     }
     this.x=clamp(this.x,this.half,world.width-this.half);this.y=clamp(this.y,this.height,world.height);
   }
-  private fall(){this.fallOrigin=this.y;this.deliberateJump=false;this.attach(null);this.plan=null;this.descent=null;this.vx=this.vy=0;this.enter('fall');}
+  private fall(){this.fallOrigin=this.y;this.deliberateJump=false;this.attach(null);this.plan=null;this.descent=null;this.corner=null;this.vx=this.vy=0;this.enter('fall');}
+  /** Trapped escape: walk to the nearer end of the ledge part we stand on, then hop off it. */
+  private cornerStand(side:1|-1){if(!this.support)return null;const p=this.ledgeAt(this.x,this.y,this.support);return p?(side>0?p.right-this.foot:p.left+this.foot):null;}
+  private seekCorner(){let best:{side:1|-1;cost:number}|null=null;for(const side of [1,-1] as const){const s=this.cornerStand(side);if(s!==null){const cost=Math.abs(s-this.x);if(!best||cost<best.cost)best={side,cost};}}this.corner=best?.side??null;}
+  private approachCorner(distance:number){
+    if(this.corner===null)return false;
+    const stand=this.cornerStand(this.corner);if(stand===null){this.corner=null;return false;}
+    const dx=stand-this.x;if(Math.abs(dx)>.01)this.direction=Math.sign(dx);
+    this.x+=clamp(dx,-distance,distance);
+    if(Math.abs(stand-this.x)<.01){const side=this.corner;this.corner=null;this.direction=side;const drop=this.dropPlan();if(drop){this.plan=drop;this.lastChoice='hop-down';this.stuck=0;this.enter('prepare');}else this.cooldown=2;}
+    return true;
+  }
   private climbing(){return ['grab','climb','pull','lower','descend'].includes(this.motion);}
   private climbVisible(w:SurfaceWindow){return this.wallVisible(w,this.side,Math.min(w.y,this.y-this.height),this.y);}
   /** The strip beside the window edge between top and bottom is not covered by a window in front. */
@@ -131,19 +142,27 @@ export class SurfaceMotion {
   }
   private arc(x:number,y:number,id:string|null){
     const g=900,dx=x-this.x;
-    if(Math.abs(dx)<this.half||Math.abs(dx)>300)return [];
+    // Jumps across need room to read as a jump; a drop only needs to clear our own ledge end.
+    const least=y>this.y+1?this.foot*2:this.half;
+    if(Math.abs(dx)<least||Math.abs(dx)>300)return [];
     const rise=Math.max(70,this.y-y+55),apex=this.y-rise;
     if(apex<this.height+5)return [];
     const vy=-Math.sqrt(2*g*rise),time=(-vy+Math.sqrt(vy*vy+2*g*(y-this.y)))/g;
     if(time<=0||Math.abs(dx/time)>350)return [];
+    // A drop must have cleared our own ledge when the arc comes back down to our height.
+    if(y>this.y+1&&this.support){const own=this.ledgeAt(this.x,this.y,this.support);if(own){const back=this.x+dx/time*(2*-vy/g);if(back>own.left+this.foot-2&&back<own.right-this.foot+2)return [];}}
     return [{x,y,vx:dx/time,vy,id}];
   }
   /** `far` lifts the 220px range for destinations below us: the escape route when every rope and short hop is blocked. */
   private jumpPlans(far=false){
+    const own=this.support?this.ledgeAt(this.x,this.y,this.support):null;
     const plans=this.ledges.filter(p=>{const dy=p.y-this.y;return p.id!==this.support&&dy>-220&&(dy<220||far);}).flatMap(p=>{
       const margin=Math.min(8,Math.max(0,(p.right-p.left)/2-this.foot));
-      // No passing through higher visible ledges on the descending half of the arc.
-      return this.arc(clamp(this.x,p.left+this.foot+margin,p.right-this.foot-margin),p.y,p.id);
+      const lo=p.left+this.foot+margin,hi=p.right-this.foot-margin;
+      const xs=[clamp(this.x,lo,hi)];
+      // A ledge below us is also reached by stepping off either end of our own.
+      if(p.y>this.y&&own)for(const edge of [own.right+this.half,own.left-this.half])if(edge>=lo&&edge<=hi)xs.push(edge);
+      return xs.flatMap(x=>this.arc(x,p.y,p.id));
     });
     // A short hop from a corner of our window straight down to the floor.
     const p=this.support&&(this.world.height-this.y<220||far)?this.ledgeAt(this.x,this.y,this.support):null;
@@ -163,7 +182,7 @@ export class SurfaceMotion {
   private tick(dt:number,input:MotionInput){
     if(input.paused)return;
     const oldAge=this.age;this.age+=dt;this.cooldown=Math.max(0,this.cooldown-dt);
-    if(this.support){this.perch+=dt;if(this.lastChoice==='no-way-down')this.stuck+=dt;}else if(['grounded','land','hurt'].includes(this.motion)){this.perch=0;this.stuck=0;}
+    if(this.support){this.perch+=dt;if(this.descentUrge>=.5&&!['rope-down','hop-down'].includes(this.lastChoice)&&!this.plan&&this.descent===null)this.stuck+=dt;}else if(['grounded','land','hurt'].includes(this.motion)){this.perch=0;this.stuck=0;}
     const here=clamp((this.x-this.world.width/2)/(this.world.width/2),-1,1);this.balance+=(here-this.balance)*Math.min(1,dt/300);
     if(input.reduced){
       this.descent=null;
@@ -234,6 +253,7 @@ export class SurfaceMotion {
     if(!this.support&&this.y<this.world.height-1){this.fall();return;}
     if(!input.autonomous){this.descent=null;return;}
     if(this.descent!==null&&this.approachDescent(Math.abs(input.walk)*dt))return;
+    if(this.corner!==null&&this.approachCorner(Math.abs(input.walk)*dt))return;
     if(this.cooldown===0){
       this.cooldown=8+this.random()*8;
       // Restless on a window: hop down when the drop is short, otherwise rope down our own side.
@@ -241,6 +261,8 @@ export class SurfaceMotion {
         const drop=this.dropPlan();if(drop){this.plan=drop;this.lastChoice='hop-down';this.stuck=0;this.enter('prepare');return;}
         this.seekDescent();if(this.approachDescent(Math.abs(input.walk)*dt)){this.lastChoice='rope-down';this.stuck=0;return;}
         this.lastChoice=!this.descentTarget(1)&&!this.descentTarget(-1)?'no-way-down':'descent-blocked';
+        // Trapped long enough: walk to the end of this ledge and hop off it.
+        if(this.stuck>=SurfaceMotion.STUCK_AFTER){this.seekCorner();if(this.approachCorner(Math.abs(input.walk)*dt)){this.lastChoice='corner-hop';return;}}
       }
       const plan=this.jumpPlan();if(plan&&this.random()<.55){this.plan=plan;this.lastChoice='jump';this.enter('prepare');return;}
     }

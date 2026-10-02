@@ -206,3 +206,14 @@ test('restless character escapes a window pocket to the floor instead of re-clim
  assert(floorAt!==null&&floorAt<300,'reaches the floor within five minutes: '+floorAt);
  assert.notEqual(m.motion,'hurt');
 });
+
+test('trapped window top is left by walking to its end and hopping off (no rope, far floor)',()=>{
+ const windows=[{id:'left',x:60,y:500,width:300,height:1540},{id:'right',x:2250,y:500,width:300,height:1540},{id:'wide',x:300,y:400,width:2000,height:1640}];
+ const m=new SurfaceMotion({monitor:'m',width:3840,height:2040,size:204,x:1300,y:400,windows},()=>.3);
+ advance(m,2);assert.equal(m.supportId,'wide');assert.equal(m.descentTarget(1),null);assert.equal(m.descentTarget(-1),null);
+ m.perch=200;m.cooldown=0;
+ let leftAt=null;
+ for(let i=0;i<600*60;i++){m.step(1/60,{...input,walk:65,autonomous:true});if(m.supportId!=='wide'&&m.motion==='grounded'&&m.y>400){leftAt=i/60;break;}}
+ assert(leftAt!==null&&leftAt<240,'steps off the wide window: '+leftAt);
+ assert.notEqual(m.motion,'hurt');
+});
