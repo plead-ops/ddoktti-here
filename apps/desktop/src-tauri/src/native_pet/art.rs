@@ -57,7 +57,7 @@ pub fn alert_loop(row: usize, t: f64) -> usize {
         _ => (3, 2, 1.3),
     };
     let loop_t = t - 2.;
-    if ((loop_t / period).floor() as usize) % 2 == 0 { a } else { b }
+    if ((loop_t / period).floor() as usize).is_multiple_of(2) { a } else { b }
 }
 /// Idle loop on the head-tilt sheet (front, tilt left, tilt right, blink):
 /// front → left → front → right → front over 7.2 s, a 0.15 s blink while facing
@@ -82,7 +82,7 @@ pub fn idle_pose(t: f64) -> usize {
 /// between the two eyes-closed drawings (offset within the row).
 /// Keep in sync with `napPose` in pet-behaviors.ts.
 pub fn nap_pose(nap: f64) -> usize {
-    if ((nap / 1.4).floor() as usize) % 2 == 0 { 2 } else { 3 }
+    if ((nap / 1.4).floor() as usize).is_multiple_of(2) { 2 } else { 3 }
 }
 pub fn duration(mode: &str) -> f64 {
     match mode {

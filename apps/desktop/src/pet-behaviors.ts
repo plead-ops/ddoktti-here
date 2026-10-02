@@ -27,4 +27,4 @@ export function alertLoop(row:number,seconds:number){const [a,b,period]=row===0?
 export function idlePose(seconds:number){const cycle=seconds%7.2;const frame=cycle>=1.4&&cycle<2.8?1:cycle>=4&&cycle<5.4?2:0;const blink=seconds%4.1;return frame===0&&blink>=3.55&&blink<3.7?3:frame;}
 /** Dozing loop after the yawn: nod between the two eyes-closed drawings (row offset). Mirrors art.rs nap_pose. */
 export function napPose(napSeconds:number){return Math.floor(napSeconds/1.4)%2===0?2:3;}
-export function clickBehavior(mode:string,dragged:boolean,hasAlert:boolean):"wake"|"tickle"|"none" {return dragged?"none":mode==="sleepy"&&!hasAlert?"wake":"tickle";}
+export function clickBehavior(mode:string,dragged:boolean,hasAlert:boolean):"wake"|"tickle"|"none" {return dragged?"none":(mode==="sleepy"||mode==="asleep")&&!hasAlert?"wake":"tickle";}

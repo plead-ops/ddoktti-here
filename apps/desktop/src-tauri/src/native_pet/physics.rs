@@ -135,6 +135,8 @@ pub struct Physics {
     descent: Option<f64>,
     /// Side of our own ledge whose end we walk to before hopping off it (trapped escape).
     corner: Option<f64>,
+    /// Ledge end that offered no hop this round; the other end is tried next.
+    corner_tried: Option<f64>,
     /// Seconds spent on windows since last standing on the desktop floor.
     pub perch: f64,
     pull_start: (f64, f64),
@@ -178,6 +180,7 @@ impl Physics {
             approach: None,
             descent: None,
             corner: None,
+            corner_tried: None,
             perch: 0.,
             pull_start: (0., 0.),
             seed: 0x927fd,
@@ -522,12 +525,19 @@ impl Physics {
     fn seek_corner(&mut self) {
         let mut best: Option<(f64, f64)> = None;
         for side in [1., -1.] {
+            if self.corner_tried == Some(side) {
+                continue;
+            }
             if let Some(stand) = self.corner_stand(side) {
                 let cost = (stand - self.x).abs();
                 if best.is_none_or(|b| cost < b.1) {
                     best = Some((side, cost));
                 }
             }
+        }
+        // Both ends failed this round: start over from the nearer one next time.
+        if best.is_none() {
+            self.corner_tried = None;
         }
         self.corner = best.map(|b| b.0);
     }
@@ -537,6 +547,7 @@ impl Physics {
         };
         let Some(stand) = self.corner_stand(side) else {
             self.corner = None;
+            self.cooldown = 2.;
             return false;
         };
         let dx = stand - self.x;
@@ -551,8 +562,11 @@ impl Physics {
                 self.plan = Some(p);
                 self.last_choice = "hop-down";
                 self.stuck = 0.;
+                self.corner_tried = None;
                 self.entering(Motion::Prepare);
             } else {
+                // Nothing to hop onto from this end: the other end is next.
+                self.corner_tried = Some(side);
                 self.cooldown = 2.;
             }
         }
@@ -721,7 +735,7 @@ impl Physics {
         }
         false
     }
-    fn arc(&self, x: f64, y: f64, id: Option<String>) -> Option<Plan> {
+    fn arc(&self, x: f64, y: f64, id: Option<String>, own: Option<&Ledge>) -> Option<Plan> {
         let dx = x - self.x;
         // Jumps across need room to be read as a jump; a drop only needs to clear
         // our own ledge, which the caller guarantees by aiming past its end.
@@ -741,7 +755,7 @@ impl Physics {
         // A drop must have cleared our own ledge when the arc comes back down to
         // our height, or we simply land where we started.
         if y > self.y + 1. {
-            if let Some(own) = self.at(self.x, self.y, self.support.as_deref()) {
+            if let Some(own) = own {
                 let back = self.x + dx / time * (2. * -vy / 900.);
                 if back > own.left + self.foot() - 2. && back < own.right - self.foot() + 2. {
                     return None;
@@ -762,6 +776,7 @@ impl Physics {
     /// when every rope and short hop is blocked. Deliberate, so never a hurt.
     fn jump_plans(&self, far: bool) -> Vec<Plan> {
         let mut plans = Vec::new();
+        let own = self.at(self.x, self.y, self.support.as_deref());
         for p in &self.ledges {
             let dy = p.y - self.y;
             if Some(&p.id) == self.support.as_ref() || dy <= -220. || (dy >= 220. && !far) {
@@ -772,7 +787,7 @@ impl Physics {
             let mut xs = vec![clamp(self.x, lo, hi)];
             // A ledge below us is also reached by stepping off either end of our own.
             if dy > 0. {
-                if let Some(own) = self.at(self.x, self.y, self.support.as_deref()) {
+                if let Some(own) = own.as_ref() {
                     for edge in [own.right + self.half(), own.left - self.half()] {
                         if (lo..=hi).contains(&edge) {
                             xs.push(edge);
@@ -781,12 +796,12 @@ impl Physics {
                 }
             }
             for x in xs {
-                plans.extend(self.arc(x, p.y, Some(p.id.clone())));
+                plans.extend(self.arc(x, p.y, Some(p.id.clone()), own.as_ref()));
             }
         }
         // A short hop from a corner of our window straight down to the floor.
         if self.support.is_some() && (self.world.height - self.y < 220. || far) {
-            if let Some(p) = self.at(self.x, self.y, self.support.as_deref()) {
+            if let Some(p) = own.as_ref() {
                 for side in [1., -1.] {
                     let x = clamp(
                         if side > 0. {
@@ -798,7 +813,7 @@ impl Physics {
                         self.world.width - self.half(),
                     );
                     if (x - self.x).abs() <= self.half() * 2.5 {
-                        plans.extend(self.arc(x, self.world.height, None));
+                        plans.extend(self.arc(x, self.world.height, None, Some(p)));
                     }
                 }
             }
@@ -834,6 +849,7 @@ impl Physics {
         if next < left || next > right {
             self.approach = None;
             self.descent = None;
+            self.corner = None;
             self.entering(Motion::Wobble);
             return true;
         }
@@ -863,12 +879,14 @@ impl Physics {
         } else if matches!(self.motion, Motion::Grounded | Motion::Land | Motion::Hurt) {
             self.perch = 0.;
             self.stuck = 0.;
+            self.corner_tried = None;
         }
         let here = ((self.x - self.world.width / 2.) / (self.world.width / 2.)).clamp(-1., 1.);
         self.balance += (here - self.balance) * (dt / 300.).min(1.);
         if reduced {
             self.approach = None;
             self.descent = None;
+            self.corner = None;
             if self.busy() {
                 let p = self
                     .ledges
@@ -1093,6 +1111,7 @@ impl Physics {
         if !autonomous {
             self.approach = None;
             self.descent = None;
+            self.corner = None;
             return;
         }
         if self.approaching()
@@ -1973,6 +1992,31 @@ mod field_layout {
         assert!(t < 240, "took {t}s");
         assert_eq!(climbed_up, 0, "a restless character never climbs higher");
         assert_ne!(p.motion, Motion::Hurt);
+    }
+    #[test]
+    fn trapped_escape_tries_the_far_end_when_the_near_end_offers_nothing() {
+        // The wide window is flush with the left screen edge: its left end offers
+        // no hop (off screen) and no rope; only a window under the right end does.
+        let windows = vec![
+            WindowRect { id: "right".into(), x: 2250., y: 500., width: 300., height: 1540. },
+            WindowRect { id: "wide".into(), x: 0., y: 400., width: 2300., height: 1640. },
+        ];
+        let world = World { monitor: "m".into(), width: 3840., height: 2040., size: 204., x: 300., y: 400., windows };
+        let mut p = Physics::new(world);
+        advance(&mut p, 2., 0., false);
+        assert_eq!(p.support.as_deref(), Some("wide"));
+        p.perch = 200.;
+        p.cooldown = 0.;
+        let mut left_at = None;
+        for i in 0..(600 * 60) {
+            p.step(1. / 60., 65., true, false);
+            if p.support.as_deref() != Some("wide") && p.motion == Motion::Grounded && p.y > 400. {
+                left_at = Some(i / 60);
+                break;
+            }
+        }
+        let t = left_at.expect("walks over to the right end and hops off");
+        assert!(t < 300, "took {t}s");
     }
     #[test]
     fn restless_character_escapes_a_window_pocket_to_the_floor() {

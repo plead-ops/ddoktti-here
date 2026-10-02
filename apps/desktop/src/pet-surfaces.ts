@@ -37,7 +37,7 @@ export class SurfaceMotion {
   private vx=0;private vy=0;
   private cooldown=4;private plan:{x:number;y:number;vx:number;vy:number;id:string|null}|null=null;
   /** Side of our own support whose corner we walk to before roping down; seconds perched on windows. */
-  private descent:1|-1|null=null;private corner:1|-1|null=null;perch=0;
+  private descent:1|-1|null=null;private corner:1|-1|null=null;private cornerTried:1|-1|null=null;perch=0;
   /** Why the last autonomous choice went the way it did; seconds restless with no way down. */
   lastChoice='';private stuck=0;static readonly STUCK_AFTER=45;
   /** Where we have been lately (-1 left … +1 right, ~10 min average); strolls from the floor lean the other way. */
@@ -85,13 +85,13 @@ export class SurfaceMotion {
   private fall(){this.fallOrigin=this.y;this.deliberateJump=false;this.attach(null);this.plan=null;this.descent=null;this.corner=null;this.vx=this.vy=0;this.enter('fall');}
   /** Trapped escape: walk to the nearer end of the ledge part we stand on, then hop off it. */
   private cornerStand(side:1|-1){if(!this.support)return null;const p=this.ledgeAt(this.x,this.y,this.support);return p?(side>0?p.right-this.foot:p.left+this.foot):null;}
-  private seekCorner(){let best:{side:1|-1;cost:number}|null=null;for(const side of [1,-1] as const){const s=this.cornerStand(side);if(s!==null){const cost=Math.abs(s-this.x);if(!best||cost<best.cost)best={side,cost};}}this.corner=best?.side??null;}
+  private seekCorner(){let best:{side:1|-1;cost:number}|null=null;for(const side of [1,-1] as const){if(this.cornerTried===side)continue;const s=this.cornerStand(side);if(s!==null){const cost=Math.abs(s-this.x);if(!best||cost<best.cost)best={side,cost};}}if(!best)this.cornerTried=null;this.corner=best?.side??null;}
   private approachCorner(distance:number){
     if(this.corner===null)return false;
-    const stand=this.cornerStand(this.corner);if(stand===null){this.corner=null;return false;}
+    const stand=this.cornerStand(this.corner);if(stand===null){this.corner=null;this.cooldown=2;return false;}
     const dx=stand-this.x;if(Math.abs(dx)>.01)this.direction=Math.sign(dx);
     this.x+=clamp(dx,-distance,distance);
-    if(Math.abs(stand-this.x)<.01){const side=this.corner;this.corner=null;this.direction=side;const drop=this.dropPlan();if(drop){this.plan=drop;this.lastChoice='hop-down';this.stuck=0;this.enter('prepare');}else this.cooldown=2;}
+    if(Math.abs(stand-this.x)<.01){const side=this.corner;this.corner=null;this.direction=side;const drop=this.dropPlan();if(drop){this.plan=drop;this.lastChoice='hop-down';this.stuck=0;this.cornerTried=null;this.enter('prepare');}else{this.cornerTried=side;this.cooldown=2;}}
     return true;
   }
   private climbing(){return ['grab','climb','pull','lower','descend'].includes(this.motion);}
@@ -182,10 +182,10 @@ export class SurfaceMotion {
   private tick(dt:number,input:MotionInput){
     if(input.paused)return;
     const oldAge=this.age;this.age+=dt;this.cooldown=Math.max(0,this.cooldown-dt);
-    if(this.support){this.perch+=dt;if(this.descentUrge>=.5&&!['rope-down','hop-down'].includes(this.lastChoice)&&!this.plan&&this.descent===null)this.stuck+=dt;}else if(['grounded','land','hurt'].includes(this.motion)){this.perch=0;this.stuck=0;}
+    if(this.support){this.perch+=dt;if(this.descentUrge>=.5&&!['rope-down','hop-down'].includes(this.lastChoice)&&!this.plan&&this.descent===null)this.stuck+=dt;}else if(['grounded','land','hurt'].includes(this.motion)){this.perch=0;this.stuck=0;this.cornerTried=null;}
     const here=clamp((this.x-this.world.width/2)/(this.world.width/2),-1,1);this.balance+=(here-this.balance)*Math.min(1,dt/300);
     if(input.reduced){
-      this.descent=null;
+      this.descent=null;this.corner=null;
       // Keep stable surfaces; resolve loss of support without showing a falling animation.
       if(this.motion!=='grounded'){
         const p=this.ledges.filter(p=>p.y>=this.y-3&&this.x>=p.left+this.foot&&this.x<=p.right-this.foot).sort((a,b)=>a.y-b.y)[0];
@@ -251,7 +251,7 @@ export class SurfaceMotion {
     }
     if(this.support&&!this.ledgeAt(this.x,this.y,this.support)){this.fall();return;}
     if(!this.support&&this.y<this.world.height-1){this.fall();return;}
-    if(!input.autonomous){this.descent=null;return;}
+    if(!input.autonomous){this.descent=null;this.corner=null;return;}
     if(this.descent!==null&&this.approachDescent(Math.abs(input.walk)*dt))return;
     if(this.corner!==null&&this.approachCorner(Math.abs(input.walk)*dt))return;
     if(this.cooldown===0){
@@ -272,7 +272,7 @@ export class SurfaceMotion {
     if(this.descentUrge<.5&&this.startClimb(dx))return;
     const next=this.x+dx,p=this.support?this.ledgeAt(this.x,this.y,this.support):null;
     const left=p?p.left+this.foot:this.half,right=p?p.right-this.foot:this.world.width-this.half;
-    if(next<left||next>right){this.x=clamp(next,left,right);this.enter('wobble');return;}
+    if(next<left||next>right){this.x=clamp(next,left,right);this.corner=null;this.enter('wobble');return;}
     this.x=next;
   }
 }
