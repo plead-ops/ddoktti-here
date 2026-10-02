@@ -368,7 +368,8 @@
     "eyeSpan": 253.0,
     "headCenter": 368.6,
     "neck": 388,
-    "headTop": 141
+    "headTop": 141,
+    "hem": true
    },
    {
     "sheet": "idle-v1",
@@ -380,7 +381,8 @@
     "eyeSpan": 253.0,
     "headCenter": 312.5,
     "neck": 390,
-    "headTop": 129
+    "headTop": 129,
+    "hem": true
    },
    {
     "sheet": "idle-v1",
@@ -392,7 +394,8 @@
     "eyeSpan": 253.0,
     "headCenter": 358.9,
     "neck": 359,
-    "headTop": 109
+    "headTop": 109,
+    "hem": true
    },
    {
     "sheet": "idle-v1",
@@ -404,7 +407,8 @@
     "eyeSpan": 253.0,
     "headCenter": 314.0,
     "neck": 366,
-    "headTop": 124
+    "headTop": 124,
+    "hem": true
    }
   ]
  }

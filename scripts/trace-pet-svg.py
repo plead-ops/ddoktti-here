@@ -37,7 +37,7 @@ def colour(r,g,b,outline=True,bed=False):
     else:key='pink' if s<.65 else 'red'
     return tuple(bytes.fromhex(PALETTE[key][1:]))
 
-def clean_pixels(im,suit_from=None,keep_dark=False,bed=False):
+def clean_pixels(im,suit_from=None,keep_dark=False,bed=False,hem=False):
     rgba=im.convert('RGBA');rgb=rgba.convert('RGB').filter(ImageFilter.MedianFilter(3))
     pixels=list(rgb.get_flattened_data());alpha=list(rgba.getchannel('A').get_flattened_data())
     colours=[colour(*c,bed=bed) for c in pixels]
@@ -68,12 +68,19 @@ def clean_pixels(im,suit_from=None,keep_dark=False,bed=False):
             darkness=sum(max(pixels[index])/255 for index in component)/len(component) if keep_dark else 1
             if bottom>=suit_from and len(component)>=minimum and darkness>=.19:
                 for index in component:colours[index]=suit
+    if hem:
+        # Generated sheets draw the jacket hem and seams as a darker navy band (value
+        # .11-.22) rather than ink; keep that band as ink after the coat flattening.
+        ink=tuple(bytes.fromhex(PALETTE['ink'][1:]))
+        for index,((r,g,b),a) in enumerate(zip(pixels,alpha)):
+            v=max(r,g,b)/255
+            if a>=128 and b>r and .11<=v<=.22 and (suit_from is None or index//im.size[0]>=suit_from):colours[index]=ink
     clean=Image.new('RGBA',im.size)
     clean.putdata([(*c,255 if a>=128 else 0) for c,a in zip(colours,alpha)])
     return clean
 
-def trace(im,suit_from=None,keep_dark=False,bed=False):
-    clean=clean_pixels(im,suit_from,keep_dark,bed)
+def trace(im,suit_from=None,keep_dark=False,bed=False,hem=False):
+    clean=clean_pixels(im,suit_from,keep_dark,bed,hem)
     svg=vtracer.convert_pixels_to_svg(list(clean.get_flattened_data()),clean.size,colormode='color',hierarchical='stacked',mode='spline',filter_speckle=4,color_precision=8,layer_difference=0,corner_threshold=60,length_threshold=4.0,max_iterations=10,splice_threshold=45,path_precision=2)
     # Tracer averages edge clusters: snap output fills to the exact shared colours.
     allowed=[v for k,v in PALETTE.items() if bed or k not in BED_KEYS]
@@ -118,7 +125,7 @@ def generated_frames(atlas,manifest):
             scale=90/guide['eyeSpan']
             def transform(x,y):return 200+(x-guide['headCenter'])*scale*(-1 if guide.get('mirror') else 1),250+(y-bottom)*scale
             key=f'{sheet}-{index}'
-            atlas[key]=paths(trace(tile,suit_from=guide['neck'],keep_dark=True,bed=guide.get('palette')=='bed'),transform)
+            atlas[key]=paths(trace(tile,suit_from=guide['neck'],keep_dark=True,bed=guide.get('palette')=='bed',hem=bool(guide.get('hem'))),transform)
             hits=[]
             for y in range(top,bottom,16):
                 end=min(y+16,bottom);box=alpha.crop((0,y,tile.width,end)).getbbox()
