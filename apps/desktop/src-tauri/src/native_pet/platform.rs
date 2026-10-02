@@ -436,6 +436,17 @@ mod implementation {
                 x: position.0.round() as i32,
                 y: position.1.round() as i32,
             };
+            // Apply the new frame explicitly first. Relying on UpdateLayeredWindow's
+            // size alone left the window at its previous size on Windows: a rope
+            // descent from the screen top showed only the rope hook until landing,
+            // and a fast swing clipped the body. SWP_NOSENDCHANGING keeps the
+            // windowing layer from adjusting the requested size.
+            #[link(name = "user32")]
+            extern "system" {
+                fn SetWindowPos(w: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+            }
+            // SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING
+            SetWindowPos(hwnd, 0, destination.x, destination.y, size.x, size.y, 0x4 | 0x10 | 0x200 | 0x400);
             let ok =
                 UpdateLayeredWindow(hwnd, screen, &destination, &size, dc, &origin, 0, &blend, 2);
             SelectObject(dc, old);

@@ -296,3 +296,7 @@ v0.1.18에서도 창 위에서 내려오지 않는 경우가 남아 있었다. �
 ### 간편 답글·이모지 (2026-10-02)
 
 Slack 알림 말풍선에 이모지 4개(👍 ✅ 👀 🙏)와 한 줄 답글 입력을 넣었다. 데스크톱 명령 `slack_reply`/`slack_react`가 중계 서버의 `/v1/reply`·`/v1/react`에 알림 id와 내용을 보내고, 서버가 보관 중인 (채널, 메시지 ts, 스레드 루트)로 사용자 토큰의 `chat.postMessage`(스레드 답글)·`reactions.add`를 호출한다. 성공하면 알림을 닫는다. 새 사용자 스코프 `chat:write`·`reactions:write`가 필요해 이전 세션은 403을 받고 "설정에서 Slack을 다시 연결해 주세요"를 표시한다. Slack 앱 설정(User Token Scopes)에도 두 스코프를 추가해야 로그인 때 요청할 수 있다. 전송 중에는 버튼을 잠그고, 알림이 바뀌면 입력을 비운다.
+
+### Windows 캔버스 크기 갱신 (2026-10-02)
+
+Windows에서 화면 상단에서 줄을 타고 내려올 때 줄 상단만 보이고 캐릭터는 착지 뒤에야 보였다. 하강 중에는 캔버스가 줄 고정점(화면 위)부터 캐릭터 발까지 매 프레임 커지는데, `UpdateLayeredWindow`의 크기 인자만으로는 창 크기가 이전 값에 머물러 캔버스 윗부분(줄 고정점)만 표시됐다. 빠른 드래그 회전 때 몸이 잘리던 것도 같은 원인이다. 이제 `present`가 `UpdateLayeredWindow` 직전에 `SetWindowPos`(SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING)로 위치와 크기를 먼저 적용한다. SWP_NOSENDCHANGING으로 창 계층(Tao)이 요청 크기를 조정하지 못하게 한다. macOS에서는 재현되지 않으며 Windows 실기 확인이 필요하다.
