@@ -330,6 +330,14 @@ pub fn start(app: AppHandle) {
                         }
                     }
                 }
+                // Messages already read in Slack (on any device) need no bubble here.
+                if let Some(read) = data["read"].as_array() {
+                    for id in read.iter().filter_map(|v| v.as_str()).take(50) {
+                        if id.starts_with("slack:") {
+                            let _ = crate::companion::dismiss_alert(app.clone(), id.to_string(), None);
+                        }
+                    }
+                }
                 Ok(())
             })();
             let mut notice = None;
