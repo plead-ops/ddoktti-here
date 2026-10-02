@@ -198,6 +198,25 @@ pub fn set_preferences(app: AppHandle, patch: Value) -> Result<(), String> {
     emit(&app);
     Ok(())
 }
+/// Calendar alerts for one event share this key ("calendar:<event>"), whatever
+/// the reminder lead ("calendar:<event>:reminder:<minutes>").
+fn calendar_event(id: &str) -> Option<&str> {
+    let rest = id.strip_prefix("calendar:")?;
+    Some(match rest.rsplit_once(":reminder:") {
+        Some((event, n)) if n.parse::<u64>().is_ok() => event,
+        _ => rest,
+    })
+}
+/// A newer reminder for the same event replaces the earlier one (shown or snoozed)
+/// instead of stacking "1/2" bubbles that say the same thing.
+fn supersedes(new_id: &str, old: &Value) -> bool {
+    old["source"] == "calendar"
+        && old["id"].as_str().is_some_and(|old_id| {
+            old_id != new_id
+                && calendar_event(old_id).is_some()
+                && calendar_event(old_id) == calendar_event(new_id)
+        })
+}
 pub fn push(app: &AppHandle, mut payload: Value) -> Result<(), String> {
     // Returning success still acknowledges relay delivery; do not replay after focus leaves.
     if payload["source"] == "slack" && crate::foreground::slack_active() {
@@ -223,6 +242,12 @@ pub fn push(app: &AppHandle, mut payload: Value) -> Result<(), String> {
         }
         if payload["source"] == "slack" && payload["expiresAt"].as_u64().is_none() {
             payload["expiresAt"] = json!(now() + 90);
+        }
+        if payload["source"] == "calendar" {
+            if let Some(id) = payload["id"].as_str().map(str::to_owned) {
+                s.alerts.retain(|a| !supersedes(&id, a));
+                s.snoozed.retain(|_, v| !supersedes(&id, &v.1));
+            }
         }
         if !s.alerts.iter().any(|a| a["id"] == payload["id"]) {
             if s.alerts.len() >= 50 {
@@ -517,6 +542,22 @@ pub fn start(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_newer_reminder_replaces_the_same_events_earlier_one() {
+        use serde_json::json;
+        let old = json!({"source":"calendar","id":"calendar:abc:reminder:30"});
+        assert!(super::supersedes("calendar:abc:reminder:5", &old));
+        assert!(super::supersedes("calendar:abc", &old), "legacy single reminder id");
+        assert!(!super::supersedes("calendar:abc:reminder:30", &old), "same alert");
+        assert!(!super::supersedes("calendar:xyz:reminder:5", &old), "another event");
+        assert!(!super::supersedes(
+            "calendar:abc:reminder:5",
+            &json!({"source":"slack","id":"calendar:abc:reminder:30"})
+        ));
+        // Event ids that themselves contain colons keep working.
+        assert_eq!(super::calendar_event("calendar:a:b:reminder:10"), Some("a:b"));
+        assert_eq!(super::calendar_event("calendar:a:b"), Some("a:b"));
+    }
     use super::*;
     #[test]
     fn old_empty_settings_are_safe() {
