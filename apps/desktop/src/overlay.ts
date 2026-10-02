@@ -32,6 +32,7 @@ function render(rotate=false){document.documentElement.classList.toggle('reduce-
  const urgent=alerts[0],chosen=alerts.find(a=>a.id===choice),next=!rotate&&urgent&&chosen&&priority(urgent)<priority(chosen)?urgent:chosen??urgent;choice=next?.id;
  if(next?.id!==current?.id){changedAt=performance.now();if(next&&!seen.has(next.id)){if(!state.hidden)beep();seen.add(next.id);if(seen.size>200){const alive=new Set(alerts.map(a=>a.id));for(const id of seen)if(!alive.has(id))seen.delete(id);}}}current=next;
  $('pet-root').hidden=false;$('pet-menu').hidden=!pet.menu;$('bubble').hidden=!next||pet.busy||pet.dragging||pet.menu||!!pet.reaction;
+ $('slack-actions').hidden=next?.source!=='slack';if(next?.id!==replyFor){replyFor=next?.id;$<HTMLInputElement>('reply-text').value='';}
  entrance.show($('bubble'),next?.id,cfg.reduce_motion);
  $('pet-reaction').hidden=!pet.reaction||pet.busy||pet.dragging||pet.menu;$('pet-reaction').textContent=pet.reaction??'';
  const calendar=next?.source==='calendar'&&typeof next.startsAt==='number';
@@ -42,6 +43,17 @@ function menu(show:boolean){pet.menu=show;render();run(()=>invoke('native_pet_ui
 async function dismiss(snoozeSeconds?:number){if(current)await invoke('dismiss_alert',{id:current.id,snoozeSeconds});}
 $('dismiss').onclick=()=>run(()=>dismiss());$('snooze').onclick=()=>run(()=>dismiss(300));
 for(const [id,key] of [['open','deepLink'],['meeting','meetingUrl']] as const)$(id).onclick=()=>run(async()=>{const link=current?.[key];if(safe(link)){await openUrl(link!);await dismiss();}});
+let replyFor:string|undefined,sending=false;
+async function act(kind:'reply'|'react',value:string){
+ if(!current||sending)return;sending=true;
+ const buttons=[...$('slack-actions').querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
+ try{
+  if(kind==='reply')await invoke('slack_reply',{id:current.id,text:value});else await invoke('slack_react',{id:current.id,name:value});
+  $<HTMLInputElement>('reply-text').value='';await dismiss();
+ }finally{sending=false;buttons.forEach(b=>b.disabled=false);}
+}
+$('slack-actions').querySelectorAll<HTMLButtonElement>('[data-react]').forEach(b=>b.onclick=()=>run(()=>act('react',b.dataset.react!)));
+$('reply-form').onsubmit=e=>{e.preventDefault();const text=$<HTMLInputElement>('reply-text').value.trim();if(text)run(()=>act('reply',text));};
 function nextAlert(){if(!state)return;const list=[...state.alerts].sort((a,b)=>priority(a)-priority(b)||a.createdAt-b.createdAt);choice=list[(list.findIndex(a=>a.id===current?.id)+1)%list.length]?.id;render(true);}
 $('next-alert').onclick=nextAlert;
 setInterval(()=>{if(pet.menu)renderMenu();},1000);

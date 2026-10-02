@@ -613,6 +613,8 @@ pub fn run() {
             slack::slack_connect,
             slack::slack_disconnect,
             slack::slack_filters,
+            slack::slack_reply,
+            slack::slack_react,
             calendar::calendar_status,
             calendar::calendar_connect,
             calendar::calendar_disconnect,

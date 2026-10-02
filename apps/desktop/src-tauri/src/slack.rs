@@ -225,6 +225,40 @@ pub async fn slack_disconnect(app: AppHandle) -> Result<(), String> {
     .await
     .map_err(|_| "연결 해제 작업 오류".to_string())?
 }
+/// Quick reply or emoji reaction to a delivered Slack alert, sent as the user
+/// through the relay. Sessions created before the write scopes existed get a
+/// reconnect hint instead of a silent failure.
+fn act(path: &str, payload: Value) -> Result<(), String> {
+    let token = credential()?
+        .get_password()
+        .map_err(|_| "Slack에 연결해 주세요")?;
+    let r = client()?
+        .post(endpoint(path)?)
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .map_err(|_| "오프라인 · 잠시 후 다시 시도해 주세요")?;
+    match r.status().as_u16() {
+        200 => Ok(()),
+        403 => Err("답글·이모지를 보내려면 설정에서 Slack을 다시 연결해 주세요".into()),
+        401 => Err("Slack에 다시 연결해 주세요".into()),
+        404 => Err("이 알림에는 더 이상 답할 수 없어요".into()),
+        400 => Err("보낼 내용을 확인해 주세요".into()),
+        _ => Err("Slack에 보내지 못했어요. 잠시 후 다시 시도해 주세요".into()),
+    }
+}
+#[tauri::command]
+pub async fn slack_reply(id: String, text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || act("/v1/reply", json!({"id":id,"text":text})))
+        .await
+        .map_err(|_| "답글 작업 오류".to_string())?
+}
+#[tauri::command]
+pub async fn slack_react(id: String, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || act("/v1/react", json!({"id":id,"name":name})))
+        .await
+        .map_err(|_| "이모지 작업 오류".to_string())?
+}
 #[tauri::command]
 pub async fn slack_filters(app: AppHandle, filters: Value) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
