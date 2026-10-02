@@ -1072,11 +1072,9 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         r.pending_sulk = true;
     }
     if calm && r.pending_sulk && r.nudge_wait == 0. {
+        // The sulk alone tells the story; no bubble for a closed window.
         r.pending_sulk = false;
         r.set_mode("sulking");
-        if notice_allowed {
-            r.reaction = Some("앗, 발판이 없어졌어요…");
-        }
         r.nudge_wait = 20.;
     } else if calm && !r.presence.asleep() && r.nudge_wait == 0. {
         match nudge {
