@@ -1092,8 +1092,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         }
     }
     match presence_event {
-        Some(presence::Event::Doze) if calm => r.set_mode("sleepy"),
-        Some(presence::Event::DeepSleep) if calm => r.set_mode("asleep"),
+        Some(presence::Event::Doze) if calm => r.set_mode("asleep"),
         Some(presence::Event::Return(away)) => r.pending_return = Some((away, 20.)),
         _ => {}
     }
@@ -1170,11 +1169,10 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             r.age += dt * cfg.speed;
             let asleep = r.presence.asleep();
             if asleep {
-                // Nobody is here (a parked pointer over us is not a person): keep
-                // dozing, or sleeping under the blanket after a long absence.
-                let bed = if r.presence.deep() { "asleep" } else { "sleepy" };
-                if r.mode != bed && (r.age >= art::duration(&r.mode) || r.mode == "walk") {
-                    r.set_mode(bed);
+                // Nobody is here (a parked pointer over us is not a person): stay
+                // in bed under the blanket instead of picking new behaviours.
+                if r.mode != "asleep" && (r.age >= art::duration(&r.mode) || r.mode == "walk") {
+                    r.set_mode("asleep");
                 }
             } else if r.physics.as_ref().unwrap().approaching() {
                 if !matches!(r.mode.as_str(), "walk" | "run") {

@@ -356,7 +356,7 @@
   ]
  },
  {
-  "source": "idle-tilt-v1.png",
+  "source": "idle-tilt-v2.png",
   "frames": [
    {
     "sheet": "idle-v1",
@@ -365,10 +365,10 @@
     "y": 0,
     "width": 627,
     "height": 627,
-    "eyeSpan": 239.7,
-    "headCenter": 381.1,
-    "neck": 401,
-    "headTop": 165
+    "eyeSpan": 253.0,
+    "headCenter": 368.6,
+    "neck": 388,
+    "headTop": 141
    },
    {
     "sheet": "idle-v1",
@@ -377,10 +377,10 @@
     "y": 0,
     "width": 627,
     "height": 627,
-    "eyeSpan": 239.7,
-    "headCenter": 298.1,
-    "neck": 400,
-    "headTop": 166
+    "eyeSpan": 253.0,
+    "headCenter": 312.5,
+    "neck": 390,
+    "headTop": 129
    },
    {
     "sheet": "idle-v1",
@@ -389,10 +389,10 @@
     "y": 627,
     "width": 627,
     "height": 627,
-    "eyeSpan": 239.7,
-    "headCenter": 373.6,
-    "neck": 362,
-    "headTop": 121
+    "eyeSpan": 253.0,
+    "headCenter": 358.9,
+    "neck": 359,
+    "headTop": 109
    },
    {
     "sheet": "idle-v1",
@@ -401,10 +401,10 @@
     "y": 627,
     "width": 627,
     "height": 627,
-    "eyeSpan": 239.7,
-    "headCenter": 304.4,
-    "neck": 361,
-    "headTop": 132
+    "eyeSpan": 253.0,
+    "headCenter": 314.0,
+    "neck": 366,
+    "headTop": 124
    }
   ]
  }
