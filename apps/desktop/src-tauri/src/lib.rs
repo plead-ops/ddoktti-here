@@ -577,7 +577,14 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        // DDOKTTI_NO_UPDATE=1 (local smoke runs): a stub plugin so the settings
+        // page's check fails quietly instead of installing the published build
+        // over the development binary.
+        .plugin(if std::env::var_os("DDOKTTI_NO_UPDATE").is_some() {
+            tauri::plugin::Builder::new("updater").build()
+        } else {
+            tauri_plugin_updater::Builder::new().build()
+        })
         .plugin(tauri_plugin_process::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
