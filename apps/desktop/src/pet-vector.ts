@@ -5,7 +5,7 @@ import {climbFrame,descendFrame} from './pet-climb';
  */
 import frames from './pet-vector-frames.json';
 import artwork from './pet-vector-paths.json';
-import { behaviors, behaviorPose, napPose, idlePose } from './pet-behaviors';
+import { behaviors, behaviorPose, napPose, idlePose, alertLoop } from './pet-behaviors';
 export const VECTOR_POSES=['chase','petted','asleep','hurt','hang','peek','enough','ack','idle','walk','run','bored','sleepy','jump','excited','greeting','proud','shy','curious','surprised','playful','sulking','cheering','relieved','tickle','drag','dizzy','wobble','fall','land','grab','climb','pull','lower','descend','prepare','travel-jump','slack','calendar','timer','stretch'] as const;
 export type VectorPose=typeof VECTOR_POSES[number];
 export interface VectorOptions {direction?:number;reduced?:boolean;x?:number;y?:number;scale?:number}
@@ -40,8 +40,9 @@ export function vectorFrame(pose:string,elapsed=0,reduced=false){
    index=pose==='grab'?12+Math.min(3,Math.floor(t/100)):pose==='climb'?climbFrame(t/1000):pose==='descend'?descendFrame(t/1000):pose==='pull'?4+Math.min(3,Math.floor(t/175)):pose==='lower'?7-Math.min(3,Math.floor(t/175)):pose==='prepare'?8:t<150?9:10;
    break;
   case 'slack':case 'calendar':case 'timer':case 'stretch':
-   sheet='alerts';index=['slack','calendar','timer','stretch'].indexOf(pose)*4+(reduced?3:Math.min(3,Math.floor(t/500)));
-   if(!reduced&&t>800&&t<1400)lift=Math.sin((t-800)/600*Math.PI)*18;
+   {const row=['slack','calendar','timer','stretch'].indexOf(pose);sheet='alerts';
+   if(!reduced&&t>=2000){const l=alertLoop(row,t/1000);index=row*4+l.frame;lift=l.lift;}else index=row*4+(reduced?3:Math.min(3,Math.floor(t/500)));
+   if(!reduced&&t>800&&t<1400)lift=Math.sin((t-800)/600*Math.PI)*18;}
    break;
  }
  const frame=frames[sheet].frames[index]!;

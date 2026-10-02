@@ -12,7 +12,7 @@ const source=(await read('apps/desktop/src/pet-vector.ts'))
  .replace("import {climbFrame,descendFrame} from './pet-climb';",await read('apps/desktop/src/pet-climb.ts'))
  .replace("import artwork from './pet-vector-paths.json';",`const artwork=${JSON.stringify(artwork)};`)
  .replace("import frames from './pet-vector-frames.json';",`const frames=${JSON.stringify(frames)};`)
- .replace("import { behaviors, behaviorPose, napPose, idlePose } from './pet-behaviors';",await read('apps/desktop/src/pet-behaviors.ts'));
+ .replace("import { behaviors, behaviorPose, napPose, idlePose, alertLoop } from './pet-behaviors';",await read('apps/desktop/src/pet-behaviors.ts'));
 const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
 const {VECTOR_POSES,vectorFrame}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
 test('all traced frames are real vector paths with no embedded bitmaps',async()=>{

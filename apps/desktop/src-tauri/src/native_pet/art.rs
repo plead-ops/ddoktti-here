@@ -45,6 +45,21 @@ pub fn hanging_reach() -> f64 {
             .fold(f64::INFINITY, f64::min)
     })
 }
+/// Alert poses after the two-second introduction: keep showing the news by
+/// alternating the row's two closing drawings (Slack: sign held up / pointing;
+/// calendar, timer, stretch: the last two) at a per-row pace, breathing gently.
+/// Returns (frame within the row, lift). Keep in sync with `alertLoop` in pet-behaviors.ts.
+pub fn alert_loop(row: usize, t: f64) -> (usize, f64) {
+    let (a, b, period) = match row {
+        0 => (3, 1, 1.0),
+        1 => (3, 2, 0.9),
+        2 => (3, 2, 0.8),
+        _ => (3, 2, 1.3),
+    };
+    let loop_t = t - 2.;
+    let frame = if ((loop_t / period).floor() as usize) % 2 == 0 { a } else { b };
+    (frame, (loop_t * std::f64::consts::TAU / 3.4).sin() * 1.2)
+}
 /// Idle loop on the head-tilt sheet (front, tilt left, tilt right, blink):
 /// front → left → front → right → front over 7.2 s, a 0.15 s blink while facing
 /// front every 4.1 s. Keep in sync with `idlePose` in pet-behaviors.ts.
@@ -335,6 +350,10 @@ impl Art {
                 p.index = row * 4
                     + if reduced {
                         3
+                    } else if t >= 2. {
+                        let (frame, lift) = alert_loop(row, t);
+                        p.lift = lift;
+                        frame
                     } else {
                         ((t / 0.5).floor() as usize).min(3)
                     };
@@ -543,6 +562,20 @@ mod tests {
                 assert_eq!(out.pixel(x, y), p.pixel(399 - x, y));
             }
         }
+    }
+    #[test]
+    fn alerts_introduce_then_keep_alternating_instead_of_freezing() {
+        let art = Art::new().unwrap();
+        assert_eq!(art.pose("slack", 0.2, false).index, 0);
+        assert_eq!(art.pose("slack", 1.9, false).index, 3);
+        let (a, b) = (art.pose("slack", 2.5, false), art.pose("slack", 3.5, false));
+        assert_eq!((a.index, b.index), (3, 1));
+        assert_ne!(a.lift, 0.);
+        assert_eq!(art.pose("calendar", 60.5, false).index, 4 + 2);
+        assert_eq!(art.pose("calendar", 61.4, false).index, 4 + 3);
+        assert_eq!(art.pose("stretch", 2.0, false).index, 12 + 3);
+        assert_eq!(art.pose("stretch", 3.4, false).index, 12 + 2);
+        assert_eq!(art.pose("timer", 300., true).index, 8 + 3, "reduced motion holds the closing frame");
     }
     #[test]
     fn idle_breathes_tilts_and_blinks_while_dozing_keeps_moving() {
