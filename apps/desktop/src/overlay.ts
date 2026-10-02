@@ -41,7 +41,7 @@ function render(rotate=false){document.documentElement.classList.toggle('reduce-
 }
 function menu(show:boolean){pet.menu=show;render();run(()=>invoke('native_pet_ui',{menu:show,choice:choice??null}));}
 async function dismiss(snoozeSeconds?:number){if(current)await invoke('dismiss_alert',{id:current.id,snoozeSeconds});}
-$('dismiss').onclick=()=>run(()=>dismiss());$('snooze').onclick=()=>run(()=>dismiss(300));
+$('dismiss').onclick=()=>run(()=>dismiss());$('ack-alert').onclick=()=>run(()=>dismiss());$('snooze').onclick=()=>run(()=>dismiss(300));
 for(const [id,key] of [['open','deepLink'],['meeting','meetingUrl']] as const)$(id).onclick=()=>run(async()=>{const link=current?.[key];if(safe(link)){await openUrl(link!);await dismiss();}});
 let replyFor:string|undefined,sending=false;
 async function act(kind:'reply'|'react',value:string){

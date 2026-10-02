@@ -317,6 +317,20 @@ fn pet_half(s: &DisplaySettings) -> f64 {
 fn pet_height(s: &DisplaySettings) -> f64 {
     pet_size(s) * 0.83
 }
+/// Tallest bubble plus its gap to the character, in logical pixels.
+const BUBBLE_ROOM: f64 = 340.;
+/// Top of the popup window (physical pixels). With room above the character
+/// the window ends at its feet and the bubble sits above it; near the screen
+/// top the window starts just above the head so the bubble has the whole
+/// height below the feet, never sliding back over the character.
+fn popup_top(y: f64, wh: f64, pet: f64, room: f64, area_top: f64, area_height: f64) -> f64 {
+    let wanted = if y - area_top >= pet + room {
+        y - wh
+    } else {
+        y - pet - room * 0.09
+    };
+    wanted.clamp(area_top, (area_top + area_height - wh).max(area_top))
+}
 fn place_pet(
     app: &AppHandle,
     win: &WebviewWindow,
@@ -328,14 +342,21 @@ fn place_pet(
     let wa = m.work_area();
     let sf = m.scale_factor();
     let ww = (OVERLAY_WIDTH * sf).min(wa.size.width as f64);
-    let wh = (OVERLAY_HEIGHT.max(pet_size(settings) + 240.) * sf).min(wa.size.height as f64);
+    // Room for the character plus the tallest bubble (Slack quick reply row
+    // included) on one side of it.
+    let wh = (OVERLAY_HEIGHT.max(pet_size(settings) + BUBBLE_ROOM + 40.) * sf)
+        .min(wa.size.height as f64);
     let wx = (x - ww / 2.0).clamp(
         wa.position.x as f64,
         wa.position.x as f64 + wa.size.width as f64 - ww,
     );
-    let wy = (y - wh).clamp(
+    let wy = popup_top(
+        y,
+        wh,
+        pet_height(settings) * sf,
+        BUBBLE_ROOM * sf,
         wa.position.y as f64,
-        wa.position.y as f64 + wa.size.height as f64 - wh,
+        wa.size.height as f64,
     );
     let size = PhysicalSize::new(ww as u32, wh as u32);
     let position = PhysicalPosition::new(wx.round() as i32, wy.round() as i32);
@@ -758,6 +779,22 @@ pub fn run() {
 
 #[cfg(test)]
 mod placement_tests {
+    #[test]
+    fn popup_leaves_bubble_room_on_the_side_that_has_it() {
+        use super::popup_top;
+        let (wh, pet, room) = (560., 170., 340.);
+        // Plenty of room above: the window ends at the feet.
+        assert_eq!(popup_top(1500., wh, pet, room, 0., 2000.), 1500. - wh);
+        // Near the top: the window starts above the head and the space below the
+        // feet holds the tallest bubble.
+        for y in [pet, 300., 450.] {
+            let top = popup_top(y, wh, pet, room, 0., 2000.);
+            assert!(top <= y - pet, "head inside the window at y={y}");
+            assert!(top + wh - y >= room, "room below the feet at y={y}");
+        }
+        // A short work area still keeps the window inside it.
+        assert_eq!(popup_top(300., wh, pet, room, 0., 500.), 0.);
+    }
     use super::*;
     #[test]
     fn autonomous_start_does_not_use_alert_placement() {
