@@ -273,6 +273,8 @@ mod implementation {
         fn GetAsyncKeyState(k: i32) -> i16;
         fn GetWindowLongPtrW(w: isize, i: i32) -> isize;
         fn SetWindowLongPtrW(w: isize, i: i32, v: isize) -> isize;
+        fn GetWindowRect(w: isize, r: *mut WinRect) -> i32;
+        fn SetWindowPos(w: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
         fn UpdateLayeredWindow(
             w: isize,
             dst: isize,
@@ -285,6 +287,20 @@ mod implementation {
             flags: u32,
         ) -> i32;
     }
+    #[repr(C)]
+    #[derive(Default)]
+    struct WinRect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+    const SWP_NOZORDER: u32 = 0x4;
+    const SWP_NOREDRAW: u32 = 0x8;
+    const SWP_NOACTIVATE: u32 = 0x10;
+    const SWP_NOCOPYBITS: u32 = 0x100;
+    const SWP_NOOWNERZORDER: u32 = 0x200;
+    const SWP_NOSENDCHANGING: u32 = 0x400;
     type SubclassProc = unsafe extern "system" fn(isize, u32, usize, isize, usize, usize) -> isize;
     #[link(name = "comctl32")]
     extern "system" {
@@ -436,19 +452,50 @@ mod implementation {
                 x: position.0.round() as i32,
                 y: position.1.round() as i32,
             };
-            // Apply the new frame explicitly first. Relying on UpdateLayeredWindow's
-            // size alone left the window at its previous size on Windows: a rope
-            // descent from the screen top showed only the rope hook until landing,
-            // and a fast swing clipped the body. SWP_NOSENDCHANGING keeps the
-            // windowing layer from adjusting the requested size.
-            #[link(name = "user32")]
-            extern "system" {
-                fn SetWindowPos(w: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+            // Field reports: a rope descent from the screen top showed only the
+            // rope hook until landing, i.e. the window kept a smaller size than
+            // the canvas. The cause is not confirmed, so when the size changes we
+            // also set the frame explicitly (without redrawing the stale image),
+            // and record any mismatch for the diagnostics report.
+            let mut before = WinRect::default();
+            GetWindowRect(hwnd, &mut before);
+            let resized = before.right - before.left != size.x || before.bottom - before.top != size.y;
+            if resized
+                && SetWindowPos(
+                    hwnd,
+                    0,
+                    destination.x,
+                    destination.y,
+                    size.x,
+                    size.y,
+                    SWP_NOZORDER
+                        | SWP_NOACTIVATE
+                        | SWP_NOOWNERZORDER
+                        | SWP_NOSENDCHANGING
+                        | SWP_NOREDRAW
+                        | SWP_NOCOPYBITS,
+                ) == 0
+            {
+                super::note_canvas(format!(
+                    "SetWindowPos 실패 {}x{}: {}",
+                    size.x,
+                    size.y,
+                    std::io::Error::last_os_error()
+                ));
             }
-            // SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING
-            SetWindowPos(hwnd, 0, destination.x, destination.y, size.x, size.y, 0x4 | 0x10 | 0x200 | 0x400);
             let ok =
                 UpdateLayeredWindow(hwnd, screen, &destination, &size, dc, &origin, 0, &blend, 2);
+            if resized {
+                let mut after = WinRect::default();
+                GetWindowRect(hwnd, &mut after);
+                let (w, h) = (after.right - after.left, after.bottom - after.top);
+                if w != size.x || h != size.y {
+                    super::note_canvas(format!(
+                        "캔버스 크기 불일치: 요청 {}x{}, 실제 {w}x{h}, 위치 {},{}",
+                        size.x, size.y, destination.x, destination.y
+                    ));
+                }
+            }
             SelectObject(dc, old);
             DeleteObject(bitmap);
             DeleteDC(dc);
@@ -479,6 +526,18 @@ mod implementation {
     }
 }
 pub use implementation::*;
+
+/// Last native canvas anomaly (Windows sizing), included in the diagnostics report.
+static CANVAS_NOTE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+#[allow(dead_code)]
+pub(crate) fn note_canvas(note: String) {
+    if let Ok(mut n) = CANVAS_NOTE.lock() {
+        *n = Some(note);
+    }
+}
+pub fn canvas_note() -> Option<String> {
+    CANVAS_NOTE.lock().ok().and_then(|n| n.clone())
+}
 
 #[cfg(not(target_os = "windows"))]
 pub fn ignore_cursor(win: &tauri::Window, ignore: bool) -> Result<(), String> {

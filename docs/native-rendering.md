@@ -299,4 +299,4 @@ Slack 알림 말풍선에 이모지 4개(👍 ✅ 👀 🙏)와 한 줄 답글 �
 
 ### Windows 캔버스 크기 갱신 (2026-10-02)
 
-Windows에서 화면 상단에서 줄을 타고 내려올 때 줄 상단만 보이고 캐릭터는 착지 뒤에야 보였다. 하강 중에는 캔버스가 줄 고정점(화면 위)부터 캐릭터 발까지 매 프레임 커지는데, `UpdateLayeredWindow`의 크기 인자만으로는 창 크기가 이전 값에 머물러 캔버스 윗부분(줄 고정점)만 표시됐다. 빠른 드래그 회전 때 몸이 잘리던 것도 같은 원인이다. 이제 `present`가 `UpdateLayeredWindow` 직전에 `SetWindowPos`(SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING)로 위치와 크기를 먼저 적용한다. SWP_NOSENDCHANGING으로 창 계층(Tao)이 요청 크기를 조정하지 못하게 한다. macOS에서는 재현되지 않으며 Windows 실기 확인이 필요하다.
+Windows에서 화면 상단에서 줄을 타고 내려올 때 줄 상단만 보이고 캐릭터는 착지 뒤에야 보였다는 보고가 있다. 하강 중 캔버스는 줄 고정점(화면 위)부터 캐릭터 발까지 매 프레임 커지므로, 창 크기가 캔버스보다 작게 남았던 것으로 보인다. 원인은 확정하지 못했다(Tao 0.37.1의 WM_WINDOWPOSCHANGING 처리는 이 창의 크기를 바꾸지 않는다). 대응으로 `present`는 창 크기가 바뀌는 프레임에서만 `UpdateLayeredWindow` 직전에 `SetWindowPos`(NOZORDER·NOACTIVATE·NOOWNERZORDER·NOSENDCHANGING·NOREDRAW·NOCOPYBITS)로 위치와 크기를 먼저 적용하고, 실패나 요청·실제 크기 불일치를 기록한다. 기록과 마지막 표시 오류는 설정의 진단 리포트에 포함된다. Windows 실기 확인이 필요하다.

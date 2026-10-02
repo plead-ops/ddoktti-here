@@ -172,6 +172,19 @@ impl Runtime {
         self.set_mode(m);
     }
 }
+/// Native canvas anomalies and the last presentation error, for the diagnostics report.
+pub fn diagnostics(app: &AppHandle) -> String {
+    let error = app
+        .try_state::<Native>()
+        .and_then(|s| s.runtime.lock().ok().and_then(|r| r.last_error.clone()));
+    format!(
+        "캔버스 기록: {}
+마지막 표시 오류: {}
+",
+        platform::canvas_note().unwrap_or_else(|| "없음".into()),
+        error.unwrap_or_else(|| "없음".into())
+    )
+}
 pub fn reset(app: &AppHandle) {
     if let Some(s) = app.try_state::<Native>() {
         s.reset.store(true, Ordering::Release);
