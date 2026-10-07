@@ -31,6 +31,11 @@ pub struct Preferences {
     pub timer_during_quiet: bool,
     pub calendar_minutes: u64, // Legacy single reminder; preserved when upgrading.
     pub calendar_reminders: Vec<u64>,
+    /// Keep Slack alerts aside during a calendar meeting and show them afterwards.
+    pub hold_in_meeting: bool,
+    pub timer_minutes: u64,
+    /// "확인" on a Slack bubble also marks the conversation read in Slack.
+    pub slack_mark_read: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -47,6 +52,9 @@ impl Default for Preferences {
             timer_during_quiet: true,
             calendar_minutes: 5,
             calendar_reminders: Vec::new(),
+            hold_in_meeting: false,
+            timer_minutes: 25,
+            slack_mark_read: true,
         }
     }
 }
@@ -91,6 +99,10 @@ pub struct State {
     pub active_seconds: u64,
     pub stretch_snooze: u64,
     pub snoozed: HashMap<String, (u64, Value)>,
+    /// Slack alerts that arrived during quiet time or a meeting, shown once it ends.
+    pub held: Vec<Value>,
+    /// The last few Slack/calendar alerts, in memory only, for the "recent" menu.
+    pub recent: Vec<Value>,
     pub hit_regions: Vec<[f64; 4]>,
     pub interacting: bool,
     pub pet_anchor: Option<(f64, f64)>,
@@ -104,7 +116,37 @@ impl State {
         (self.fullscreen && self.saved.preferences.hide_fullscreen)
             || (self.presenting && self.saved.preferences.hide_presenting)
     }
+    fn holding_slack(&self, meeting: bool, t: u64) -> bool {
+        self.saved.preferences.quiet_until > t
+            || (meeting && self.saved.preferences.hold_in_meeting)
+    }
+    fn hold(&mut self, alert: Value) {
+        if !self.held.iter().any(|a| a["id"] == alert["id"]) {
+            if self.held.len() >= 50 {
+                self.held.remove(0);
+            }
+            self.held.push(alert);
+        }
+    }
+    fn remember(&mut self, alert: &Value) {
+        if alert["source"] != "slack" && alert["source"] != "calendar" {
+            return;
+        }
+        let id = alert["id"].as_str().unwrap_or_default();
+        self.recent
+            .retain(|a| a["id"] != alert["id"] && !supersedes(id, a));
+        self.recent.push(json!({
+            "id": alert["id"], "source": alert["source"], "title": alert["title"],
+            "body": alert["body"], "deepLink": alert["deepLink"],
+            "startsAt": alert["startsAt"],
+            "createdAt": alert["createdAt"].as_u64().unwrap_or(now() * 1000),
+        }));
+        if self.recent.len() > RECENT {
+            self.recent.remove(0);
+        }
+    }
 }
+const RECENT: usize = 20;
 pub struct Companion(pub Mutex<State>);
 
 fn write(app: &AppHandle, saved: &Persisted) -> Result<(), String> {
@@ -144,7 +186,7 @@ pub fn emit(app: &AppHandle) {
 pub fn snapshot(app: AppHandle) -> Value {
     let state = app.state::<Companion>();
     let s = state.0.lock().unwrap();
-    json!({"preferences":s.saved.preferences,"timer":s.saved.timer,"alerts":s.alerts,"now":now(),"fullscreen":s.fullscreen,"presenting":s.presenting,"hidden":s.hidden()})
+    json!({"preferences":s.saved.preferences,"timer":s.saved.timer,"alerts":s.alerts,"held":s.held.len(),"recent":s.recent,"now":now(),"fullscreen":s.fullscreen,"presenting":s.presenting,"hidden":s.hidden()})
 }
 #[tauri::command]
 pub fn set_preferences(app: AppHandle, patch: Value) -> Result<(), String> {
@@ -187,8 +229,14 @@ pub fn set_preferences(app: AppHandle, patch: Value) -> Result<(), String> {
                 .filter_map(|a| a["id"].as_str().map(str::to_string))
                 .collect();
             let keep_timer = s.saved.preferences.timer_during_quiet;
+            let (slack, rest): (Vec<_>, Vec<_>) =
+                s.alerts.drain(..).partition(|a| a["source"] == "slack");
+            s.alerts = rest;
             s.alerts
                 .retain(|a| a["source"] == "preview" || (keep_timer && a["source"] == "timer"));
+            for alert in slack {
+                s.hold(alert);
+            }
         }
     }
     crate::calendar::defer_unread(&app, &deferred_calendar);
@@ -222,9 +270,18 @@ pub fn push(app: &AppHandle, mut payload: Value) -> Result<(), String> {
     if payload["source"] == "slack" && crate::foreground::slack_active() {
         return Ok(());
     }
+    // Only Slack asks; a calendar worker may be holding its own lock while pushing.
+    let meeting = payload["source"] == "slack" && crate::calendar::in_meeting(app, now());
     {
         let state = app.state::<Companion>();
         let mut s = state.0.lock().unwrap();
+        if payload["source"] == "slack" && s.holding_slack(meeting, now()) {
+            s.remember(&payload);
+            s.hold(payload);
+            drop(s);
+            emit(app);
+            return Ok(());
+        }
         let p = &s.saved.preferences;
         if payload["source"] != "preview"
             && p.quiet_until > now()
@@ -240,9 +297,6 @@ pub fn push(app: &AppHandle, mut payload: Value) -> Result<(), String> {
         {
             payload["createdAt"] = json!(now() * 1000);
         }
-        if payload["source"] == "slack" && payload["expiresAt"].as_u64().is_none() {
-            payload["expiresAt"] = json!(now() + 90);
-        }
         if payload["source"] == "calendar" {
             if let Some(id) = payload["id"].as_str().map(str::to_owned) {
                 s.alerts.retain(|a| !supersedes(&id, a));
@@ -250,6 +304,7 @@ pub fn push(app: &AppHandle, mut payload: Value) -> Result<(), String> {
             }
         }
         if !s.alerts.iter().any(|a| a["id"] == payload["id"]) {
+            s.remember(&payload);
             if s.alerts.len() >= 50 {
                 s.alerts.remove(0);
             }
@@ -268,6 +323,7 @@ pub fn dismiss_alert(
     {
         let state = app.state::<Companion>();
         let mut s = state.0.lock().unwrap();
+        s.held.retain(|a| a["id"] != id);
         if let Some(i) = s.alerts.iter().position(|a| a["id"] == id) {
             let alert = s.alerts.remove(i);
             if let Some(seconds) = snooze_seconds.filter(|v| *v > 0) {
@@ -299,6 +355,7 @@ pub fn timer_action(app: AppHandle, action: String, minutes: Option<u64>) -> Res
                 let n = minutes
                     .filter(|n| *n >= 1 && *n <= 1440)
                     .ok_or("1~1440분을 입력해 주세요")?;
+                s.saved.preferences.timer_minutes = n;
                 timer = Timer {
                     duration: n * 60,
                     deadline: Some(now() + n * 60),
@@ -464,6 +521,7 @@ pub fn start(app: AppHandle) {
                 let before = s.alerts.len();
                 if slack_active {
                     s.alerts.retain(|a| a["source"] != "slack");
+                    s.held.clear();
                 }
                 let changed = s.fullscreen != fullscreen
                     || s.presenting != presenting
@@ -496,6 +554,10 @@ pub fn start(app: AppHandle) {
                     alerts.push(json!({"id":"timer:complete","source":"timer","trigger":"timer","title":"약속한 시간이 됐어요!","body":format!("{}분 동안 수고했어요. 잠깐 쉬어볼까요?",s.saved.timer.duration/60)}));
                 }
                 let idle = idle_seconds();
+                if !s.held.is_empty() && !s.holding_slack(meeting, current) {
+                    alerts.extend(std::mem::take(&mut s.held));
+                    changed = true;
+                }
                 if idle >= 300 || dt > 15 {
                     s.active_seconds = 0;
                 } else if s.saved.preferences.stretch {
@@ -542,6 +604,38 @@ pub fn start(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn slack_is_held_in_quiet_time_or_an_opted_in_meeting() {
+        let mut s = super::State::default();
+        assert!(!s.holding_slack(true, 100), "meetings hold only when opted in");
+        s.saved.preferences.hold_in_meeting = true;
+        assert!(s.holding_slack(true, 100));
+        assert!(!s.holding_slack(false, 100));
+        s.saved.preferences.quiet_until = 200;
+        assert!(s.holding_slack(false, 100));
+        assert!(!s.holding_slack(false, 200));
+    }
+    #[test]
+    fn held_and_recent_alerts_are_deduplicated_and_bounded() {
+        use serde_json::json;
+        let mut s = super::State::default();
+        for i in 0..60 {
+            let a = json!({"id":format!("slack:{i}"),"source":"slack","body":"x"});
+            s.hold(a.clone());
+            s.hold(a.clone());
+            s.remember(&a);
+        }
+        assert_eq!(s.held.len(), 50);
+        assert_eq!(s.held[0]["id"], "slack:10", "oldest dropped first");
+        assert_eq!(s.recent.len(), super::RECENT);
+        s.remember(&json!({"id":"timer:complete","source":"timer"}));
+        assert_eq!(s.recent.last().unwrap()["id"], "slack:59", "local alerts are not history");
+        s.remember(&json!({"id":"calendar:e:reminder:30","source":"calendar"}));
+        s.remember(&json!({"id":"calendar:e:reminder:5","source":"calendar"}));
+        let cal: Vec<_> = s.recent.iter().filter(|a| a["source"] == "calendar").collect();
+        assert_eq!(cal.len(), 1, "one entry per event");
+        assert_eq!(cal[0]["id"], "calendar:e:reminder:5");
+    }
     #[test]
     fn a_newer_reminder_replaces_the_same_events_earlier_one() {
         use serde_json::json;

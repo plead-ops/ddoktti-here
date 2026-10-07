@@ -228,7 +228,7 @@ pub async fn slack_disconnect(app: AppHandle) -> Result<(), String> {
 /// Quick reply or emoji reaction to a delivered Slack alert, sent as the user
 /// through the relay. Sessions created before the write scopes existed get a
 /// reconnect hint instead of a silent failure.
-fn act(path: &str, payload: Value) -> Result<(), String> {
+fn act(path: &str, payload: Value, what: &str) -> Result<(), String> {
     let token = credential()?
         .get_password()
         .map_err(|_| "Slack에 연결해 주세요")?;
@@ -240,7 +240,7 @@ fn act(path: &str, payload: Value) -> Result<(), String> {
         .map_err(|_| "오프라인 · 잠시 후 다시 시도해 주세요")?;
     match r.status().as_u16() {
         200 => Ok(()),
-        403 => Err("답글·이모지를 보내려면 설정에서 Slack을 다시 연결해 주세요".into()),
+        403 => Err(format!("{what} 설정에서 Slack을 다시 연결해 주세요")),
         401 => Err("Slack에 다시 연결해 주세요".into()),
         404 => Err("이 알림에는 더 이상 답할 수 없어요".into()),
         400 => Err("보낼 내용을 확인해 주세요".into()),
@@ -249,15 +249,29 @@ fn act(path: &str, payload: Value) -> Result<(), String> {
 }
 #[tauri::command]
 pub async fn slack_reply(id: String, text: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || act("/v1/reply", json!({"id":id,"text":text})))
+    tauri::async_runtime::spawn_blocking(move || act("/v1/reply", json!({"id":id,"text":text}), "답글·이모지를 보내려면"))
         .await
         .map_err(|_| "답글 작업 오류".to_string())?
 }
 #[tauri::command]
 pub async fn slack_react(id: String, name: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || act("/v1/react", json!({"id":id,"name":name})))
+    tauri::async_runtime::spawn_blocking(move || act("/v1/react", json!({"id":id,"name":name}), "답글·이모지를 보내려면"))
         .await
         .map_err(|_| "이모지 작업 오류".to_string())?
+}
+/// Marks the conversations of confirmed alerts read in Slack. Thread replies are
+/// skipped by the relay: Slack offers no way to mark a thread read.
+#[tauri::command]
+pub async fn slack_mark_read(ids: Vec<String>) -> Result<(), String> {
+    let ids: Vec<_> = ids.into_iter().filter(|id| id.starts_with("slack:")).take(50).collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        act("/v1/read", json!({"ids":ids}), "Slack에서도 읽음으로 표시하려면")
+    })
+    .await
+    .map_err(|_| "읽음 처리 작업 오류".to_string())?
 }
 #[tauri::command]
 pub async fn slack_filters(app: AppHandle, filters: Value) -> Result<(), String> {

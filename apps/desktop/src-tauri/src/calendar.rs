@@ -790,8 +790,11 @@ pub fn start(app: AppHandle) {
                     .retain(|a| !replaced.iter().any(|id| belongs_to_event(a, id)));
                 s.snoozed
                     .retain(|_, (_, a)| !replaced.iter().any(|id| belongs_to_event(a, id)));
-                s.alerts
-                    .retain(|a| a["source"] != "calendar" || valid.iter().any(|id| a["id"] == *id));
+                s.alerts.retain(|a| {
+                    a["source"] != "calendar"
+                        || valid.iter().any(|id| a["id"] == *id)
+                        || crate::dev::is_fake(a)
+                });
                 s.snoozed.retain(|_, (_, a)| {
                     a["source"] != "calendar" || valid.iter().any(|id| a["id"] == *id)
                 });

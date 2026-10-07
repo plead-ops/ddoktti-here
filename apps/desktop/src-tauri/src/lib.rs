@@ -10,6 +10,7 @@ use tauri::{
 
 mod calendar;
 mod companion;
+mod dev;
 mod connection;
 mod diag;
 mod foreground;
@@ -633,6 +634,7 @@ pub fn run() {
             slack::slack_status,
             slack::slack_connect,
             slack::slack_disconnect,
+            slack::slack_mark_read,
             slack::slack_filters,
             slack::slack_reply,
             slack::slack_react,
@@ -761,6 +763,7 @@ pub fn run() {
 
             // 서비스 스케줄러는 운영체제와 독립적으로 실행한다.
             companion::start(handle.clone());
+            dev::start(handle.clone());
             calendar::start(handle.clone());
             slack::start(handle.clone());
             Ok(())

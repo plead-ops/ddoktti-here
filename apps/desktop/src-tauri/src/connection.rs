@@ -37,6 +37,8 @@ struct Entry {
     problem: Option<Problem>,
     since: Option<u64>,
     announced: bool,
+    /// An outage notice reached the screen; its recovery is worth a word too.
+    shown: bool,
     pending: Option<u64>,
     last: Option<u64>,
 }
@@ -49,9 +51,11 @@ impl Notices {
     pub fn observe(&mut self, service: Service, problem: Option<Problem>, now: u64) {
         let e = &mut self.entries[service as usize];
         let Some(p) = problem else {
+            let recovered = e.shown && e.problem == Some(Problem::Reconnecting);
             e.problem = None;
             e.since = None;
-            e.pending = None;
+            e.shown = false;
+            e.pending = recovered.then_some(now);
             return;
         };
         if e.problem != problem {
@@ -86,17 +90,21 @@ impl Notices {
             .iter()
             .enumerate()
             .filter(|(_, e)| e.pending.is_some_and(|t| now.saturating_sub(t) < 20))
-            .map(|(i, e)| (i, e.problem.unwrap()))
+            .map(|(i, e)| (i, e.problem))
             .collect();
         for e in &mut self.entries {
+            e.shown |= e.pending.is_some() && e.problem.is_some();
             e.pending = None;
         }
         self.last_shown = Some(now);
         Some(match active.as_slice() {
-            [(0, Problem::Reconnecting)] => "Slack 연결이 잠시 끊겼어요. 다시 연결하고 있어요.",
-            [(1, Problem::Reconnecting)] => "Google 연결이 잠시 끊겼어요. 다시 연결하고 있어요.",
-            [(0, Problem::Authorization)] => "Slack에 다시 연결해 주세요. 설정에서 할 수 있어요.",
-            [(1, Problem::Authorization)] => "Google에 다시 연결해 주세요. 설정에서 할 수 있어요.",
+            [(0, None)] => "Slack에 다시 연결됐어요. 알림을 다시 받아요.",
+            [(1, None)] => "Google에 다시 연결됐어요. 일정을 다시 확인해요.",
+            [(_, None), (_, None)] => "연결이 모두 돌아왔어요.",
+            [(0, Some(Problem::Reconnecting))] => "Slack 연결이 잠시 끊겼어요. 다시 연결하고 있어요.",
+            [(1, Some(Problem::Reconnecting))] => "Google 연결이 잠시 끊겼어요. 다시 연결하고 있어요.",
+            [(0, Some(Problem::Authorization))] => "Slack에 다시 연결해 주세요. 설정에서 할 수 있어요.",
+            [(1, Some(Problem::Authorization))] => "Google에 다시 연결해 주세요. 설정에서 할 수 있어요.",
             _ => "서비스 연결을 확인하고 있어요. 자세한 상태는 설정에서 볼 수 있어요.",
         })
     }
@@ -167,5 +175,19 @@ mod tests {
         n.observe(Service::Slack, Some(Problem::Reconnecting), 400);
         n.observe(Service::Slack, Some(Problem::Reconnecting), 460);
         assert!(n.take(481).is_none());
+    }
+    #[test]
+    fn recovery_is_announced_only_after_a_shown_outage() {
+        let mut n = Notices::default();
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 0);
+        n.observe(Service::Slack, None, 10);
+        assert!(!n.pending(11), "a silent blip needs no recovery notice");
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 20);
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 80);
+        assert!(n.take(80).unwrap().contains("끊겼어요"));
+        n.observe(Service::Slack, None, 200);
+        assert!(n.take(200).unwrap().contains("다시 연결됐어요"));
+        n.observe(Service::Slack, None, 300);
+        assert!(!n.pending(300), "recovery is said once");
     }
 }
