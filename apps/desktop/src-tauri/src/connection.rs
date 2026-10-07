@@ -30,9 +30,13 @@ impl Problem {
         }
     }
 }
+/// Brief retry failures stay silent; only an outage lasting this long is announced.
+const RECONNECT_GRACE: u64 = 60;
 #[derive(Default)]
 struct Entry {
     problem: Option<Problem>,
+    since: Option<u64>,
+    announced: bool,
     pending: Option<u64>,
     last: Option<u64>,
 }
@@ -44,20 +48,27 @@ pub struct Notices {
 impl Notices {
     pub fn observe(&mut self, service: Service, problem: Option<Problem>, now: u64) {
         let e = &mut self.entries[service as usize];
-        if problem.is_none() {
+        let Some(p) = problem else {
             e.problem = None;
+            e.since = None;
             e.pending = None;
             return;
-        }
+        };
         if e.problem != problem {
-            e.pending = if e.last.is_none_or(|t| now.saturating_sub(t) >= 300) {
-                e.last = Some(now);
-                Some(now)
-            } else {
-                None
-            };
+            e.problem = problem;
+            e.since = Some(now);
+            e.announced = false;
+            e.pending = None;
         }
-        e.problem = problem;
+        let due = p == Problem::Authorization
+            || e.since.is_some_and(|t| now.saturating_sub(t) >= RECONNECT_GRACE);
+        if due && !e.announced {
+            e.announced = true;
+            if e.last.is_none_or(|t| now.saturating_sub(t) >= 300) {
+                e.last = Some(now);
+                e.pending = Some(now);
+            }
+        }
     }
     pub fn pending(&self, now: u64) -> bool {
         self.last_shown.is_none_or(|t| now.saturating_sub(t) >= 30)
@@ -113,30 +124,48 @@ mod tests {
         );
     }
     #[test]
+    fn brief_failures_stay_silent_until_the_outage_persists() {
+        let mut n = Notices::default();
+        for t in [0, 6, 18, 42] {
+            n.observe(Service::Slack, Some(Problem::Reconnecting), t);
+            assert!(n.take(t).is_none());
+        }
+        n.observe(Service::Slack, None, 50);
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 100);
+        assert!(n.take(100).is_none());
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 160);
+        assert!(n.take(160).unwrap().contains("Slack"));
+    }
+    #[test]
     fn sustained_outage_and_flapping_do_not_repeat_notices() {
         let mut n = Notices::default();
         n.observe(Service::Slack, Some(Problem::Reconnecting), 0);
-        assert!(n.take(0).unwrap().contains("Slack"));
-        for t in 1..600 {
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 60);
+        assert!(n.take(60).unwrap().contains("Slack"));
+        for t in 61..600 {
             n.observe(Service::Slack, Some(Problem::Reconnecting), t);
             assert!(n.take(t).is_none());
         }
         n.observe(Service::Slack, None, 600);
         n.observe(Service::Slack, Some(Problem::Reconnecting), 601);
-        assert!(n.take(601).is_some());
-        n.observe(Service::Slack, None, 602);
-        n.observe(Service::Slack, Some(Problem::Reconnecting), 603);
-        assert!(n.take(603).is_none());
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 661);
+        assert!(n.take(661).is_some());
+        n.observe(Service::Slack, None, 662);
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 663);
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 723);
+        assert!(n.take(723).is_none());
     }
     #[test]
     fn recovery_and_expiry_remove_queued_notices_and_services_are_independent() {
         let mut n = Notices::default();
         n.observe(Service::Slack, Some(Problem::Reconnecting), 0);
-        n.observe(Service::Slack, None, 1);
-        assert!(!n.pending(2));
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 60);
+        n.observe(Service::Slack, None, 61);
+        assert!(!n.pending(62));
         n.observe(Service::Calendar, Some(Problem::Authorization), 2);
         assert!(n.take(2).unwrap().contains("Google에 다시 연결"));
         n.observe(Service::Slack, Some(Problem::Reconnecting), 400);
-        assert!(n.take(421).is_none());
+        n.observe(Service::Slack, Some(Problem::Reconnecting), 460);
+        assert!(n.take(481).is_none());
     }
 }
