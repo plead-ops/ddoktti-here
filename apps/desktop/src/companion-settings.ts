@@ -2,7 +2,7 @@ import {ReminderEditor} from './calendar-reminders';
 export function syncPlacementLabels(resident:boolean,doc:Document=document){for(const id of ['alert-position-row','alert-monitor-row']){const el=doc.getElementById(id);if(el)el.hidden=resident;}for(const id of ['activity-scope-row','follow-cursor-row']){const el=doc.getElementById(id);if(el)el.hidden=!resident;}}
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-export interface Preferences { onboarded:boolean; resident:boolean; hide_fullscreen:boolean; hide_presenting:boolean; private_content:boolean; stretch:boolean; stretch_minutes:number; quiet_until:number; timer_during_quiet:boolean; calendar_minutes:number; calendar_reminders?:number[]; hold_in_meeting:boolean; timer_minutes:number; slack_mark_read:boolean; }
+export interface Preferences { onboarded:boolean; resident:boolean; hide_fullscreen:boolean; hide_presenting:boolean; private_content:boolean; stretch:boolean; stretch_minutes:number; quiet_until:number; timer_during_quiet:boolean; calendar_minutes:number; calendar_reminders?:number[]; hold_in_meeting:boolean; timer_minutes:number; slack_mark_read:boolean; shortcut:boolean; }
 export interface Snapshot { preferences:Preferences; timer:{duration:number;deadline:number|null;remaining:number;completed:boolean}; fullscreen?:boolean; presenting?:boolean; hidden?:boolean; alerts:import('@ddoktti/shared').NotificationPayload[]; held?:number; recent?:import('@ddoktti/shared').NotificationPayload[]; now:number }
 const native='__TAURI_INTERNALS__' in window;
 const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -20,7 +20,7 @@ export function syncOnboardingConnections(slackConnected:boolean,calendarConnect
 const error=(e:unknown)=>{get('companion-status').textContent=String(e);get('onboard-status').textContent=String(e);};
 function run(task:()=>Promise<unknown>){void task().catch(error);}
 function patch(value:Partial<Preferences>){saving=saving.then(()=>invoke('set_preferences',{patch:value})).then(()=>undefined).catch(error);}
-function render(s:Snapshot){state=s; const ps=document.getElementById('presenting-status');if(ps)ps.textContent=s.presenting?'지금 발표 중으로 감지되어 숨겨져 있어요.':''; for(const key of ['resident','hide_fullscreen','hide_presenting','private_content','stretch','timer_during_quiet','hold_in_meeting','slack_mark_read'] as const)get<HTMLInputElement>('pref-'+key).checked=s.preferences[key];
+function render(s:Snapshot){state=s; const ps=document.getElementById('presenting-status');if(ps)ps.textContent=s.presenting?'지금 발표 중으로 감지되어 숨겨져 있어요.':''; for(const key of ['resident','hide_fullscreen','hide_presenting','private_content','stretch','timer_during_quiet','hold_in_meeting','slack_mark_read','shortcut'] as const)get<HTMLInputElement>('pref-'+key).checked=s.preferences[key];
  for(const key of ['stretch_minutes'] as const)get<HTMLInputElement>('pref-'+key).value=String(s.preferences[key]);
  reminders.render(s.preferences.calendar_reminders?.length?s.preferences.calendar_reminders:[s.preferences.calendar_minutes]);
  get('quiet-status').textContent=s.preferences.quiet_until>Date.now()/1000?'쉬는 중 · '+new Date(s.preferences.quiet_until*1000).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'알림을 받고 있어요';
@@ -35,14 +35,14 @@ function calendar(s:CalendarState){connectedAccounts.calendar=s.connected;get('o
 interface SlackState {configured:boolean;connected:boolean;busy:boolean;account:string;status:string;filters:Record<string,unknown>}
 function slack(s:SlackState){connectedAccounts.slack=s.connected;get('slack-status').textContent=s.configured?`${s.account ? s.account+' · ':''}${s.status}`:'Slack 연결 서버 설정이 필요한 개발 빌드예요';for(const id of ['slack-connect','onboard-slack']){const button=get<HTMLButtonElement>(id),settings=id==='slack-connect';// Reconnecting adds permissions granted after this account first connected.
 button.disabled=!s.configured||s.busy||(s.connected&&!settings);button.textContent=s.busy?'Slack 연결 중…':s.connected?(settings?'다시 연결':'연결됨'):'Slack에 추가하고 연결';}syncOnboardingConnections(connectedAccounts.slack,connectedAccounts.calendar);get('slack-disconnect').hidden=!s.connected&&!s.busy;get('slack-filters').hidden=!s.connected;if(s.busy)get('onboard-status').textContent=s.status;
- if(!get('slack-filters').contains(document.activeElement)){for(const key of ['dm','mention','broadcast','group','thread'])get<HTMLInputElement>('slack-'+key).checked=s.filters?.[key]!==false;get<HTMLInputElement>('slack-exclude').value=Array.isArray(s.filters?.exclude)?s.filters.exclude.join(', '):'';}}
+ if(!get('slack-filters').contains(document.activeElement)){for(const key of ['dm','mention','broadcast','group','thread'])get<HTMLInputElement>('slack-'+key).checked=s.filters?.[key]!==false;get<HTMLInputElement>('slack-exclude').value=Array.isArray(s.filters?.exclude)?s.filters.exclude.join(', '):'';get<HTMLInputElement>('slack-keywords').value=Array.isArray(s.filters?.keywords)?s.filters.keywords.join(', '):'';}}
 export async function setupCompanion(){
  if(!native){get('companion-status').textContent='브라우저에서는 화면만 미리 볼 수 있어요. 계정 연결과 타이머는 데스크톱 앱에서 사용할 수 있어요.';return;}
  reminders=new ReminderEditor(document,values=>patch({calendar_reminders:values}));
  await listen<SlackState>('slack-state',e=>slack(e.payload));slack(await invoke<SlackState>('slack_status'));
  await listen<Snapshot>('companion-state',e=>render(e.payload));await listen<CalendarState>('calendar-state',e=>calendar(e.payload));
  render(await invoke<Snapshot>('snapshot'));calendar(await invoke<CalendarState>('calendar_status'));
- for(const key of ['resident','hide_fullscreen','hide_presenting','private_content','stretch','timer_during_quiet','hold_in_meeting','slack_mark_read'] as const)get<HTMLInputElement>('pref-'+key).addEventListener('change',e=>patch({[key]:(e.target as HTMLInputElement).checked}));
+ for(const key of ['resident','hide_fullscreen','hide_presenting','private_content','stretch','timer_during_quiet','hold_in_meeting','slack_mark_read','shortcut'] as const)get<HTMLInputElement>('pref-'+key).addEventListener('change',e=>patch({[key]:(e.target as HTMLInputElement).checked}));
  for(const key of ['stretch_minutes'] as const)get<HTMLInputElement>('pref-'+key).addEventListener('change',e=>patch({[key]:Number((e.target as HTMLInputElement).value)}));
  for(const min of [0,30,60])get('quiet-'+min).onclick=()=>patch({quiet_until:min?Math.floor(Date.now()/1000)+min*60:0});
  get('timer-start').onclick=()=>run(()=>invoke('timer_action',{action:'start',minutes:Number(get<HTMLInputElement>('timer-minutes').value)}));
@@ -52,7 +52,7 @@ export async function setupCompanion(){
  get('onboard-back').onclick=()=>{get('onboard-mode').hidden=false;get('onboard-connect').hidden=true;};
  for(const id of ['slack-connect','onboard-slack'])get(id).onclick=()=>run(()=>invoke('slack_connect'));
  get('slack-disconnect').onclick=()=>run(()=>invoke('slack_disconnect'));
- get('slack-save').onclick=()=>run(async()=>{const filters:Record<string,unknown>={};for(const key of ['dm','mention','broadcast','group','thread'])filters[key]=get<HTMLInputElement>('slack-'+key).checked;filters.exclude=get<HTMLInputElement>('slack-exclude').value.split(',').map(s=>s.trim()).filter(Boolean);await invoke('slack_filters',{filters});get('companion-status').textContent='Slack 알림 설정을 저장했어요.';});
+ get('slack-save').onclick=()=>run(async()=>{const filters:Record<string,unknown>={};for(const key of ['dm','mention','broadcast','group','thread'])filters[key]=get<HTMLInputElement>('slack-'+key).checked;filters.exclude=get<HTMLInputElement>('slack-exclude').value.split(',').map(s=>s.trim()).filter(Boolean);const keywords=[...new Set(get<HTMLInputElement>('slack-keywords').value.split(',').map(s=>s.trim()).filter(Boolean))];if(keywords.length>20||keywords.some(k=>k.length>40||/[<>]/.test(k)))throw new Error('키워드는 40자 이하로 20개까지 넣을 수 있어요 (< > 제외)');filters.keywords=keywords;await invoke('slack_filters',{filters});get('companion-status').textContent='Slack 알림 설정을 저장했어요.';});
  get('onboard-google').onclick=()=>run(()=>invoke('calendar_connect'));
  get('onboard-finish').onclick=()=>run(async()=>{await invoke('set_preferences',{patch:{onboarded:true,resident:get<HTMLInputElement>('onboard-resident').checked}});});
  setInterval(tick,1000);

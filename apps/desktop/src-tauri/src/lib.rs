@@ -16,6 +16,7 @@ mod diag;
 mod foreground;
 mod fullscreen;
 mod presenting;
+mod shortcut;
 mod native_pet;
 mod slack;
 mod surfaces;
@@ -608,6 +609,7 @@ pub fn run() {
             tauri_plugin_updater::Builder::new().build()
         })
         .plugin(tauri_plugin_process::init())
+        .plugin(shortcut::plugin())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .args(["--autostart"])
@@ -650,6 +652,7 @@ pub fn run() {
                 app.handle(),
             ))));
             companion::init(app.handle());
+            shortcut::sync(app.handle());
             calendar::init(app.handle());
             slack::init(app.handle());
             native_pet::init(app.handle()).map_err(std::io::Error::other)?;

@@ -36,6 +36,8 @@ pub struct Preferences {
     pub timer_minutes: u64,
     /// "확인" on a Slack bubble also marks the conversation read in Slack.
     pub slack_mark_read: bool,
+    /// Control+Option/Alt+D confirms the bubble on screen.
+    pub shortcut: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -55,6 +57,7 @@ impl Default for Preferences {
             hold_in_meeting: false,
             timer_minutes: 25,
             slack_mark_read: true,
+            shortcut: true,
         }
     }
 }
@@ -240,6 +243,7 @@ pub fn set_preferences(app: AppHandle, patch: Value) -> Result<(), String> {
         }
     }
     crate::calendar::defer_unread(&app, &deferred_calendar);
+    crate::shortcut::sync(&app);
     if was_resident != resident(&app) {
         let _ = crate::apply_overlay_layout(&app);
     }
@@ -324,12 +328,15 @@ pub fn dismiss_alert(
         let state = app.state::<Companion>();
         let mut s = state.0.lock().unwrap();
         s.held.retain(|a| a["id"] != id);
+        // Read in Slack (or closed) while snoozed: it must not come back.
+        s.snoozed.remove(&id);
         if let Some(i) = s.alerts.iter().position(|a| a["id"] == id) {
             let alert = s.alerts.remove(i);
             if let Some(seconds) = snooze_seconds.filter(|v| *v > 0) {
-                if alert["source"] == "calendar" || alert["source"] == "stretch" {
-                    s.snoozed
-                        .insert(id, (now() + seconds.min(600), alert.clone()));
+                // Slack messages may wait up to an hour ("30분 뒤"); local reminders 10 minutes.
+                let limit = if alert["source"] == "slack" { 3600 } else { 600 };
+                if ["calendar", "stretch", "slack"].contains(&alert["source"].as_str().unwrap_or("")) {
+                    s.snoozed.insert(id, (now() + seconds.min(limit), alert.clone()));
                 }
             }
             if alert["source"] == "timer" {

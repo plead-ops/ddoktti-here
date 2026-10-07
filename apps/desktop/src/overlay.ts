@@ -13,6 +13,8 @@ let pet:PetState={busy:false,dragging:false,menu:false,reaction:null,mode:'idle'
 let state:Snapshot|undefined,current:NotificationPayload|undefined,group:AlertGroup|undefined,choice:string|undefined,showRecent=false;
 let cfg={sound:true,scale:1.7,reduce_motion:false},anchor={x:200,y:450},changedAt=0,signature='';
 let reportedChoice:string|undefined;const seen=new Set<string>();
+interface CalendarEvent {title:string;start:number;end:number;url:string;meeting_url:string}
+let agenda:CalendarEvent[]=[];
 document.documentElement.classList.add('native-renderer');
 const entrance=new BubbleEntrance();
 const clock=(seconds:number)=>{const m=Math.floor(seconds/60),s=Math.floor(seconds%60);return m>=60?`${Math.floor(m/60)}시간 ${m%60}분`:`${m}:${String(s).padStart(2,'0')}`;};
@@ -21,7 +23,11 @@ function renderMenu(){if(!state)return;const quietUntil=state.preferences.quiet_
  if(running){const left=t.deadline?Math.max(0,t.deadline-Date.now()/1000):t.remaining;$('pet-timer-left').textContent=(t.deadline?'타이머 ':'일시정지 ')+clock(left)+' 남음';$('pet-timer-pause').textContent=t.deadline?'일시정지':'이어서';}
  const minutes=$<HTMLInputElement>('pet-minutes');if(document.activeElement!==minutes)minutes.value=String(state.preferences.timer_minutes??25);
  $('pet-held').hidden=!state.held;$('pet-held').textContent=`모아 둔 Slack 알림 ${state.held??0}건 · 끝나면 보여드려요`;
- renderRecent();layout();}
+ renderAgenda();renderRecent();layout();}
+/** The next few events of today (and an ongoing one), with a join button when there is a meeting link. */
+function renderAgenda(){const now=Date.now()/1000,end=new Date();end.setHours(23,59,59,999);const items=agenda.filter(e=>e.end>now&&e.start<end.getTime()/1000).sort((a,b)=>a.start-b.start).slice(0,3);$('pet-agenda').hidden=!items.length;
+ const hm=(s:number)=>new Date(s*1000).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+ $('pet-agenda-list').replaceChildren(...items.map(e=>{const row=document.createElement('li'),label=document.createElement('span');label.textContent=`${e.start<=now?'진행 중':hm(e.start)} · ${state?.preferences.private_content?'일정':e.title}`;row.append(label);if(safe(e.meeting_url)){const join=document.createElement('button');join.type='button';join.textContent='참여';join.onclick=()=>run(async()=>{await openUrl(e.meeting_url);menu(false);});row.append(join);}return row;}));}
 function renderRecent(){if(!state)return;const items=[...state.recent??[]].reverse().slice(0,10),list=$('pet-recent-list');$('pet-recent-toggle').setAttribute('aria-expanded',String(showRecent));list.hidden=!showRecent;if(!showRecent)return;
  const hm=(ms:number)=>new Date(ms).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
  list.replaceChildren(...(items.length?items.map(a=>{const row=document.createElement('li'),b=document.createElement('button');b.type='button';const head=document.createElement('span');head.textContent=`${hm(a.createdAt)} · ${a.title??(a.source==='calendar'?'일정':'Slack')}`;b.append(head);
@@ -45,7 +51,7 @@ function render(rotate=false){document.documentElement.classList.toggle('reduce-
  $('slack-actions').hidden=next?.source!=='slack';if(next?.id!==replyFor){replyFor=next?.id;$<HTMLInputElement>('reply-text').value='';}
  entrance.show($('bubble'),next?.id,cfg.reduce_motion);
  $('pet-reaction').hidden=!pet.reaction||pet.busy||pet.dragging||pet.menu;$('pet-reaction').textContent=pet.reaction??'';
- if(picked&&next){const text=groupText(picked,Date.now()/1000,state.preferences.private_content);$('title').textContent=text.title;$('body').textContent=text.body;$('count').textContent=grouped.length>1?`${grouped.indexOf(picked)+1}/${grouped.length}`:'';$('next-alert').hidden=grouped.length<2;$('open').hidden=!safe(next.deepLink);$('meeting').hidden=!safe(meetingOf(picked));$('snooze').hidden=!(next.source==='stretch'||(next.source==='calendar'&&(next.startsAt??0)>Date.now()/1000+300));}
+ if(picked&&next){const text=groupText(picked,Date.now()/1000,state.preferences.private_content);$('title').textContent=text.title;$('body').textContent=text.body;$('count').textContent=grouped.length>1?`${grouped.indexOf(picked)+1}/${grouped.length}`:'';$('next-alert').hidden=grouped.length<2;$('open').hidden=!safe(next.deepLink);$('meeting').hidden=!safe(meetingOf(picked));$('snooze').hidden=!(next.source==='stretch'||next.source==='slack'||(next.source==='calendar'&&(next.startsAt??0)>Date.now()/1000+300));$('snooze').textContent=next.source==='slack'?'30분 뒤':'5분 뒤';}
  if(reportedChoice!==next?.id){reportedChoice=next?.id;run(()=>invoke('native_pet_ui',{choice:reportedChoice??null}));}renderMenu();layout();
 }
 const meetingOf=(g:AlertGroup)=>g.items.find(a=>safe(a.meetingUrl))?.meetingUrl;
@@ -56,7 +62,7 @@ $('dismiss').onclick=()=>run(()=>dismiss());
 /** "확인" also marks the conversation read in Slack (opt-out in settings); × only closes. */
 let readHintShown=false;
 $('ack-alert').onclick=()=>run(async()=>{const ids=group?.lead.source==='slack'&&state?.preferences.slack_mark_read?group.items.map(a=>a.id):[];await dismiss();
- if(ids.length)invoke('slack_mark_read',{ids}).catch(e=>{if(!readHintShown){readHintShown=true;fail(e);}});});$('snooze').onclick=()=>run(()=>dismiss(300));
+ if(ids.length)invoke('slack_mark_read',{ids}).catch(e=>{if(!readHintShown){readHintShown=true;fail(e);}});});$('snooze').onclick=()=>run(()=>dismiss(current?.source==='slack'?1800:300));
 for(const id of ['open','meeting'])$(id).onclick=()=>run(async()=>{const link=id==='open'?current?.deepLink:group&&meetingOf(group);if(safe(link)){await openUrl(link!);await dismiss();}});
 let replyFor:string|undefined,sending=false;
 async function act(kind:'reply'|'react',value:string){
@@ -91,6 +97,9 @@ async function start(){
  await listen<Snapshot>('companion-state',e=>{state=e.payload;render();});
  await listen<typeof cfg>('display-settings',e=>{cfg=e.payload;render();});
  await listen<typeof anchor>('pet-layout',e=>{anchor=e.payload;layout();});
+ await listen('shortcut-ack',()=>{if(current&&!$('bubble').hidden)$('ack-alert').click();});
+ await listen<{events:CalendarEvent[]}>('calendar-state',e=>{agenda=e.payload.events??[];if(pet.menu)renderMenu();});
+ agenda=(await invoke<{events:CalendarEvent[]}>('calendar_status')).events??[];
  cfg=await invoke('get_display_settings');state=await invoke('overlay_ready');await invoke('native_pet_ui',{});render();new ResizeObserver(layout).observe(document.body);
 }
 void start().catch(fail);
