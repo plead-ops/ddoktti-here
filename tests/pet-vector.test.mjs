@@ -40,7 +40,7 @@ test('surface crops follow real row gaps and missing antennas are repaired',()=>
 });
 test('walking feet stay grounded; running retains four original registered frames',()=>{
  for(let i=0;i<8;i++){
-  const f=vectorFrame('walk',i*130);
+  const f=vectorFrame('walk',i*147);
   assert.equal(f.index,i);assert(Math.abs(f.top+f.frame.bottom*f.scale)<.001);
  }
  for(let i=0;i<8;i++){

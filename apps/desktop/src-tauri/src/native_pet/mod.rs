@@ -1182,6 +1182,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             if asleep {
                 // Nobody is here (a parked pointer over us is not a person): stay
                 // in bed under the blanket instead of picking new behaviours.
+                r.physics.as_mut().unwrap().cancel_destination();
                 if r.mode != "asleep" && (r.age >= art::duration(&r.mode) || r.mode == "walk") {
                     r.set_mode("asleep");
                 }
@@ -1193,6 +1194,8 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
                 r.choose();
             }
             if hit && matches!(r.mode.as_str(), "walk" | "run") {
+                // Hovered on the way somewhere: stop and look instead of resuming.
+                r.physics.as_mut().unwrap().cancel_destination();
                 r.set_mode("curious");
             }
         }

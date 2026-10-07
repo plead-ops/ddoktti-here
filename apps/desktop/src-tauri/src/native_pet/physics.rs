@@ -1,5 +1,7 @@
 //! Monitor-local logical coordinates. No window APIs: deterministic and testable.
 use crate::surfaces::{WindowRect, World};
+/// Slices of the screen width remembered for where we have been.
+pub const VISIT_BINS: usize = 12;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ledge {
     pub id: String,
@@ -152,9 +154,12 @@ pub struct Physics {
     pub last_choice: &'static str,
     /// Seconds spent restless on a window with no rope or hop down available.
     stuck: f64,
-    /// Where we have been lately: -1 all left, +1 all right, averaged over
-    /// roughly the last ten minutes. Strolls from the floor lean the other way.
-    pub balance: f64,
+    /// Seconds spent over each of `VISIT_BINS` equal slices of the screen width,
+    /// fading over roughly ten minutes. Strolls from the floor head for the
+    /// quieter slices.
+    pub visits: [f64; VISIT_BINS],
+    /// A floor stroll walks to this x before it ends: (x, seconds left to get there).
+    destination: Option<(f64, f64)>,
     /// The last fall was caused by our support window closing or minimising.
     /// Stays set through the landing for the caller to consume; any other way
     /// back to the ground clears it. Being covered or resized away is silent.
@@ -192,7 +197,8 @@ impl Physics {
             climbed: false,
             last_choice: "",
             stuck: 0.,
-            balance: 0.,
+            visits: [0.; VISIT_BINS],
+            destination: None,
         };
         p.reset(p.x, p.y);
         p
@@ -210,12 +216,6 @@ impl Physics {
         if self.wander_streak >= 2 && side == self.wander_side {
             side = -side;
         }
-        // Windows worth climbing tend to sit on one side of the desk and keep
-        // pulling us there; from the floor, three strolls in four head the other
-        // way (the streak limit yields to this, the edge margin below does not).
-        if self.support.is_none() && self.balance.abs() > 0.3 && (sample * 4.).fract() < 0.75 {
-            side = -self.balance.signum();
-        }
         let support = self.at(self.x, self.y, self.support.as_deref());
         let left = support
             .as_ref()
@@ -224,6 +224,15 @@ impl Physics {
             .as_ref()
             .map_or(self.world.width - self.half(), |p| p.right - self.foot());
         let margin = (self.world.size * 0.5).min((right - left).max(0.) * 0.25);
+        // From the floor, three strolls in four walk all the way to a part of the
+        // screen we have seen little of lately (the streak limit yields to this).
+        self.destination = None;
+        if self.support.is_none() && (sample * 4.).fract() < 0.75 {
+            if let Some(x) = self.quiet_spot((sample * 16.).fract(), left + margin, right - margin) {
+                side = (x - self.x).signum();
+                self.destination = Some((x, Self::DESTINATION_SECONDS));
+            }
+        }
         if self.x <= left + margin {
             side = 1.;
         } else if self.x >= right - margin {
@@ -512,8 +521,45 @@ impl Physics {
         })
     }
     pub fn approaching(&self) -> bool {
-        (self.approach.is_some() || self.descent.is_some() || self.corner.is_some())
+        (self.approach.is_some()
+            || self.descent.is_some()
+            || self.corner.is_some()
+            || self.destination.is_some())
             && self.motion == Motion::Grounded
+    }
+    const DESTINATION_SECONDS: f64 = 45.;
+    /// A stroll target in a little-visited slice at least two slices away: the
+    /// quieter the slice, the likelier (weights fall with the square of time spent).
+    fn quiet_spot(&self, sample: f64, left: f64, right: f64) -> Option<f64> {
+        if right - left < self.world.size * 2. {
+            return None;
+        }
+        let width = self.world.width / VISIT_BINS as f64;
+        let here = self.visit_bin(self.x);
+        let candidates: Vec<(usize, f64)> = (0..VISIT_BINS)
+            .filter(|&b| b.abs_diff(here) >= 2)
+            .map(|b| (b, (b as f64 + 0.5) * width))
+            .filter(|&(_, x)| x >= left && x <= right)
+            .map(|(b, _)| (b, 1. / (self.visits[b] / 60. + 1.).powi(2)))
+            .collect();
+        let total: f64 = candidates.iter().map(|c| c.1).sum();
+        let mut pick = sample * total;
+        let mut last = None;
+        for (b, weight) in candidates {
+            last = Some(b);
+            if pick < weight {
+                break;
+            }
+            pick -= weight;
+        }
+        last.map(|b| ((b as f64 + 0.5) * width).clamp(left, right))
+    }
+    fn visit_bin(&self, x: f64) -> usize {
+        ((x / self.world.width.max(1.)) * VISIT_BINS as f64).clamp(0., VISIT_BINS as f64 - 1.) as usize
+    }
+    /// Stops a stroll on its way somewhere (petted, hovered, asleep...).
+    pub fn cancel_destination(&mut self) {
+        self.destination = None;
     }
     /// Trapped escape: walk to the nearer end of the ledge part we stand on, then
     /// hop off it. Returns the standing x there, if we are on a window.
@@ -881,12 +927,31 @@ impl Physics {
             self.stuck = 0.;
             self.corner_tried = None;
         }
-        let here = ((self.x - self.world.width / 2.) / (self.world.width / 2.)).clamp(-1., 1.);
-        self.balance += (here - self.balance) * (dt / 300.).min(1.);
+        let fade = (-dt / 600.).exp();
+        for v in &mut self.visits {
+            *v *= fade;
+        }
+        let bin = self.visit_bin(self.x);
+        self.visits[bin] += dt;
+        // A floor stroll ends on arrival, when it leaves the floor or takes too long.
+        if let Some((x, left)) = self.destination {
+            let left = left - dt;
+            if self.support.is_some()
+                || self.motion != Motion::Grounded
+                || left <= 0.
+                || (x - self.x).abs() <= self.world.size * 0.25
+            {
+                self.destination = None;
+            } else {
+                self.destination = Some((x, left));
+                self.direction = (x - self.x).signum();
+            }
+        }
         if reduced {
             self.approach = None;
             self.descent = None;
             self.corner = None;
+            self.destination = None;
             if self.busy() {
                 let p = self
                     .ledges
@@ -1112,6 +1177,7 @@ impl Physics {
             self.approach = None;
             self.descent = None;
             self.corner = None;
+            self.destination = None;
             return;
         }
         if self.approaching()
@@ -1229,7 +1295,8 @@ mod tests {
     fn new_strolls_do_not_keep_one_direction_or_override_routes() {
         let mut p = Physics::new(world(vec![], 500., 700.));
         advance(&mut p, 1., 0., false);
-        for sample in [0.9, 0.1] {
+        // Samples whose stroll has no destination: the streak rule applies.
+        for sample in [0.95, 0.2] {
             let mut previous = 0.;
             let mut streak = 0;
             let mut sides = [0; 2];
@@ -1249,9 +1316,11 @@ mod tests {
         p.x = 950.;
         p.begin_wander(0.9);
         assert_eq!(p.direction, -1.);
+        p.cancel_destination();
         p.x = 50.;
         p.begin_wander(0.1);
         assert_eq!(p.direction, 1.);
+        p.cancel_destination();
         p.approach = Some(("window".into(), 1.));
         p.begin_wander(0.1);
         assert_eq!(p.direction, 1.);
@@ -1261,28 +1330,52 @@ mod tests {
         assert_eq!(p.direction, 1.);
     }
     #[test]
-    fn strolls_from_the_floor_lean_away_from_where_we_have_been() {
+    fn strolls_from_the_floor_walk_to_quiet_parts_of_the_screen() {
         let mut p = Physics::new(world(vec![], 900., 700.));
-        advance(&mut p, 1., 0., false);
-        assert!(p.balance.abs() < 0.1, "fresh start is unbiased");
-        // Ten minutes parked on the far right: the balance follows.
+        // Ten minutes at each end: both end slices are well known.
         advance(&mut p, 600., 0., false);
-        assert!(p.balance > 0.6, "{}", p.balance);
+        p.x = 100.;
+        advance(&mut p, 600., 0., false);
+        let busy = [p.visit_bin(100.), p.visit_bin(900.)];
         p.x = 500.;
-        let mut left = 0;
+        let (mut chosen, mut busy_picks) = (0, 0);
         for i in 0..40 {
+            p.cancel_destination();
             p.begin_wander((i as f64 * 0.37) % 1.);
-            left += usize::from(p.direction < 0.);
+            if let Some((x, _)) = p.destination {
+                chosen += 1;
+                busy_picks += usize::from(busy.contains(&p.visit_bin(x)));
+                assert_eq!(p.direction, (x - p.x).signum(), "heads for it");
+                assert!(p.visit_bin(x).abs_diff(p.visit_bin(500.)) >= 2, "somewhere else");
+            }
         }
-        assert!(left >= 27, "{left} of 40 strolls head left");
-        // On a window the bias does not apply (ropes and corners decide there).
+        assert!(chosen >= 25, "{chosen} of 40 strolls have a destination");
+        assert!(busy_picks <= 2, "{busy_picks} strolls went back to a busy slice");
+        // The stroll keeps walking until it arrives, then ends.
+        let target = loop {
+            p.cancel_destination();
+            p.begin_wander(0.1);
+            if let Some((x, _)) = p.destination {
+                break x;
+            }
+        };
+        let mut steps = 0;
+        while p.approaching() && steps < 60 * 60 {
+            p.step(1. / 60., 80., true, false);
+            steps += 1;
+        }
+        assert!(!p.approaching(), "arrived within a minute");
+        assert!((p.x - target).abs() <= p.world.size * 0.25 + 2., "{} vs {target}", p.x);
+        // Not on a window (ropes and corners decide there), and not when dragged.
         let mut w = Physics::new(world(vec![rect("a", 100., 400., 800., 300.)], 800., 400.));
         advance(&mut w, 2., 0., false);
         assert_eq!(w.support.as_deref(), Some("a"));
-        w.balance = 0.9;
         w.x = 500.;
-        w.begin_wander(0.9);
-        assert_eq!(w.direction, 1.);
+        w.begin_wander(0.1);
+        assert!(w.destination.is_none());
+        p.begin_wander(0.1);
+        p.step(1. / 60., 80., false, false);
+        assert!(p.destination.is_none());
     }
     #[test]
     fn floating_window_is_approached_from_either_side_then_climbed() {
