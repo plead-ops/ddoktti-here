@@ -27,7 +27,10 @@ function renderRecent(){if(!state)return;const items=[...state.recent??[]].rever
  list.replaceChildren(...(items.length?items.map(a=>{const row=document.createElement('li'),b=document.createElement('button');b.type='button';const head=document.createElement('span');head.textContent=`${hm(a.createdAt)} · ${a.title??(a.source==='calendar'?'일정':'Slack')}`;b.append(head);
   if(!state!.preferences.private_content&&a.body){const body=document.createElement('small');body.textContent=a.body;b.append(body);}
   b.disabled=!safe(a.deepLink);b.onclick=()=>run(async()=>{await openUrl(a.deepLink!);menu(false);});row.append(b);return row;}):[Object.assign(document.createElement('li'),{className:'empty',textContent:'아직 받은 알림이 없어요.'})]));}
-function fail(error:unknown){$('pet-error').hidden=!error;$('pet-error').textContent=String(error);layout();}
+/** Shows an error with a close button; a Slack reconnect hint also offers to reconnect right away. */
+function fail(error:unknown){const text=error?String(error):'';$('pet-error').hidden=!text;$('pet-error-text').textContent=text;$('pet-error-action').hidden=!(text.includes('Slack')&&text.includes('다시 연결'));layout();}
+$('pet-error-close').onclick=()=>fail('');
+$('pet-error-action').onclick=()=>{fail('');run(()=>invoke('slack_connect'));};
 const run=(task:()=>Promise<unknown>)=>{void task().catch(fail);};
 function regions(){const rects:number[][]=[];for(const id of ['bubble','pet-menu','pet-error']){const el=$(id);if(!el.hidden){// Use layout bounds: the entrance transform must not shrink the native click region.
 const pad=id==='bubble'?8:0;rects.push([el.offsetLeft-pad,el.offsetTop-pad,el.offsetWidth+pad*2,el.offsetHeight+pad*2]);}}const next=JSON.stringify(rects);if(next!==signature){signature=next;run(()=>invoke('overlay_regions',{regions:rects,interacting:false}));}}

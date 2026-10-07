@@ -124,9 +124,15 @@ fn connect(app: &AppHandle, generation: u64) -> Result<(), String> {
                 .send();
             return Err("연결을 취소했어요".into());
         }
+        let previous = credential()?.get_password().ok();
         credential()?
             .set_password(token)
             .map_err(|_| "인증 정보를 안전하게 저장하지 못했어요")?;
+        // Reconnecting (e.g. for new permissions) retires the old session so the
+        // relay stops queueing alerts for it.
+        if let Some(old) = previous.filter(|old| old != token) {
+            let _ = http.delete(endpoint("/v1/session")?).bearer_auth(old).send();
+        }
         s.connected = true;
         s.account = data["account"].as_str().unwrap_or("Slack").into();
         s.status = "연결됨".into();
