@@ -53,9 +53,28 @@ Rust/JavaScript의 Tauri 및 updater는 2.12 계열로 맞춘다. Tauri의 WebVi
 
 ## 비용 제어
 
-주 실행 루프는 60Hz를 목표로 16.67ms 마감 시각을 사용하고 UI 스레드 작업은 한 번에 하나만 예약한다. 창 목록은 150ms 간격으로 갱신한다. 같은 그림·배치일 때 다시 그리지 않고, 같은 창 위치·크기·입력 통과 상태를 반복 설정하지 않는다. SVG 프레임 비트맵 캐시는 최대 16개·96MiB다. 5배/Retina의 한 걷기 주기가 캐시에 들어가도록 하며 실제 표시 빈도는 하드웨어·OS·그림 준비 시간에 영향을 받는다.
+주 실행 루프는 60Hz를 목표로 화면 갱신(macOS CVDisplayLink, Windows DwmFlush)에 맞춰 깨어나고(갱신 신호가 없으면 16.67ms 타이머) UI 스레드 작업은 한 번에 하나만 예약한다. 창 목록은 150ms 간격으로 갱신한다. 같은 그림·배치일 때 다시 그리지 않고, 같은 창 위치·크기·입력 통과 상태를 반복 설정하지 않는다. SVG 프레임 비트맵 캐시는 최대 16개·96MiB다. 5배/Retina의 한 걷기 주기가 캐시에 들어가도록 하며 실제 표시 빈도는 하드웨어·OS·그림 준비 시간에 영향을 받는다.
 
 `native_pet_metrics`는 렌더러 종류, 그린 횟수, 가동 시간과 캐시 제한을 반환한다. 실제 팝업에서는 약 4MB의 개발 미리보기 아틀라스 JS를 로딩하지 않는다. 이는 로딩 경로 확인 결과이며 CPU·메모리가 특정 비율로 줄었다는 벤치마크 결과는 아니다.
+
+### 프레임 성능 측정과 원칙 (2026-10-08)
+
+렌더링 비용 벤치마크(1배·Retina 크기에서 SVG 래스터화, 캐시 적중, 합성, 회전 그리기):
+
+```sh
+cargo test --release --lib --manifest-path apps/desktop/src-tauri/Cargo.toml render_benchmark -- --ignored --nocapture
+```
+
+실제 앱의 프레임 간격: `DDOKTTI_TRACE=1`로 릴리즈 바이너리를 실행하면 5초마다 `pacing` 줄이 나온다. `interval`은 틱 사이 간격(60Hz면 p95가 17~18ms여야 함), `wait`는 스케줄러가 깬 뒤 UI 스레드에서 틱이 시작되기까지(크면 UI 스레드가 다른 일로 막힌 것), `work`는 틱 처리 시간, `skipped`는 이전 틱이 아직 대기 중이라 건너뛴 횟수다. 멈춤이 보이면 실행 중에 `sample <pid> 30 1 -file out.txt`로 UI 스레드 스택을 확인한다.
+
+이번에 확인한 원칙:
+
+- 캐시 비트맵 합성은 tiny-skia `draw_pixmap`(픽셀마다 범용 파이프라인)이 아니라 정수 위치 직접 복사로 한다. Retina에서 3.4ms → 0.3ms.
+- 회전(드래그 흔들림)은 비트맵을 돌리지 않고 SVG를 회전 변환으로 바로 그린다. Bicubic 회전 15.7ms → 1ms, 더 선명하다.
+- macOS에 넘기는 CGImage와 창은 sRGB로 지정한다. 색공간 없는 `DeviceRGB`는 커밋마다 디스플레이 프로필로 CPU 색변환(vImage)되어 UI 스레드 시간의 절반을 차지했다.
+- `CGWindowListCopyWindowInfo`는 UI 스레드에서만 부른다. 다른 스레드에서 부르면 UI 스레드의 Core Animation 커밋과 WindowServer 잠금을 서로 기다려 약 0.5초 멈춘다(`fullscreen::check`).
+- 숨어 있는 말풍선 WebView는 `backgroundThrottling: disabled`로 둔다. 기본값이면 WebKit이 웹 프로세스를 계속 일시정지시키며 UI 스레드에서 동기 XPC를 반복했다.
+- 실행 루프는 잠자기 타이머가 아니라 화면 갱신에 맞춘다. 타이머는 갱신 주기와 어긋나 한 갱신에 두 번, 다음엔 0번 그려지는 떨림이 생긴다(간격 p95 20ms → 17.5ms).
 
 ## 검증
 

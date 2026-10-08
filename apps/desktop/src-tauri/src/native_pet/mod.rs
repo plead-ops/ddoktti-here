@@ -3,6 +3,7 @@ mod activity;
 mod art;
 mod crossing;
 mod gait;
+mod pacing;
 mod petting;
 mod physics;
 mod platform;
@@ -10,6 +11,7 @@ mod presence;
 #[cfg(debug_assertions)]
 pub mod smoke;
 mod tickle;
+mod vsync;
 use physics::{Motion, Nudge, Physics};
 use resvg::tiny_skia::Pixmap;
 use serde_json::{json, Value};
@@ -56,6 +58,7 @@ pub struct Native {
     runtime: Mutex<Runtime>,
     reset: AtomicBool,
     pending: AtomicBool,
+    pacing: Mutex<pacing::Pacing>,
 }
 struct Runtime {
     art: art::Art,
@@ -314,6 +317,7 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
         }),
         reset: AtomicBool::new(true),
         pending: AtomicBool::new(false),
+        pacing: Mutex::default(),
     });
     Ok(())
 }
@@ -321,24 +325,33 @@ pub fn start(app: &AppHandle) {
     let handle = app.clone();
     std::thread::spawn(move || {
         let period = Duration::from_nanos(16_666_667);
-        let mut next = Instant::now();
+        let mut last = Instant::now();
         loop {
-            next += period;
-            let now = Instant::now();
-            if next > now {
-                std::thread::sleep(next - now);
-            } else {
-                next = now;
-            }
+            vsync::wait(last, period);
+            last = Instant::now();
             let state = handle.state::<Native>();
             if state.pending.swap(true, Ordering::AcqRel) {
+                if trace_enabled() {
+                    state.pacing.lock().unwrap().skipped += 1;
+                }
                 continue;
             }
             let app = handle.clone();
+            let woke = Instant::now();
             if handle
                 .run_on_main_thread(move || {
                     let state = app.state::<Native>();
-                    if let Err(error) = tick(&app, &state) {
+                    let started = Instant::now();
+                    let result = tick(&app, &state);
+                    if trace_enabled() {
+                        let mut p = state.pacing.lock().unwrap();
+                        p.record(started, started - woke, started.elapsed());
+                        if p.due(started) {
+                            let line = p.summary(period.as_secs_f64() * 1000.);
+                            trace(|| line);
+                        }
+                    }
+                    if let Err(error) = result {
                         let mut r = state.runtime.lock().unwrap();
                         if r.last_error.as_ref() != Some(&error) {
                             eprintln!("Native pet: {error}");
@@ -1588,7 +1601,7 @@ fn geometry(
     }
 }
 fn paint(art: &mut art::Art, g: &Geo, f: &FrameSpec, m: &tauri::Monitor) -> Result<Pixmap, String> {
-    let frame = art.bitmap(f.key, (260. * g.k).ceil() as u32)?;
+    let pixel_height = (260. * g.k).ceil() as u32;
     let mut canvas = Pixmap::new(g.width, g.height).ok_or("Native canvas allocation failed")?;
     if let Some(anchor) = g.rope {
         let hands = art
@@ -1611,14 +1624,17 @@ fn paint(art: &mut art::Art, g: &Geo, f: &FrameSpec, m: &tauri::Monitor) -> Resu
             f.facing as f32,
         );
     }
-    art::composite_rotated(
-        &mut canvas,
-        &frame,
+    let (x, y, flip) = (
         (g.pet_left - g.left) as f32,
         (g.pet_top - g.top) as f32,
         f.facing < 0.,
-        g.rotation,
     );
+    if let Some(rotation) = g.rotation {
+        art.draw_rotated(&mut canvas, f.key, pixel_height, x, y, flip, rotation)?;
+    } else {
+        let frame = art.bitmap(f.key, pixel_height)?;
+        art::composite(&mut canvas, &frame, x, y, flip);
+    }
     if f.activity {
         // Peek may intentionally cross this display edge; never paint on a forbidden neighbour.
         let (mp, ms) = (m.position(), m.size());

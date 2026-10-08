@@ -515,7 +515,7 @@ pub fn start(app: AppHandle) {
                         m.size().height as f64 / unit,
                     ]
                 });
-            let fullscreen = crate::fullscreen::active(target);
+            let fullscreen = crate::fullscreen::check(&app, target);
             // Display probing runs on the UI thread and topology rarely changes:
             // refresh every five seconds, read last time's answer here.
             if ticks.is_multiple_of(100) {

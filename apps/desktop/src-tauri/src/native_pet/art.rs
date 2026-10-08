@@ -1,7 +1,7 @@
 use super::physics::{climb_frame, descend_frame};
 use resvg::{
     tiny_skia::{
-        FilterQuality, LineCap, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform,
+        LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform,
     },
     usvg,
 };
@@ -366,12 +366,7 @@ impl Art {
             self.cache.push_back(e);
             return Ok(p);
         }
-        let body = self.paths.get(key).ok_or("Missing native frame")?;
-        let text = format!(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"260\">{body}</svg>"
-        );
-        let tree =
-            usvg::Tree::from_str(&text, &usvg::Options::default()).map_err(|e| e.to_string())?;
+        let tree = self.tree(key)?;
         let scale = pixel_height as f32 / 260.;
         let mut pix =
             Pixmap::new((400. * scale).ceil() as u32, pixel_height).ok_or("Invalid frame size")?;
@@ -389,6 +384,40 @@ impl Art {
             self.cache.pop_front();
         }
         Ok(pix)
+    }
+    fn tree(&self, key: &str) -> Result<usvg::Tree, String> {
+        let body = self.paths.get(key).ok_or("Missing native frame")?;
+        let text = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"260\">{body}</svg>"
+        );
+        usvg::Tree::from_str(&text, &usvg::Options::default()).map_err(|e| e.to_string())
+    }
+    /// Draws a frame turned by `rotation` = (degrees, pivot x, pivot y) in target
+    /// pixels, clockwise on screen, straight from its paths: about 1 ms and sharp,
+    /// where rotating the cached bitmap with bicubic filtering takes ~15 ms at
+    /// Retina size. Placement matches `composite` of `bitmap(key, pixel_height)`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_rotated(
+        &self,
+        target: &mut Pixmap,
+        key: &str,
+        pixel_height: u32,
+        x: f32,
+        y: f32,
+        flip: bool,
+        rotation: (f32, f32, f32),
+    ) -> Result<(), String> {
+        let tree = self.tree(key)?;
+        let scale = pixel_height as f32 / 260.;
+        let width = (400. * scale).ceil();
+        let ts = if flip {
+            Transform::from_row(-scale, 0., 0., scale, x + width, y)
+        } else {
+            Transform::from_row(scale, 0., 0., scale, x, y)
+        };
+        let (degrees, px, py) = rotation;
+        resvg::render(&tree, ts.post_rotate_at(degrees, px, py), &mut target.as_mut());
+        Ok(())
     }
     pub fn hands(&self, p: &Pose) -> Vec<[f64; 2]> {
         self.hands
@@ -479,31 +508,49 @@ pub fn rope(
         );
     }
 }
-/// `rotation` = (degrees, pivot x, pivot y) in target pixels; clockwise on screen.
-pub fn composite_rotated(
-    target: &mut Pixmap,
-    pet: &Pixmap,
-    x: f32,
-    y: f32,
-    flip: bool,
-    rotation: Option<(f32, f32, f32)>,
-) {
-    let mut ts = if flip {
-        Transform::from_row(-1., 0., 0., 1., x + pet.width() as f32, y)
-    } else {
-        Transform::from_translate(x, y)
-    };
-    let mut paint = PixmapPaint::default();
-    if let Some((degrees, px, py)) = rotation {
-        ts = ts.post_rotate_at(degrees, px, py);
-        paint.quality = FilterQuality::Bicubic;
+/// Source-over of premultiplied RGBA at an integer offset, optionally mirrored.
+fn blit(target: &mut Pixmap, pet: &Pixmap, x: i32, y: i32, flip: bool) {
+    let (tw, th) = (target.width() as i32, target.height() as i32);
+    let (pw, ph) = (pet.width() as i32, pet.height() as i32);
+    let (x0, x1) = (x.max(0), (x + pw).min(tw));
+    let (y0, y1) = (y.max(0), (y + ph).min(th));
+    if x0 >= x1 || y0 >= y1 {
+        return;
     }
-    target.draw_pixmap(0, 0, pet.as_ref(), &paint, ts, None);
+    let src = pet.data();
+    let dst = target.data_mut();
+    for ty in y0..y1 {
+        let srow = ((ty - y) * pw) as usize * 4;
+        let drow = (ty * tw) as usize * 4;
+        for tx in x0..x1 {
+            let sx = if flip { pw - 1 - (tx - x) } else { tx - x };
+            let s = &src[srow + sx as usize * 4..][..4];
+            let a = s[3];
+            if a == 0 {
+                continue;
+            }
+            let d = &mut dst[drow + tx as usize * 4..][..4];
+            if a == 255 {
+                d.copy_from_slice(s);
+            } else {
+                let inv = 255 - a as u32;
+                for c in 0..4 {
+                    d[c] = s[c] + ((d[c] as u32 * inv + 127) / 255) as u8;
+                }
+            }
+        }
+    }
+}
+/// Draws a cached frame bitmap at (x, y), mirrored when `flip`. Positions round
+/// to whole pixels, as the former nearest-neighbour draw_pixmap did.
+pub fn composite(target: &mut Pixmap, pet: &Pixmap, x: f32, y: f32, flip: bool) {
+    blit(target, pet, x.round() as i32, y.round() as i32, flip);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use resvg::tiny_skia::{FilterQuality, PixmapPaint};
     #[test]
     fn antenna_tip_is_the_topmost_point_of_each_drag_frame() {
         let mut art = Art::new().unwrap();
@@ -536,6 +583,115 @@ mod tests {
         assert_eq!(art.bitmap("walk-0", 260).unwrap().data(), p.data());
         assert_eq!(art.cache.len(), before);
     }
+    /// Per-frame rendering cost at 1x and 2x (Retina) pet sizes. Run with
+    /// `cargo test --release --lib render_benchmark -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn render_benchmark() {
+        use std::time::Instant;
+        let avg = |runs: u32, mut f: Box<dyn FnMut() + '_>| {
+            let t = Instant::now();
+            for _ in 0..runs {
+                f();
+            }
+            t.elapsed().as_secs_f64() * 1000. / runs as f64
+        };
+        for h in [230u32, 460] {
+            let mut art = Art::new().unwrap();
+            let keys: Vec<_> = art.paths.keys().cloned().collect();
+            let mut worst = 0f64;
+            let t = Instant::now();
+            for k in &keys {
+                let s = Instant::now();
+                art.bitmap(k, h).unwrap();
+                worst = worst.max(s.elapsed().as_secs_f64() * 1000.);
+            }
+            let raster = t.elapsed().as_secs_f64() * 1000. / keys.len() as f64;
+            let key = keys.last().unwrap().clone();
+            let hit = avg(500, Box::new(|| drop(art.bitmap(&key, h).unwrap())));
+            let pet = art.bitmap(&key, h).unwrap();
+            let mut canvas = Pixmap::new(pet.width() + 40, pet.height() + 40).unwrap();
+            let blit_ms = avg(
+                500,
+                Box::new(|| composite(&mut canvas, &pet, 20.4, 20., true)),
+            );
+            let rotated = avg(
+                100,
+                Box::new(|| {
+                    art.draw_rotated(&mut canvas, &key, h, 20., 20., false, (8., 200., 40.))
+                        .unwrap()
+                }),
+            );
+            eprintln!(
+                "{}x{} rasterize avg={raster:.2}ms worst={worst:.2}ms cached={hit:.3}ms blit={blit_ms:.3}ms rotated={rotated:.3}ms",
+                pet.width(),
+                pet.height()
+            );
+        }
+    }
+    #[test]
+    fn rotated_vector_frame_lands_where_the_rotated_bitmap_did() {
+        let mut art = Art::new().unwrap();
+        for flip in [false, true] {
+            let pet = art.bitmap("interactions-v2-5", 460).unwrap();
+            let rotation = (12f32, 330f32, 60f32);
+            let mut old = Pixmap::new(900, 700).unwrap();
+            let ts = if flip {
+                Transform::from_row(-1., 0., 0., 1., 30. + pet.width() as f32, 40.)
+            } else {
+                Transform::from_translate(30., 40.)
+            };
+            let paint = PixmapPaint {
+                quality: FilterQuality::Bicubic,
+                ..PixmapPaint::default()
+            };
+            old.draw_pixmap(0, 0, pet.as_ref(), &paint, ts.post_rotate_at(12., 330., 60.), None);
+            let mut new = Pixmap::new(900, 700).unwrap();
+            art.draw_rotated(&mut new, "interactions-v2-5", 460, 30., 40., flip, rotation)
+                .unwrap();
+            // Same coverage, differing only along anti-aliased edges.
+            let covered = |p: &Pixmap| p.data().chunks_exact(4).filter(|c| c[3] > 127).count();
+            let (a, b) = (covered(&old), covered(&new));
+            assert!(a.abs_diff(b) * 100 < a, "flip={flip}: {a} vs {b}");
+            let mean = old
+                .data()
+                .iter()
+                .zip(new.data())
+                .map(|(x, y)| x.abs_diff(*y) as u64)
+                .sum::<u64>() as f64
+                / old.data().len() as f64;
+            assert!(mean < 2., "flip={flip}: mean difference {mean}");
+        }
+    }
+    #[test]
+    fn blit_matches_draw_pixmap_over_rope_and_at_edges() {
+        let mut art = Art::new().unwrap();
+        let pet = art.bitmap("walk-3", 300).unwrap();
+        for flip in [false, true] {
+            for (x, y) in [(13., 7.), (-40., -25.), (200., 120.)] {
+                let mut base = Pixmap::new(520, 360).unwrap();
+                // A half-transparent stroke under the sprite, like the rope.
+                rope(&mut base, (260., 0.), &[(250., 200.), (270., 200.)], 1., "climb", 1.2, 1.);
+                assert!(base.data().chunks_exact(4).any(|p| p[3] > 0), "rope drawn");
+                let mut fast = base.clone();
+                blit(&mut fast, &pet, x as i32, y as i32, flip);
+                let ts = if flip {
+                    Transform::from_row(-1., 0., 0., 1., x + pet.width() as f32, y)
+                } else {
+                    Transform::from_translate(x, y)
+                };
+                base.draw_pixmap(0, 0, pet.as_ref(), &PixmapPaint::default(), ts, None);
+                let worst = fast
+                    .data()
+                    .iter()
+                    .zip(base.data())
+                    .map(|(a, b)| a.abs_diff(*b))
+                    .max()
+                    .unwrap();
+                assert!(worst <= 1, "flip={flip} at {x},{y}: off by {worst}");
+            }
+        }
+    }
     #[test]
     fn mirror_and_hidpi_preserve_dimensions_and_alpha() {
         let mut art = Art::new().unwrap();
@@ -543,7 +699,7 @@ mod tests {
         let hi = art.bitmap("walk-0", 520).unwrap();
         assert_eq!((hi.width(), hi.height()), (p.width() * 2, p.height() * 2));
         let mut out = Pixmap::new(400, 260).unwrap();
-        composite_rotated(&mut out, &p, 0., 0., true, None);
+        composite(&mut out, &p, 0., 0., true);
         for y in 0..260 {
             for x in 0..400 {
                 assert_eq!(out.pixel(x, y), p.pixel(399 - x, y));

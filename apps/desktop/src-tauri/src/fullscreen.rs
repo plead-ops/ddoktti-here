@@ -1,4 +1,21 @@
 //! Detect an on-screen full-display window without reading window titles/content.
+use std::sync::atomic::{AtomicBool, Ordering};
+static FULLSCREEN: AtomicBool = AtomicBool::new(false);
+/// Answer for a background poller. On macOS the window list is read on the UI
+/// thread and the previous answer returned: off that thread,
+/// CGWindowListCopyWindowInfo waits for the UI thread's pending Core Animation
+/// commit while holding the WindowServer lock that commit needs, and both stall
+/// for about half a second (a visible hitch in the character's motion).
+pub fn check(app: &tauri::AppHandle, target: Option<[f64; 4]>) -> bool {
+    if cfg!(target_os = "macos") {
+        let _ = app.run_on_main_thread(move || {
+            FULLSCREEN.store(active(target), Ordering::Relaxed);
+        });
+        FULLSCREEN.load(Ordering::Relaxed)
+    } else {
+        active(target)
+    }
+}
 #[cfg(target_os = "windows")]
 pub fn active(target: Option<[f64; 4]>) -> bool {
     #[repr(C)]

@@ -78,7 +78,8 @@ mod implementation {
     extern "C" {}
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
-        fn CGColorSpaceCreateDeviceRGB() -> *mut c_void;
+        fn CGColorSpaceCreateWithName(name: *const c_void) -> *mut c_void;
+        static kCGColorSpaceSRGB: *const c_void;
         fn CGColorSpaceRelease(p: *mut c_void);
         fn CGDataProviderCreateWithCFData(p: *const c_void) -> *mut c_void;
         fn CGDataProviderRelease(p: *mut c_void);
@@ -111,6 +112,21 @@ mod implementation {
             )
         }
     }
+    /// Keep the frame clock on the display that shows this window.
+    unsafe fn follow_screen(window: *mut AnyObject) {
+        let screen: *mut AnyObject = msg_send![window, screen];
+        if screen.is_null() {
+            return;
+        }
+        let info: *mut AnyObject = msg_send![screen, deviceDescription];
+        let key: *mut AnyObject =
+            msg_send![class!(NSString), stringWithUTF8String: c"NSScreenNumber".as_ptr()];
+        let number: *mut AnyObject = msg_send![info, objectForKey: key];
+        if !number.is_null() {
+            let display: u32 = msg_send![number, unsignedIntValue];
+            super::super::vsync::follow(display);
+        }
+    }
     thread_local! {static HOSTED:std::cell::Cell<bool>=const {std::cell::Cell::new(false)};}
     pub fn present(
         win: &tauri::Window,
@@ -130,6 +146,20 @@ mod implementation {
                     hosted.set(true);
                 }
             });
+            // The art is sRGB. Tagging the pixels and the window as sRGB leaves the
+            // conversion to the display to the GPU compositor; untagged pixels in a
+            // display-profile window are colour-matched on the CPU in every commit.
+            let srgb: *mut AnyObject = msg_send![class!(NSColorSpace), sRGBColorSpace];
+            let current: *mut AnyObject = msg_send![window, colorSpace];
+            let same: bool = if current.is_null() {
+                false
+            } else {
+                msg_send![current, isEqual: srgb]
+            };
+            if !same {
+                let _: () = msg_send![window, setColorSpace: srgb];
+            }
+            follow_screen(window);
             let layer: *mut AnyObject = msg_send![view, layer];
             if layer.is_null() {
                 return Err("Native layer unavailable".into());
@@ -143,7 +173,7 @@ mod implementation {
                 return Err("Pixel allocation failed".into());
             }
             let provider = CGDataProviderCreateWithCFData(data);
-            let space = CGColorSpaceCreateDeviceRGB();
+            let space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
             let image = CGImageCreate(
                 pix.width() as usize,
                 pix.height() as usize,
