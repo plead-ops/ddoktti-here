@@ -98,17 +98,30 @@ mod implementation {
         ) -> *mut c_void;
         fn CGImageRelease(p: *mut c_void);
         fn CGEventSourceButtonState(state: i32, button: u32) -> bool;
+        fn CGEventSourceCounterForEventType(state: i32, event_type: u32) -> u32;
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
         fn CFDataCreate(allocator: *const c_void, bytes: *const u8, len: isize) -> *mut c_void;
         fn CFRelease(p: *const c_void);
     }
+    /// Left and right button held, or pressed since the previous call. A
+    /// trackpad tap (tap to click, two-finger tap) presses and releases within a
+    /// few milliseconds, between two frames, so the held state alone misses it;
+    /// the window server's mouse-down counters still record it.
     pub fn buttons() -> (bool, bool) {
+        static SEEN: std::sync::Mutex<Option<(u32, u32)>> = std::sync::Mutex::new(None);
         unsafe {
+            // Combined session state; event types 1 = left, 3 = right mouse down.
+            let downs = (
+                CGEventSourceCounterForEventType(1, 1),
+                CGEventSourceCounterForEventType(1, 3),
+            );
+            let mut seen = SEEN.lock().unwrap();
+            let before = seen.replace(downs).unwrap_or(downs);
             (
-                CGEventSourceButtonState(1, 0),
-                CGEventSourceButtonState(1, 1),
+                CGEventSourceButtonState(1, 0) || downs.0 != before.0,
+                CGEventSourceButtonState(1, 1) || downs.1 != before.1,
             )
         }
     }
@@ -412,8 +425,14 @@ mod implementation {
         fn SelectObject(dc: isize, o: isize) -> isize;
         fn DeleteObject(o: isize) -> i32;
     }
+    /// Left and right button held, or pressed since the previous call. A
+    /// touchpad tap presses and releases within a few milliseconds, between two
+    /// frames; the low "pressed since last call" bit still records it (another
+    /// process reading it first can take it, which only misses as before).
     pub fn buttons() -> (bool, bool) {
-        unsafe { (GetAsyncKeyState(1) < 0, GetAsyncKeyState(2) < 0) }
+        // High bit: held now. Low bit: pressed since the last call.
+        let pressed = |key| unsafe { GetAsyncKeyState(key) } as u16 & 0x8001 != 0;
+        (pressed(1), pressed(2))
     }
     pub fn move_to(win: &tauri::Window, origin: (f64, f64), _: f64) -> Result<(), String> {
         win.set_position(tauri::PhysicalPosition::new(
