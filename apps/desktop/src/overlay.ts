@@ -51,7 +51,7 @@ function render(rotate=false){document.documentElement.classList.toggle('reduce-
  $('slack-actions').hidden=next?.source!=='slack';if(next?.id!==replyFor){replyFor=next?.id;$<HTMLInputElement>('reply-text').value='';}
  entrance.show($('bubble'),next?.id,cfg.reduce_motion);
  $('pet-reaction').hidden=!pet.reaction||pet.busy||pet.dragging||pet.menu;$('pet-reaction').textContent=pet.reaction??'';
- if(picked&&next){const text=groupText(picked,Date.now()/1000,state.preferences.private_content);$('title').textContent=text.title;$('body').textContent=text.body;$('count').textContent=grouped.length>1?`${grouped.indexOf(picked)+1}/${grouped.length}`:'';$('next-alert').hidden=grouped.length<2;$('open').hidden=!safe(next.deepLink);$('meeting').hidden=!safe(meetingOf(picked));$('snooze').hidden=!(next.source==='stretch'||next.source==='slack'||(next.source==='calendar'&&(next.startsAt??0)>Date.now()/1000+300));$('snooze').textContent=next.source==='slack'?'30분 뒤':'5분 뒤';}
+ if(picked&&next){const text=groupText(picked,Date.now()/1000,state.preferences.private_content);$('title').textContent=text.title;$('body').textContent=text.body;const preview=$<HTMLImageElement>('preview'),src=state.preferences.private_content?undefined:next.preview;preview.hidden=!src;if(src&&preview.src!==src)preview.src=src;else if(!src)preview.removeAttribute('src');$('count').textContent=grouped.length>1?`${grouped.indexOf(picked)+1}/${grouped.length}`:'';$('next-alert').hidden=grouped.length<2;$('open').hidden=!safe(next.deepLink);$('meeting').hidden=!safe(meetingOf(picked));$('snooze').hidden=!(next.source==='stretch'||next.source==='slack'||(next.source==='calendar'&&(next.startsAt??0)>Date.now()/1000+300));$('snooze').textContent=next.source==='slack'?'30분 뒤':'5분 뒤';}
  if(reportedChoice!==next?.id){reportedChoice=next?.id;run(()=>invoke('native_pet_ui',{choice:reportedChoice??null}));}renderMenu();layout();
 }
 const meetingOf=(g:AlertGroup)=>g.items.find(a=>safe(a.meetingUrl))?.meetingUrl;
@@ -78,6 +78,7 @@ $('reply-form').onsubmit=e=>{e.preventDefault();const text=$<HTMLInputElement>('
 function groups(){return groupAlerts([...state?.alerts??[]].sort((a,b)=>priority(a)-priority(b)||a.createdAt-b.createdAt));}
 function nextAlert(){const list=groups();choice=list[(list.findIndex(g=>g.key===choice)+1)%list.length]?.key;render(true);}
 $('next-alert').onclick=nextAlert;
+$('preview').onload=layout;
 setInterval(()=>{if(pet.menu)renderMenu();},1000);
 // A calendar bubble counts down: refresh its wording every half minute.
 setInterval(()=>{if(current?.source==='calendar'&&!$('bubble').hidden)render();},30000);

@@ -17,6 +17,13 @@ export const NotificationPayload = z.object({
   title: z.string().optional(),
   /** 알림 본문(메시지 미리보기) */
   body: z.string().optional(),
+  /** 첨부 사진·동영상의 작은 썸네일(data:image URL). 서버가 메시지 첨부에서 만든다 */
+  preview: z
+    .string()
+    .refine((v) => /^data:image\/(jpeg|png|gif|webp);base64,/.test(v), {
+      message: "preview must be a data:image URL",
+    })
+    .optional(),
   /** "slack" = Slack API 이벤트, "preview" = 미리보기 */
   source: z.enum(["slack", "preview", "calendar", "timer", "stretch"]).optional(),
   /** 클릭 딥링크가 있으면(slack:// 또는 https://). 링크가 없는 로컬 알림은 빈 값 허용 */
