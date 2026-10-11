@@ -991,8 +991,10 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     if !dragging {
         let reduced = cfg.reduce_motion;
         let mut walk = gait::speed(&r.mode, crate::pet_size(&cfg), cfg.speed);
+        // A pointer parked beside us while the person is away is not attention.
         let attention = resident
             && selected.is_none()
+            && !r.presence.asleep()
             && !left
             && !r.hover
             && !r.menu
@@ -1085,15 +1087,15 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     // Reactions to what the person does around us: dragging our window, brushing
     // past with another one, closing the one under our feet, leaving and returning.
     r.nudge_wait = (r.nudge_wait - dt).max(0.);
-    let calm = resident
+    let settled = resident
         && !r.physics.as_ref().unwrap().busy()
         && !dragging
         && !r.menu
-        && selected.is_none()
         && r.reaction.is_none()
         && activity_frame.is_none()
         && r.crossing.is_none()
         && !cursor_following;
+    let calm = settled && selected.is_none();
     if landed && std::mem::take(&mut r.physics.as_mut().unwrap().lost_support) {
         r.pending_sulk = true;
     }
@@ -1115,10 +1117,14 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             _ => {}
         }
     }
-    match presence_event {
-        Some(presence::Event::Doze) if calm => r.set_mode("asleep"),
-        Some(presence::Event::Return(away)) => r.pending_return = Some((away, 20.)),
-        _ => {}
+    // Sleep is a state, not a one-off event: if the character was busy when the
+    // person left, it goes to bed at the first calm moment after. An alert left
+    // waiting does not keep it up; its bubble stays over the sleeping character.
+    if settled && r.presence.asleep() && r.mode != "asleep" {
+        r.set_mode("asleep");
+    }
+    if let Some(presence::Event::Return(away)) = presence_event {
+        r.pending_return = Some((away, 20.));
     }
     // The welcome waits for a calm moment (an alert may be up when the person
     // returns) but not forever: a reunion is only convincing right after it.
@@ -1189,7 +1195,10 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
                 r.reaction = None;
                 r.set_mode(if wake { "curious" } else { "relieved" });
             }
-        } else if selected.is_none() && !cfg.reduce_motion && !cursor_following {
+        } else if (selected.is_none() || r.presence.asleep())
+            && !cfg.reduce_motion
+            && !cursor_following
+        {
             r.age += dt * cfg.speed;
             let asleep = r.presence.asleep();
             if asleep {
@@ -1199,6 +1208,9 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
                 if r.mode != "asleep" && (r.age >= art::duration(&r.mode) || r.mode == "walk") {
                     r.set_mode("asleep");
                 }
+            } else if r.mode == "asleep" {
+                // Back while an alert held the welcome off: get up once it is gone.
+                r.choose();
             } else if r.physics.as_ref().unwrap().approaching() {
                 if !matches!(r.mode.as_str(), "walk" | "run") {
                     r.set_mode("walk");
@@ -1259,7 +1271,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         physics_mode.pose().into()
     } else if r.menu {
         "idle".into()
-    } else if reaction.is_some() {
+    } else if reaction.is_some() || (r.presence.asleep() && r.mode == "asleep") {
         r.mode.clone()
     } else if let Some(a) = selected {
         a["source"].as_str().unwrap_or("slack").into()
@@ -1278,7 +1290,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
         r.drag_age
     } else if busy {
         physics_age
-    } else if selected.is_some() && reaction.is_none() {
+    } else if selected.is_some() && reaction.is_none() && mode != "asleep" {
         r.alert_age
     } else {
         r.age
