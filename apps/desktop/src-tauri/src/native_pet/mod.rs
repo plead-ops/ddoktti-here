@@ -940,6 +940,7 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
     if can_play
         && r.activity.is_none()
         && r.play_wait == 0.
+        && !r.presence.asleep()
         && r.physics.as_ref().unwrap().on_floor()
         && !hit
     {
@@ -1146,6 +1147,10 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
             r.pending_return = Some((away, left_s - dt));
         }
     }
+    // Back but the welcome was missed (an alert outlasted it): just get up.
+    if calm && !r.presence.asleep() && r.pending_return.is_none() && r.mode == "asleep" {
+        r.set_mode("idle");
+    }
     if (!resident || !r.physics.as_ref().unwrap().busy()) && !dragging && activity_frame.is_none() {
         if r.pending_ack {
             r.pending_ack = false;
@@ -1208,9 +1213,6 @@ fn tick(app: &AppHandle, state: &Native) -> Result<(), String> {
                 if r.mode != "asleep" && (r.age >= art::duration(&r.mode) || r.mode == "walk") {
                     r.set_mode("asleep");
                 }
-            } else if r.mode == "asleep" {
-                // Back while an alert held the welcome off: get up once it is gone.
-                r.choose();
             } else if r.physics.as_ref().unwrap().approaching() {
                 if !matches!(r.mode.as_str(), "walk" | "run") {
                     r.set_mode("walk");
