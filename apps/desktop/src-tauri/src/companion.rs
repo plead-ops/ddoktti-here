@@ -44,7 +44,7 @@ impl Default for Preferences {
         Self {
             version: 1,
             onboarded: false,
-            resident: false,
+            resident: true,
             hide_fullscreen: true,
             hide_presenting: true,
             private_content: false,
@@ -662,10 +662,15 @@ mod tests {
     use super::*;
     #[test]
     fn old_empty_settings_are_safe() {
+        // No file (or an empty one) means the welcome is pending; once it is
+        // done the character stays on screen unless the person chose otherwise.
         let p: Persisted = serde_json::from_str("{}").unwrap();
-        assert!(!p.preferences.resident);
+        assert!(p.preferences.resident);
         assert!(!p.preferences.onboarded);
         assert_eq!(p.preferences.stretch_minutes, 50);
+        let kept: Preferences =
+            serde_json::from_value(json!({"onboarded":true,"resident":false})).unwrap();
+        assert!(kept.onboarded && !kept.resident);
     }
     #[test]
     fn paused_timer_roundtrips() {

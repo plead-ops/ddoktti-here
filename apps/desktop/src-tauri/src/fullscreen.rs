@@ -38,6 +38,7 @@ pub fn active(target: Option<[f64; 4]>) -> bool {
         fn GetForegroundWindow() -> isize;
         fn GetDesktopWindow() -> isize;
         fn GetShellWindow() -> isize;
+        fn IsZoomed(w: isize) -> i32;
         fn GetWindowRect(w: isize, r: *mut Rect) -> i32;
         fn MonitorFromWindow(w: isize, flags: u32) -> isize;
         fn GetMonitorInfoW(m: isize, i: *mut Info) -> i32;
@@ -45,6 +46,11 @@ pub fn active(target: Option<[f64; 4]>) -> bool {
     unsafe {
         let w = GetForegroundWindow();
         if w == 0 || w == GetDesktopWindow() || w == GetShellWindow() {
+            return false;
+        }
+        // A maximized window stops at the work area. It covers the whole monitor
+        // only when the taskbar auto-hides, and that is not a full-screen app.
+        if IsZoomed(w) != 0 {
             return false;
         }
         let mut r = Rect::default();

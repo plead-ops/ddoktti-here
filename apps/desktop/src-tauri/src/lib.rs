@@ -575,6 +575,11 @@ fn persist_overlay_position(app: AppHandle) -> Result<(), String> {
 fn should_show_settings(onboarded: bool, explicit: bool) -> bool {
     !onboarded || explicit
 }
+fn onboarding_pending(app: &AppHandle) -> bool {
+    let state = app.state::<companion::Companion>();
+    let pending = !state.0.lock().unwrap().saved.preferences.onboarded;
+    pending
+}
 
 fn show_settings(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("settings") {
@@ -587,14 +592,7 @@ fn show_settings(app: &AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            let onboarded = app
-                .state::<companion::Companion>()
-                .0
-                .lock()
-                .unwrap()
-                .saved
-                .preferences
-                .onboarded;
+            let onboarded = !onboarding_pending(app);
             if should_show_settings(onboarded, args.iter().any(|a| a == "--settings")) {
                 show_settings(app);
             }
@@ -755,11 +753,7 @@ pub fn run() {
             // Only unfinished onboarding or an explicit settings request opens a window.
             let handle = app.handle().clone();
             let explicit_settings = std::env::args().any(|a| a == "--settings");
-            let onboarded = {
-                let state = app.state::<companion::Companion>();
-                let value = state.0.lock().unwrap().saved.preferences.onboarded;
-                value
-            };
+            let onboarded = !onboarding_pending(&handle);
             if should_show_settings(onboarded, explicit_settings) {
                 show_settings(&handle);
             }
